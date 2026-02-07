@@ -165,7 +165,7 @@ cp .env.example .env
 
 Edit `.env` and set at least: `DATABASE_URL`, `QDRANT_URL`, `QDRANT_API_KEY` (for Cloud), and `OPENAI_API_KEY`. The backend loads `.env` from the project root.
 
-Optional for frontend: create `frontend/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:8000` (this is the default if unset).
+Optional for frontend: create `frontend/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:8000` (this is the default if unset). See **[DEPLOYMENT.md](DEPLOYMENT.md)** for free deployment (Vercel + Render) and production env config.
 
 ### 4. Frontend
 

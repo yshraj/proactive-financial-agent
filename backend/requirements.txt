@@ -1,0 +1,24 @@
+# Core
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.6
+
+# Database
+psycopg2-binary>=2.9.9
+sqlalchemy>=2.0.0
+
+# Vector store
+qdrant-client>=1.7.0
+
+# PDF & text
+pymupdf>=1.23.0
+python-docx>=1.0.0
+
+# LLM & embeddings (install the ones you use)
+openai>=1.0.0
+# google-generativeai>=0.3.0
+# cohere>=4.0.0
+
+# HTTP
+httpx>=0.26.0

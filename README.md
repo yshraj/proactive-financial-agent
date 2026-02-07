@@ -2,6 +2,8 @@
 
 A proactive assistant for UK financial advisers: dashboard of priorities, Ask Jarvis (hybrid RAG + structured data), pre-meeting briefs with suggested talking points, overdue follow-ups, and draft emails—so advisers spend less time reactive and more time adding value.
 
+**Live demo:** The frontend is deployed on [Vercel](https://vercel.com) and the backend on [Render](https://render.com). If the backend is slow to respond, Render may be spinning up after inactivity.
+
 ---
 
 ### Submission checklist

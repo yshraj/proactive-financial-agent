@@ -47,6 +47,8 @@ This project tackles:
 
 Mock data only (no live CRM/Intelliflo). Schema and prompts are tuned for UK fact-find style (e.g. “Last Updated”, “Next Review”, “RECOMMENDATIONS STATUS”, “UPCOMING ACTIONS”).
 
+**For a detailed list of all features and how they were implemented, see [Features & Implementation](FEATURES_AND_IMPLEMENTATION.md).**
+
 ---
 
 ## Tech Stack
@@ -174,36 +176,47 @@ npm install
 
 ---
 
-## Step-by-step guide: Run the project locally
+## Run the project locally
 
-After completing [Setup](#setup-instructions), from the **project root**:
+After completing [Setup](#setup-instructions), follow these steps. **All paths are from the project root** (the folder that contains `backend/` and `frontend/`). If your folder name has spaces (e.g. `Proactive Financial Agent`), use quotes: `cd "Proactive Financial Agent"`.
 
-**Step 1 – Start the backend** (ensure backend venv is activated):
+### Step 1 – Backend
+
+1. Open a terminal and go to the project root.
+2. Activate the backend virtual environment:
+   - **Windows (PowerShell or CMD):** `backend\.venv\Scripts\activate`
+   - **macOS/Linux:** `source backend/.venv/bin/activate`
+3. Go into the backend and start the API:
 
 ```bash
 cd backend
 uvicorn app.main:app --reload --port 8000
 ```
 
-Confirm: [http://localhost:8000/health](http://localhost:8000/health) returns `{"status":"ok"}`.
+4. Confirm the backend is up: open [http://localhost:8000/health](http://localhost:8000/health) — it should return `{"status":"ok"}`.
+5. Leave this terminal running. The backend loads `.env` from the **project root**, so ensure `.env` is there (not inside `backend/`).
 
-**Step 2 – Start the frontend** (new terminal):
+### Step 2 – Frontend
 
-```bash
-cd frontend
-npm run dev
-```
+1. Open a **second terminal** and go to the project root.
+2. Install dependencies if you haven't already (`npm install` in `frontend/`).
+3. Start the frontend:
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+4. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-Open [http://localhost:3000](http://localhost:3000).
+### Step 3 – Use the app
 
-**Step 3 – Load data**
+- **Ingestion** — Upload PDF or Word fact-finds/meeting notes. The app extracts clients and alerts and indexes text for Ask Jarvis.
+- **Dashboard** — Use the date picker, “Start here”, overdue follow-ups, and Pulse alerts. Draft emails and mark alerts done.
+- **Ask Jarvis** — Use suggestion chips or type questions; answers use structured data plus document search.
+- **Pre-meeting brief** — Select a client to get a one-page brief and suggested talking points.
 
-- Go to **Ingestion**, upload PDF or Word fact-finds/meeting notes. The app extracts clients and alerts and indexes text for Ask Jarvis.
-- Use **Dashboard** (date picker, “Start here”, overdue follow-ups, Pulse), **Ask Jarvis** (suggestion chips or free-form questions), and **Pre-meeting brief** (select client → brief + talking points).
+### Step 4 – Optional: clear data
 
-**Step 4 – Optional: clear data**
-
-- **Settings** → Clear data (removes clients, alerts, documents metadata, Qdrant vectors; resets in-memory caches).
+- **Settings** → Clear data (removes clients, alerts, document metadata, Qdrant vectors, and resets in-memory caches).
 
 ---
 

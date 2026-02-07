@@ -243,7 +243,7 @@ Proactive Financial Agent/
 │   ├── components/
 │   ├── package.json
 │   └── ...
-└── Fact Find Mock Data/  # Sample .docx fact-finds (optional)
+└── (optional) Fact Find Mock Data/  # Sample .docx fact-finds – add locally if desired; not in repo
 ```
 
 No compiled binaries or credentials are committed; `.env` and `backend/uploads/*` are gitignored.

@@ -1,8 +1,11 @@
-"use client";
-
-import React, { useState, useEffect } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import React, { useEffect, useState } from "react";
+import { Modal } from "./ui/Modal";
+import { Button } from "./ui/Button";
+import { ErrorState } from "./ui/ErrorState";
+import { Skeleton } from "./ui/Skeleton";
+import { useToast } from "./ui/Toast";
+import { useDraftEmail, useUpdateAlertStatus } from "../hooks/useApi";
+import { isSyntheticAlert } from "../lib/labels";
 
 type DraftEmailModalProps = {
   alertId: string | null;
@@ -10,126 +13,99 @@ type DraftEmailModalProps = {
   onMarkDone?: (alertId: string) => void;
 };
 
-export default function DraftEmailModal({ alertId, onClose, onMarkDone }: DraftEmailModalProps) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export default function DraftEmailModal({
+  alertId,
+  onClose,
+  onMarkDone,
+}: DraftEmailModalProps) {
+  const { notify } = useToast();
   const [copied, setCopied] = useState(false);
-  const [markingDone, setMarkingDone] = useState(false);
-  const canMarkDone = alertId != null && !alertId.startsWith("review-overdue-") && !!onMarkDone;
+  const draftQuery = useDraftEmail(alertId);
+  const updateStatus = useUpdateAlertStatus();
+
+  const canMarkDone =
+    alertId != null && !isSyntheticAlert(alertId) && !!onMarkDone;
 
   useEffect(() => {
-    if (!alertId) {
-      setDraft(null);
-      setError(null);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    setDraft(null);
-    fetch(`${API_BASE}/api/monitor/draft-email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ alert_id: alertId }),
-    })
-      .then((res) => {
-        if (!res.ok) return res.json().then((e) => Promise.reject(e.detail || res.statusText));
-        return res.json();
-      })
-      .then((data) => {
-        setDraft(data.draft ?? "");
-      })
-      .catch((e) => {
-        setError(typeof e === "string" ? e : e?.message || "Failed to generate draft");
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+    setCopied(false);
   }, [alertId]);
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
+    const draft = draftQuery.data?.draft;
     if (!draft) return;
-    navigator.clipboard.writeText(draft);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(draft);
+      setCopied(true);
+      notify("Draft copied to clipboard", "success");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      notify("Couldn't copy to clipboard", "error");
+    }
   };
 
   const handleMarkDone = () => {
     if (!alertId || !onMarkDone) return;
-    setMarkingDone(true);
-    fetch(`${API_BASE}/api/monitor/alerts/${encodeURIComponent(alertId)}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "COMPLETED" }),
-    })
-      .then((res) => {
-        if (!res.ok) return res.json().then((e) => Promise.reject(e));
-        onMarkDone(alertId);
-        onClose();
-      })
-      .catch((e) => setError(Array.isArray(e?.detail) ? e.detail.map((x: { msg?: string }) => x.msg).join(", ") : e?.detail ?? "Failed to mark as done"))
-      .finally(() => setMarkingDone(false));
+    updateStatus.mutate(
+      { alertId, status: "COMPLETED" },
+      {
+        onSuccess: () => {
+          notify("Marked as done", "success");
+          onMarkDone(alertId);
+          onClose();
+        },
+        onError: (e) => notify(e.message, "error"),
+      }
+    );
   };
 
-  if (alertId == null) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-lg rounded-xl border border-gray-200 bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-900">Email draft</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-            aria-label="Close"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <div className="max-h-[60vh] overflow-auto px-6 py-4">
-          {loading && <p className="text-sm text-gray-500">Generating draft…</p>}
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
-          )}
-          {draft && !loading && (
-            <pre className="whitespace-pre-wrap font-sans text-sm text-gray-800">{draft}</pre>
-          )}
-        </div>
-        <div className="flex flex-wrap justify-end gap-2 border-t border-gray-100 px-6 py-4">
+    <Modal
+      open={alertId != null}
+      onClose={onClose}
+      title="Email draft"
+      footer={
+        <>
           {canMarkDone && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               onClick={handleMarkDone}
-              disabled={markingDone}
-              className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+              loading={updateStatus.isPending}
+              className="border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
             >
-              {markingDone ? "Updating…" : "Mark as done"}
-            </button>
+              Mark as done
+            </Button>
           )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
+          <Button variant="secondary" onClick={onClose}>
             Close
-          </button>
-          {draft && (
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500"
-            >
+          </Button>
+          {draftQuery.data?.draft && (
+            <Button onClick={handleCopy}>
               {copied ? "Copied" : "Copy to clipboard"}
-            </button>
+            </Button>
           )}
+        </>
+      }
+    >
+      {draftQuery.isLoading && (
+        <div className="space-y-2" aria-busy="true" aria-label="Generating draft">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-2/3" />
         </div>
-      </div>
-    </div>
+      )}
+      {draftQuery.isError && (
+        <ErrorState
+          title="Couldn't generate the draft"
+          message={(draftQuery.error as Error)?.message}
+          onRetry={() => draftQuery.refetch()}
+        />
+      )}
+      {draftQuery.data?.draft && !draftQuery.isLoading && (
+        <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-gray-800">
+          {draftQuery.data.draft}
+        </pre>
+      )}
+    </Modal>
   );
 }

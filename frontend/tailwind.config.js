@@ -10,6 +10,21 @@ module.exports = {
       fontFamily: {
         sans: ["var(--font-inter)", "Inter", "system-ui", "sans-serif"],
       },
+      colors: {
+        // Brand palette (single source of truth for the primary colour).
+        brand: {
+          50: "#f0f9ff",
+          100: "#e0f2fe",
+          200: "#bae6fd",
+          300: "#7dd3fc",
+          400: "#38bdf8",
+          500: "#0ea5e9",
+          600: "#0284c7",
+          700: "#0369a1",
+          800: "#075985",
+          900: "#0c4a6e",
+        },
+      },
       fontSize: {
         "display": ["2rem", { lineHeight: "2.25rem", letterSpacing: "-0.025em" }],
         "kpi": ["2.25rem", { lineHeight: "2.5rem", letterSpacing: "-0.02em" }],
@@ -56,6 +71,9 @@ module.exports = {
           "0%, 100%": { transform: "scale(1)", opacity: "1" },
           "50%": { transform: "scale(1.3)", opacity: "0.8" },
         },
+        shimmer: {
+          "100%": { transform: "translateX(100%)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.2s ease-out forwards",
@@ -70,6 +88,7 @@ module.exports = {
         "ingest-doc-float": "ingest-doc-float 2.2s ease-in-out infinite",
         "ingest-ring": "ingest-ring 1.5s ease-in-out infinite",
         "ingest-step-dot": "ingest-step-dot 1.2s ease-in-out infinite",
+        shimmer: "shimmer 1.6s infinite",
       },
     },
   },

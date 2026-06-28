@@ -1,0 +1,121 @@
+// Centralized, typed API client.
+// - Single source for the base URL and (optional) API key header.
+// - Consistent timeout + error shape so callers can render recoverable error UI.
+// - No secrets are embedded; NEXT_PUBLIC_* values are public by design.
+
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+// Optional shared API key for the M0 stopgap auth layer (public env; the real
+// secret lives only on the server. This simply forwards a browser-side token if set).
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
+
+const DEFAULT_TIMEOUT_MS = 60_000;
+
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+  constructor(message: string, status: number, detail?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+function authHeaders(): Record<string, string> {
+  return API_KEY ? { "X-API-Key": API_KEY } : {};
+}
+
+function extractDetailMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object") {
+    const obj = detail as Record<string, unknown>;
+    if (typeof obj.message === "string") return obj.message;
+    if (Array.isArray(detail)) {
+      return (detail as Array<{ msg?: string }>)
+        .map((d) => d?.msg)
+        .filter(Boolean)
+        .join(", ");
+    }
+  }
+  return fallback;
+}
+
+interface RequestOptions extends Omit<RequestInit, "body"> {
+  body?: unknown;
+  timeoutMs?: number;
+  isForm?: boolean;
+}
+
+export async function apiRequest<T>(
+  path: string,
+  options: RequestOptions = {}
+): Promise<T> {
+  const { body, timeoutMs = DEFAULT_TIMEOUT_MS, isForm, headers, ...rest } =
+    options;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...rest,
+      signal: controller.signal,
+      headers: {
+        ...(isForm ? {} : { "Content-Type": "application/json" }),
+        ...authHeaders(),
+        ...(headers as Record<string, string>),
+      },
+      body: isForm ? (body as BodyInit) : body ? JSON.stringify(body) : undefined,
+    });
+
+    let payload: unknown = null;
+    const text = await res.text();
+    if (text) {
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        payload = text;
+      }
+    }
+
+    if (!res.ok) {
+      const detail =
+        payload && typeof payload === "object" && "detail" in (payload as object)
+          ? (payload as { detail: unknown }).detail
+          : payload;
+      const message = extractDetailMessage(
+        detail,
+        res.status === 404
+          ? "Not found. Is the backend running?"
+          : `Request failed (${res.status})`
+      );
+      throw new ApiError(message, res.status, detail);
+    }
+
+    return payload as T;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError("The request timed out. Please try again.", 0);
+    }
+    throw new ApiError(
+      "Network error. Please check your connection and that the backend is running.",
+      0
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export const api = {
+  get: <T>(path: string, opts?: RequestOptions) =>
+    apiRequest<T>(path, { ...opts, method: "GET" }),
+  post: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
+    apiRequest<T>(path, { ...opts, method: "POST", body }),
+  patch: <T>(path: string, body?: unknown, opts?: RequestOptions) =>
+    apiRequest<T>(path, { ...opts, method: "PATCH", body }),
+  postForm: <T>(path: string, form: FormData, opts?: RequestOptions) =>
+    apiRequest<T>(path, { ...opts, method: "POST", body: form, isForm: true }),
+};

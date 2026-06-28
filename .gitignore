@@ -34,3 +34,12 @@ Thumbs.db
 *.log
 *.tmp
 .cache/
+
+# Playwright e2e artifacts
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.cache/
+
+# Local pyc cache used during validation
+backend/.pycache/

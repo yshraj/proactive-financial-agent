@@ -23,5 +23,6 @@ openai>=1.0.0
 # HTTP
 httpx>=0.26.0
 
-# Auth (Supabase JWT verification; only used when SUPABASE_JWT_SECRET is set)
-PyJWT>=2.8.0
+# Auth (Supabase JWT verification; only used when Supabase auth is configured).
+# [crypto] pulls in `cryptography` for ES256/RS256 (asymmetric) token verification.
+PyJWT[crypto]>=2.8.0

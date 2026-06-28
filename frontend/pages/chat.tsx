@@ -1,10 +1,14 @@
 import Head from "next/head";
 import { useCallback, useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import dynamic from "next/dynamic";
 import { Send } from "lucide-react";
 import { useLayout } from "../contexts/LayoutContext";
 import { Card, Button, ErrorState, PageIntro } from "../components/ui";
 import { useChat } from "../hooks/useApi";
+
+// Markdown rendering is only needed once an answer arrives, so load it lazily
+// to keep it out of the page's initial bundle.
+const ReactMarkdown = dynamic(() => import("react-markdown"), { ssr: false });
 
 const SUGGESTIONS_POOL = [
   "Which clients haven't had a review in over 12 months?",

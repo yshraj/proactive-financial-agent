@@ -1,10 +1,14 @@
 import Head from "next/head";
 import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import dynamic from "next/dynamic";
 import { Download, FileText, Sparkles } from "lucide-react";
 import { useLayout } from "../contexts/LayoutContext";
 import { Card, Button, EmptyState, ErrorState, Skeleton, PageIntro } from "../components/ui";
 import { useClients, useBrief } from "../hooks/useApi";
+
+// Markdown rendering is only needed once a brief is generated, so load it
+// lazily to keep it out of the page's initial bundle.
+const ReactMarkdown = dynamic(() => import("react-markdown"), { ssr: false });
 
 export default function BriefPage() {
   const { setPageTitle } = useLayout();

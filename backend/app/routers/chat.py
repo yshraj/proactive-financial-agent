@@ -6,6 +6,7 @@ Structured context is cached briefly to avoid DB on every query; embedding and D
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -54,7 +55,7 @@ class BriefResponse(BaseModel):
     talking_points: list[str] = []
 
 
-def _search_qdrant(query_vector: list[float], limit: int = 5, client_id: str | None = None):
+def _search_qdrant(query_vector: list[float], limit: int = 5, client_id: Optional[str] = None):
     from qdrant_client.models import Filter, FieldCondition, MatchValue
 
     from app.services.clients import get_qdrant_client

@@ -6,6 +6,7 @@ POST /api/monitor/draft-email: generate personalised email draft for an alert (L
 import json
 import os
 from datetime import datetime, timedelta
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -46,8 +47,8 @@ class AlertOut(BaseModel):
     trigger_date: str
     type: str
     priority: str
-    title: str | None
-    description: str | None
+    title: Optional[str]
+    description: Optional[str]
     status: str
 
 
@@ -190,11 +191,11 @@ class AlertsListResponse(BaseModel):
 
 @router.get("/alerts", response_model=AlertsListResponse)
 def get_alerts(
-    simulated_date: str | None = Query(None, description="YYYY-MM-DD (default: today)"),
+    simulated_date: Optional[str] = Query(None, description="YYYY-MM-DD (default: today)"),
     days: int = Query(90, ge=1, le=730, description="Window: simulated_date to +days"),
-    type_filter: str | None = Query(None, alias="type", description="Filter by type"),
-    priority: str | None = Query(None, description="Filter by priority"),
-    status_filter: str | None = Query(None, alias="status", description="Filter by status: PENDING, COMPLETED, or omit for all"),
+    type_filter: Optional[str] = Query(None, alias="type", description="Filter by type"),
+    priority: Optional[str] = Query(None, description="Filter by priority"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status: PENDING, COMPLETED, or omit for all"),
 ):
     """
     All alerts in [simulated_date, simulated_date + days], with optional type/priority/status filters.
@@ -373,7 +374,7 @@ class DraftEmailResponse(BaseModel):
     draft: str
 
 
-def _call_llm_draft(client_name: str, title: str, description: str, action_payload: dict | None, model: str) -> str:
+def _call_llm_draft(client_name: str, title: str, description: str, action_payload: Optional[dict], model: str) -> str:
     from app.services.clients import get_openai_client
     payload_str = json.dumps(action_payload, indent=2) if action_payload else "{}"
     prompt = f"""You are a financial adviser's assistant. Write a short, professional email draft to the client about the following alert.

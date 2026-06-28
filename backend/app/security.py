@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Optional
 
 from fastapi import Header, HTTPException, status
 from slowapi import Limiter
@@ -23,12 +24,12 @@ logger = logging.getLogger("jarvis.security")
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 
-def _expected_key() -> str | None:
+def _expected_key() -> Optional[str]:
     key = os.environ.get("API_KEY")
     return key.strip() if key else None
 
 
-async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+async def require_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
     """FastAPI dependency: enforce the shared API key when configured."""
     expected = _expected_key()
     if not expected:

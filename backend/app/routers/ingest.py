@@ -9,6 +9,7 @@ import os
 import re
 import uuid
 from pathlib import Path
+from typing import Optional
 
 import psycopg2
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
@@ -82,7 +83,7 @@ def _is_table_missing(err: Exception) -> bool:
     return isinstance(err, psycopg2.errors.UndefinedTable) and "ingested_documents" in str(err)
 
 
-def _find_by_hash(content_hash: str) -> dict | None:
+def _find_by_hash(content_hash: str) -> Optional[dict]:
     try:
         with get_cursor() as cur:
             cur.execute(
@@ -102,8 +103,8 @@ def _run_dual_path_ingestion(
     display_filename: str,
     ext: str,
     document_id: str,
-    ingested_at: str | None = None,
-) -> str | None:
+    ingested_at: Optional[str] = None,
+) -> Optional[str]:
     """
     Path A: Extract text -> LLM -> insert clients + alerts.
     Path B: Chunk text -> embed -> upsert Qdrant client_memory with full metadata for filtered search.
@@ -221,9 +222,9 @@ class DocumentOut(BaseModel):
     id: str
     filename: str
     content_hash: str
-    file_size_bytes: int | None
+    file_size_bytes: Optional[int]
     uploaded_at: str
-    processing_error: str | None = None  # Set if Path A/B (LLM or Qdrant) failed
+    processing_error: Optional[str] = None  # Set if Path A/B (LLM or Qdrant) failed
 
 
 @router.get("/documents", response_model=list[DocumentOut])

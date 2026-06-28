@@ -5,7 +5,7 @@ Used for: pre-meeting briefs (by client_id), draft emails (by alert_id), optiona
 import hashlib
 import threading
 import time
-from typing import Any
+from typing import Any, Optional
 
 # Single in-memory store: key -> (value, expiry_ts)
 _store: dict[str, tuple[Any, float]] = {}
@@ -23,7 +23,7 @@ def _now() -> float:
     return time.monotonic()
 
 
-def get(key: str) -> Any | None:
+def get(key: str) -> Optional[Any]:
     with _lock:
         entry = _store.get(key)
         if entry is None:

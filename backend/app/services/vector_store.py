@@ -7,6 +7,7 @@ Payload includes content + metadata for filtered vector search:
 import logging
 import os
 import uuid
+from typing import Optional
 
 from app.services.config import CHUNK_CHAR_SIZE, CHUNK_OVERLAP, QDRANT_COLLECTION
 
@@ -34,13 +35,13 @@ def chunk_text(text: str, chunk_size: int = CHUNK_CHAR_SIZE, overlap: int = CHUN
     return chunks
 
 
-def _prefix_context(chunk: str, client_name: str, doc_date: str | None) -> str:
+def _prefix_context(chunk: str, client_name: str, doc_date: Optional[str]) -> str:
     """Prepend 'Client Name: X | Date: Y' to chunk for better retrieval (architecture)."""
     date_part = f" | Date: {doc_date}" if doc_date else ""
     return f"Client Name: {client_name}{date_part}\n\n{chunk}"
 
 
-def get_embeddings_openai(texts: list[str], model: str | None = None) -> list[list[float]]:
+def get_embeddings_openai(texts: list[str], model: Optional[str] = None) -> list[list[float]]:
     """Batch embed texts with OpenAI. Returns list of vectors."""
     from app.services.clients import get_openai_client
     model = model or os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
@@ -54,14 +55,14 @@ def upsert_to_qdrant(
     vectors: list[list[float]],
     client_id: str,
     doc_type: str = "Document",
-    doc_date: str | None = None,
-    topics: list[str] | None = None,
+    doc_date: Optional[str] = None,
+    topics: Optional[list[str]] = None,
     *,
-    client_name: str | None = None,
-    document_id: str | None = None,
-    filename: str | None = None,
-    source_type: str | None = None,
-    ingested_at: str | None = None,
+    client_name: Optional[str] = None,
+    document_id: Optional[str] = None,
+    filename: Optional[str] = None,
+    source_type: Optional[str] = None,
+    ingested_at: Optional[str] = None,
     collection: str = QDRANT_COLLECTION,
 ) -> None:
     """
@@ -112,13 +113,13 @@ def index_document_text(
     client_id: str,
     client_name: str,
     doc_type: str = "Document",
-    doc_date: str | None = None,
+    doc_date: Optional[str] = None,
     *,
-    document_id: str | None = None,
-    filename: str | None = None,
-    source_type: str | None = None,
-    ingested_at: str | None = None,
-    topics: list[str] | None = None,
+    document_id: Optional[str] = None,
+    filename: Optional[str] = None,
+    source_type: Optional[str] = None,
+    ingested_at: Optional[str] = None,
+    topics: Optional[list[str]] = None,
 ) -> None:
     """
     Full Path B: chunk text, add context prefix, embed, upsert to Qdrant with metadata.

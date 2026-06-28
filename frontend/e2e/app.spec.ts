@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { collectErrors, navigate, expectHeading } from "./helpers";
 
 const PAGES = [
-  { path: "/", heading: "Dashboard" },
+  { path: "/dashboard", heading: "Dashboard" },
   { path: "/chat", heading: "Ask Jarvis" },
   { path: "/brief", heading: "Pre-meeting brief" },
   { path: "/admin", heading: "Ingestion" },
@@ -24,7 +24,7 @@ test.describe("smoke: every page loads cleanly", () => {
 
 test.describe("navigation", () => {
   test("can navigate between sections", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/dashboard");
     await navigate(page, "Ask Jarvis");
     await expect(page).toHaveURL(/\/chat$/);
     await navigate(page, "Alerts");
@@ -32,20 +32,20 @@ test.describe("navigation", () => {
     await navigate(page, "Settings");
     await expect(page).toHaveURL(/\/settings$/);
     await navigate(page, "Dashboard");
-    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveURL(/\/dashboard$/);
   });
 });
 
 test.describe("dashboard", () => {
   test("shows KPIs and priorities", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/dashboard");
     await expect(page.getByText("Total alerts")).toBeVisible();
     await expect(page.getByText("Start here")).toBeVisible();
     await expect(page.getByText("Overdue follow-ups")).toBeVisible();
   });
 
   test("draft email modal opens, traps focus and closes", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/dashboard");
     await page.getByRole("button", { name: "Draft email" }).first().click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();

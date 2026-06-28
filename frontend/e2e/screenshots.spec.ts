@@ -6,7 +6,7 @@ import path from "path";
 const OUT = path.resolve(__dirname, "..", "..", "review-screenshots");
 
 const PAGES = [
-  { name: "dashboard", path: "/" },
+  { name: "dashboard", path: "/dashboard" },
   { name: "chat", path: "/chat" },
   { name: "brief", path: "/brief" },
   { name: "ingestion", path: "/admin" },

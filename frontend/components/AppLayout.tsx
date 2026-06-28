@@ -28,7 +28,7 @@ const NAV_GROUPS: {
   {
     label: "General",
     items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/chat", label: "Ask Jarvis", icon: MessageSquareText },
       { href: "/brief", label: "Pre-meeting brief", icon: FileText },
       { href: "/alerts", label: "Alerts", icon: Bell },
@@ -129,7 +129,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Desktop sidebar */}
       <aside className="hidden w-60 flex-shrink-0 flex-col gap-8 border-r border-gray-200 bg-white p-6 md:flex">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/dashboard" className="flex items-center gap-2">
           <Logo />
           <span className="text-sm font-semibold tracking-tight text-gray-900">
             Jarvis
@@ -154,7 +154,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             aria-label="Navigation menu"
           >
             <div className="flex items-center justify-between">
-              <Link href="/" className="flex items-center gap-2">
+              <Link href="/dashboard" className="flex items-center gap-2">
                 <Logo />
                 <span className="text-sm font-semibold tracking-tight text-gray-900">
                   Jarvis

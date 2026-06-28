@@ -3,7 +3,7 @@
 > **From hackathon demo to production-ready SaaS — a senior product/engineering/design audit.**
 >
 > Review date: 28 Jun 2026 · Reviewed at commit `ba481e1` (branch `master`)
-> Method: full codebase read (backend + frontend), competitor & UX research, and a live Playwright UI audit (screenshots in [`review-screenshots/`](review-screenshots/)).
+> Method: full codebase read (backend + frontend), competitor & UX research, and a live Playwright UI audit. (Audit screenshots were captured during review and are not retained in the repo; the findings below describe them.)
 
 ---
 
@@ -105,11 +105,11 @@ This is important to be precise about, because the README frames it as an agent 
 
 ## 3. UI Review
 
-The desktop UI is the project's strongest non-architectural asset: clean, consistent, and clearly inspired by Linear/Stripe (per `frontend/DESIGN_SYSTEM.md`). The problems are (a) it is **desktop-only**, (b) there are **no designed empty / loading / error states**, (c) **inconsistencies** between pages, and (d) it reads as a **demo** rather than a product (no brand, no account, copy that literally says "demo").
+The desktop UI is the project's strongest non-architectural asset: clean, consistent, and clearly inspired by Linear/Stripe. The problems are (a) it is **desktop-only**, (b) there are **no designed empty / loading / error states**, (c) **inconsistencies** between pages, and (d) it reads as a **demo** rather than a product (no brand, no account, copy that literally says "demo").
 
-> Screenshots referenced below live in [`review-screenshots/`](review-screenshots/) (desktop = 1440px, mobile = 390px).
+> Screens were reviewed at desktop (1440px) and mobile (390px) widths.
 
-### 3.1 Dashboard — `dashboard-desktop.png`
+### 3.1 Dashboard
 
 **Looks decent:** clear KPI row, "Start here" priority list, Pulse cards, "Alerts over time" mini-bar table, and two tables.
 
@@ -119,7 +119,7 @@ Problems & why they matter:
 - **Tooltips are hand-rolled** absolutely-positioned divs duplicated four times (verbose, fragile, and they also duplicate the native `title` attribute). *Fix:* one reusable `Tooltip` component.
 - **"Draft email" everywhere, "Mark done" only sometimes.** Action affordances are inconsistent across the four places alerts appear.
 
-### 3.2 Ask Jarvis — `chat-desktop.png`, `chat-answer-desktop.png`
+### 3.2 Ask Jarvis
 
 **Looks good** — this is the most polished screen. Suggestion chips, a tidy answer card with Markdown, and a sources list.
 
@@ -129,28 +129,28 @@ Problems:
 - **No loading skeleton for the answer** — there's a nice custom "Jarvis is thinking" card, but it doesn't match the answer layout (Linear/Stripe principle: skeletons should match the content they replace).
 - **Centered max-w-2xl column** wastes the wide canvas; sources could sit in a right rail.
 
-### 3.3 Pre-meeting brief — `brief-generated-desktop.png`
+### 3.3 Pre-meeting brief
 
 - **Markdown hierarchy is collapsing.** The brief renders `## Heading` then bullets with very tight spacing, so "Key facts / Upcoming items / Commitments" don't read as distinct sections. *Fix:* tune the prose styles (more vertical rhythm, clearer h2/h3).
 - **"Download as PDF" opens a `window.open` + `document.write` print hack.** Functional, but it can be blocked by popup blockers and produces inconsistent output. *Fix:* server-side PDF or a proper client PDF lib.
 - **No multi-client / batch briefs**, no "email me my briefs the morning of meetings" — which is the actual job-to-be-done.
 
-### 3.4 Ingestion — `ingestion-desktop.png`
+### 3.4 Ingestion
 
 - **The 3-step progress animation is fake.** `frontend/pages/admin.tsx` advances "Uploading → Extracting → Indexing" on `setTimeout(800ms/2200ms)` regardless of real backend progress. For a 20-second LLM extraction this lies to the user and then jumps. *Fix:* stream real progress (SSE/websocket) from an async ingestion job.
 - **No file size guidance, no max-size, no per-file remove/retry.** Stored documents list has no delete/re-ingest action.
 - **Dropzone emoji (📄)** and emoji icons in `AlertCard` (💰 ⚠️ 📋 📌) read as informal for a compliance tool. *Fix:* a consistent icon set (e.g. Lucide).
 
-### 3.5 Alerts — `alerts-desktop.png`
+### 3.5 Alerts
 
 - **Raw enum strings leak to users.** Type column shows `FOLLOW_UP` and `REVIEW_OVERDUE` verbatim, while the **dashboard humanizes the same values** ("Waiting on client", "Review overdue"). Direct inconsistency between two pages. *Fix:* one shared label/format map.
 - **Filters don't persist** in the URL; refresh resets them. No empty-state guidance beyond one line. No pagination (the list is unbounded — see §8).
 
-### 3.6 Mobile — `*-mobile.png` (CRITICAL)
+### 3.6 Mobile (CRITICAL)
 
 **The app is unusable on mobile.** `AppLayout` renders a fixed `w-60` (`flex-shrink-0`) sidebar with **no responsive behavior, no hamburger, no drawer**. On a 390px viewport the sidebar eats 240px and the content is crushed into ~150px — the dashboard mobile screenshot is essentially a sliver of unreadable content. This affects **every page**. *Fix:* collapse the sidebar into a top bar + drawer below `md:`, and audit each page's grids for mobile reflow.
 
-### 3.7 Settings — `settings-desktop.png`
+### 3.7 Settings
 
 - **A near-empty page** whose first sentence says *"No in-app settings are needed for this demo."* This is the clearest "this is a hackathon, not a product" tell in the UI. The only control is a destructive **"Clear all data"**. *Fix:* a real settings area (profile, firm, integrations, notifications, billing, data/privacy) — see §11.
 
@@ -274,7 +274,7 @@ The desktop UI and the retrieval architecture are real assets; everything requir
 
 **Docs / repo**
 - README and dashboard reference a **seed script that doesn't exist**.
-- `frontend/DESIGN_SYSTEM.md` is aspirational and partly stale (claims "no custom component CSS in globals.css" while `globals.css` defines an animation; many animations live in `tailwind.config.js`).
+- The design-system doc was aspirational and partly stale (out of sync with the actual Tailwind config).
 - No `.nvmrc`/engines, no `Dockerfile`, no CI config.
 
 ---
@@ -432,20 +432,18 @@ The single most important thing: **stop treating this as a demo and re-platform 
 
 ## 15. Screenshots
 
-Captured with Playwright (Chromium) against the running app. Desktop = 1440×900, mobile = 390×844. Files are in [`review-screenshots/`](review-screenshots/).
+Each screen was captured with Playwright (Chromium) at desktop (1440×900) and
+mobile (390×844) during the review, covering the Dashboard, Ask Jarvis (incl. an
+answer with sources), Pre-meeting brief, Ingestion, Alerts, Settings, the draft-email
+modal, and the clear-data confirm dialog. The per-screen findings are written up in
+[§3 UI Review](#3-ui-review) (notably the critical mobile-layout breakage).
 
-| Screen | Desktop | Mobile | Notes |
-|--------|---------|--------|-------|
-| Dashboard | `dashboard-desktop.png` | `dashboard-mobile.png` | Mobile crushed by fixed sidebar (critical). |
-| Ask Jarvis | `chat-desktop.png` | `chat-mobile.png` | + `chat-answer-desktop.png` (answer + sources). |
-| Pre-meeting brief | `brief-desktop.png` | `brief-mobile.png` | + `brief-generated-desktop.png` (brief + talking points). |
-| Ingestion | `ingestion-desktop.png` | `ingestion-mobile.png` | Fake progress steps. |
-| Alerts | `alerts-desktop.png` | `alerts-mobile.png` | Raw enum labels (`FOLLOW_UP`, `REVIEW_OVERDUE`). |
-| Settings | `settings-desktop.png` | `settings-mobile.png` | Near-empty; copy says "demo". |
-| Draft email modal | `draft-email-modal-desktop.png` | — | Works; lacks focus trap. |
-| Clear-data confirm | `settings-confirm-desktop.png` | — | Text-only confirm on a destructive, unauth'd action. |
-
-> Note: screenshots were captured against a small **mock backend** (`.audit/mock_server.py`) seeded with realistic UK-IFA sample data, because no live Supabase/Qdrant/OpenAI credentials were available. The mock is throwaway and not part of the product; populated screens are representative of real layouts. Empty/error states differ when no backend is connected (the dashboard shows "No priorities yet" and an amber API-error banner).
+Screenshots were captured against a small mock backend seeded with realistic
+UK-IFA sample data, because no live Supabase/Qdrant/OpenAI credentials were
+available during the audit; populated screens are representative of real layouts.
+The image files were review artifacts and are not retained in the repo (they remain
+in git history if needed). To regenerate the current-state set, run the frontend
+e2e screenshot spec (`frontend/e2e/screenshots.spec.ts`).
 
 ---
 

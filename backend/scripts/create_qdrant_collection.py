@@ -16,7 +16,8 @@ if env_path.exists():
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-COLLECTION_NAME = "client_memory"
+# Collection name comes from QDRANT_COLLECTION so it stays consistent with the app.
+COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "client_memory")
 
 # OpenAI text-embedding-3-small dimension
 VECTOR_SIZE = 1536

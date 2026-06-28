@@ -2,6 +2,9 @@
 .env
 .env.local
 .env.*.local
+# Catch stray/misnamed secret files (e.g. "Proactive Financial Agent.env").
+# Does not match *.env.example, which is safe to commit.
+*.env
 
 # Python
 __pycache__/

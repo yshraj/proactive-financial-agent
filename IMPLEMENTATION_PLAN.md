@@ -11,7 +11,7 @@
 
 | Milestone | Status | Notes |
 |-----------|--------|-------|
-| **M0 — Emergency Lockdown** | ✅ Done | API-key gate, guarded `clear-data`, upload cap, rate limits, Next.js patched. See `BUG_REPORT.md` / `RELEASE_NOTES.md`. |
+| **M0 — Emergency Lockdown** | ✅ Done | API-key gate, guarded `clear-data`, upload cap, rate limits, Next.js patched. See `RELEASE_NOTES.md`. |
 | **M2 — Architecture (frontend)** | ✅ Done | Shared API client, types, hooks (React Query), error boundary/toast, singleton backend clients, structured logging. |
 | **M2 — Architecture (infra)** | ⛔ Deferred | Redis cache + async ingestion queue need a live Redis/DB. |
 | **M3 — UI/UX Overhaul** | ✅ Mostly | Responsive shell, component library, states, a11y, settings hub, tokens done. Onboarding wizard (M3-T09) + landing/pricing (M3-T14) remain. |
@@ -148,7 +148,7 @@ See `RELEASE_NOTES.md` for the full changelog and environment notes.
 | M2-T13 | Adopt **React Query (TanStack)** for fetching/caching/dedup/retry; remove hand-rolled loading/error state | P1 | M | M2-T03 |
 | M2-T14 | Reusable hooks (`usePulse`, `useAlerts`, `useChat`, `useBrief`) + shared formatters/label maps | P1 | M | M2-T13 |
 | M2-T15 | Global error boundary + toast system | P1 | S | M2-T03 |
-| M2-T16 | Repo hygiene: remove dead refs (non-existent seed script), refresh `DESIGN_SYSTEM.md`, add `.nvmrc`/engines | P2 | XS | — |
+| M2-T16 | Repo hygiene: remove dead refs (non-existent seed script), add `.nvmrc`/engines | P2 | XS | — |
 
 **Checklist**
 - [ ] No per-request DB/Qdrant/OpenAI client instantiation

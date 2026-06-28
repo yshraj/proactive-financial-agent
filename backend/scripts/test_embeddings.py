@@ -20,7 +20,7 @@ MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-COLLECTION = "client_memory"
+COLLECTION = os.getenv("QDRANT_COLLECTION", "client_memory")
 
 TEST_TEXT = "Client mentioned retirement at 58 and concern about market volatility."
 

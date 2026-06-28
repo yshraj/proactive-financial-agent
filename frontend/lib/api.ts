@@ -3,6 +3,8 @@
 // - Consistent timeout + error shape so callers can render recoverable error UI.
 // - No secrets are embedded; NEXT_PUBLIC_* values are public by design.
 
+import { getSupabaseClient, isSupabaseConfigured } from "./supabase/client";
+
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -23,8 +25,22 @@ export class ApiError extends Error {
   }
 }
 
-function authHeaders(): Record<string, string> {
-  return API_KEY ? { "X-API-Key": API_KEY } : {};
+async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["X-API-Key"] = API_KEY;
+  // Forward the Supabase access token so the backend can authenticate the user
+  // when SUPABASE_JWT_SECRET is configured. No-op (and no SDK load) otherwise.
+  if (isSupabaseConfigured) {
+    try {
+      const supabase = await getSupabaseClient();
+      const token = (await supabase?.auth.getSession())?.data.session
+        ?.access_token;
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+    } catch {
+      // Proceed unauthenticated; the backend will reject if it requires a token.
+    }
+  }
+  return headers;
 }
 
 function extractDetailMessage(detail: unknown, fallback: string): string {
@@ -64,7 +80,7 @@ export async function apiRequest<T>(
       signal: controller.signal,
       headers: {
         ...(isForm ? {} : { "Content-Type": "application/json" }),
-        ...authHeaders(),
+        ...(await authHeaders()),
         ...(headers as Record<string, string>),
       },
       body: isForm ? (body as BodyInit) : body ? JSON.stringify(body) : undefined,

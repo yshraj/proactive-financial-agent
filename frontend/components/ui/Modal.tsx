@@ -74,7 +74,7 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
       onKeyDown={handleKeyDown}
     >
@@ -83,11 +83,11 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId.current}
-        className={`w-full ${SIZES[size]} rounded-xl border border-gray-200 bg-white shadow-xl`}
+        className={`w-full ${SIZES[size]} rounded-xl border border-gray-200 bg-white shadow-overlay animate-scale-in`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-          <h2 id={titleId.current} className="text-lg font-semibold text-gray-900">
+          <h2 id={titleId.current} className="text-base font-semibold text-gray-900">
             {title}
           </h2>
           <button

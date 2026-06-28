@@ -60,7 +60,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             key={t.id}
             role="status"
             aria-live="polite"
-            className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg animate-fade-in ${STYLES[t.kind]}`}
+            className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-overlay animate-fade-in-up ${STYLES[t.kind]}`}
           >
             {ICONS[t.kind]}
             <span className="flex-1">{t.message}</span>

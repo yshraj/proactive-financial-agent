@@ -12,14 +12,28 @@
     @apply bg-gray-50 text-gray-700 antialiased;
     font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   }
-  /* Visible, consistent focus ring for keyboard users across the app. */
+  /* One consistent, visible focus ring for keyboard users across the app. */
   :focus-visible {
-    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white;
+    @apply outline-none ring-2 ring-brand-500/70 ring-offset-2 ring-offset-white;
   }
 }
 
 @layer components {
-  /* Skeleton placeholder with shimmer that respects reduced motion. */
+  /* Shared form-control styling. Single source of truth so every input,
+     select and textarea looks and focuses identically. */
+  .input {
+    @apply block h-10 w-full rounded-lg border border-gray-200 bg-white px-3.5 text-sm text-gray-900 shadow-xs transition-colors;
+    @apply placeholder:text-gray-400 hover:border-gray-300;
+    @apply focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/10;
+    @apply disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400;
+  }
+
+  /* Small uppercase eyebrow label used above sections and form fields. */
+  .overline {
+    @apply text-xs font-semibold uppercase tracking-wider text-gray-500;
+  }
+
+  /* Skeleton placeholder with a shimmer sweep that respects reduced motion. */
   .skeleton {
     @apply relative overflow-hidden rounded-md bg-gray-200/70;
   }
@@ -27,12 +41,6 @@
     content: "";
     @apply absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/60 to-transparent;
     animation: shimmer 1.6s infinite;
-  }
-}
-
-@layer utilities {
-  .animate-fade-in {
-    animation: fade-in 0.3s ease-out;
   }
 }
 

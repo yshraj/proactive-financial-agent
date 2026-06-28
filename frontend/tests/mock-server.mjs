@@ -1,9 +1,10 @@
-// Self-contained mock backend for frontend e2e tests.
-// Serves canned, realistic UK-IFA data so Playwright can exercise populated
-// screens without real Supabase/Qdrant/OpenAI credentials. Dev/test only.
+// Self-contained mock backend for frontend E2E tests.
+// It mirrors the FastAPI response shapes used by the UI without requiring
+// Supabase, Qdrant, or OpenAI credentials.
 import { createServer } from "node:http";
 
-const PORT = process.env.MOCK_PORT ? Number(process.env.MOCK_PORT) : 8000;
+const apiUrl = new URL(process.env.PLAYWRIGHT_API_URL || "http://localhost:8000");
+const PORT = process.env.MOCK_PORT ? Number(process.env.MOCK_PORT) : Number(apiUrl.port || 8000);
 const iso = (d) => d.toISOString().slice(0, 10);
 const today = new Date();
 const plus = (n) => {
@@ -24,9 +25,9 @@ const CLIENTS = [
 const ALERTS = [
   { id: "a1", client_id: "c1", client_name: "Alan & Lynne Partridge", trigger_date: plus(3), type: "DEADLINE", priority: "HIGH", title: "Next review due", description: "Scheduled annual review 09:30, Office. Prepare cashflow update.", status: "PENDING" },
   { id: "a2", client_id: "c2", client_name: "David & Sarah Chen", trigger_date: plus(6), type: "OPPORTUNITY", priority: "MEDIUM", title: "ISA allowance unused", description: "£20,000 ISA allowance still available this tax year.", status: "PENDING" },
-  { id: "a3", client_id: "c3", client_name: "Priya & Anil Sharma", trigger_date: plus(9), type: "COMPLIANCE", priority: "HIGH", title: "Wills update – strong priority", description: "LPAs not in place; estate planning gap flagged.", status: "PENDING" },
+  { id: "a3", client_id: "c3", client_name: "Priya & Anil Sharma", trigger_date: plus(9), type: "COMPLIANCE", priority: "HIGH", title: "Wills update strong priority", description: "LPAs not in place; estate planning gap flagged.", status: "PENDING" },
   { id: "a4", client_id: "c4", client_name: "Michael & Sarah Thompson", trigger_date: plus(12), type: "DEADLINE", priority: "MEDIUM", title: "Mortgage fixed-rate ends", description: "Remortgage planning required.", status: "PENDING" },
-  { id: "a5", client_id: "c5", client_name: "The Williams Family", trigger_date: plus(15), type: "OPPORTUNITY", priority: "LOW", title: "Client DOB – check-in", description: "Annual birthday check-in.", status: "PENDING" },
+  { id: "a5", client_id: "c5", client_name: "The Williams Family", trigger_date: plus(15), type: "OPPORTUNITY", priority: "LOW", title: "Client DOB check-in", description: "Annual birthday check-in.", status: "PENDING" },
 ];
 const REVIEW_OVERDUE = [
   { id: "review-overdue-c5", client_id: "c5", client_name: "The Williams Family", trigger_date: iso(today), type: "REVIEW_OVERDUE", priority: "HIGH", title: "Annual review overdue", description: "No review in 12+ months.", status: "PENDING" },
@@ -44,15 +45,15 @@ const DOCUMENTS = [
 ];
 
 const CHAT_ANSWER =
-  "Based on your records, **David & Sarah Chen** have £20,000 of unused ISA allowance and **The Williams Family** have ~£8,500 remaining. I'd prioritise the Chens given their cash holdings.";
+  "Based on your records, **David & Sarah Chen** have £20,000 of unused ISA allowance and **The Williams Family** have about £8,500 remaining. Prioritise the Chens given their cash holdings.";
 const CHAT_SOURCES = [
   { content: "Joint Savings: £62,000 easy access. Discussed using ISA allowance...", client_name: "David & Sarah Chen", doc_type: "Meeting notes", date: plus(-2) },
 ];
 const BRIEF =
-  "## Alan & Lynne Partridge — Pre-meeting brief\n\n### Key facts\n- Total assets: **£895,000**; risk score **5/10**.\n\n### Upcoming items\n- **Next review due in 3 days**.\n\n### Commitments\n- Alan to decide on pension contribution increase.";
+  "## Alan & Lynne Partridge\n\n### Client Snapshot\n- Total assets: **£895,000**; risk score **5/10**.\n\n### Upcoming Reviews\n- **Next review due in 3 days**.\n\n### Action Checklist\n- Alan to decide on pension contribution increase.";
 const TALKING_POINTS = [
-  "Pension contribution increase – recap recommendation",
-  "Remortgage planning – confirm timeline before May 2026",
+  "Pension contribution increase: recap recommendation",
+  "Remortgage planning: confirm timeline before May 2026",
 ];
 
 function send(res, code, payload) {
@@ -60,7 +61,7 @@ function send(res, code, payload) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type,X-API-Key",
+    "Access-Control-Allow-Headers": "Content-Type,X-API-Key,Authorization",
   });
   res.end(JSON.stringify(payload));
 }
@@ -91,15 +92,15 @@ const server = createServer((req, res) => {
     return send(res, 404, { detail: "not found" });
   }
 
-  // Drain body then respond.
-  let body = "";
-  req.on("data", (c) => (body += c));
+  req.resume();
   req.on("end", () => {
     if (req.method === "PATCH") return send(res, 200, { ...ALERTS[0], status: "COMPLETED" });
     if (path === "/api/chat") return send(res, 200, { answer: CHAT_ANSWER, sources: CHAT_SOURCES });
     if (path === "/api/chat/brief") return send(res, 200, { brief: BRIEF, talking_points: TALKING_POINTS });
     if (path === "/api/monitor/draft-email")
       return send(res, 200, { draft: "Dear Alan and Lynne,\n\nAhead of our review, I wanted to confirm the pension contribution change and share an updated cashflow projection.\n\nKind regards," });
+    if (path === "/api/ingest/upload")
+      return send(res, 200, { id: "uploaded-doc", filename: "sample-client-note.pdf", content_hash: "upload", file_size_bytes: 620, uploaded_at: new Date().toISOString(), processing_error: null });
     if (path === "/api/settings/clear-data") return send(res, 200, { ok: true, message: "All data cleared." });
     return send(res, 404, { detail: "not found" });
   });

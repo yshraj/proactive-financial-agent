@@ -43,6 +43,7 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/blob-report/
 frontend/.cache/
+frontend/tests/.auth/
 
 # Local pyc cache used during validation
 backend/.pycache/

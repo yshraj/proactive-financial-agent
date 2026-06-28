@@ -1,0 +1,27 @@
+import { expect, type Page } from "@playwright/test";
+
+export class IngestionPage {
+  constructor(private readonly page: Page) {}
+
+  async goto() {
+    await this.page.goto("/admin");
+  }
+
+  async expectLoaded() {
+    await expect(this.page.getByRole("heading", { level: 1, name: "Ingestion" })).toBeVisible();
+    await expect(this.page.getByTestId("document-dropzone")).toBeVisible();
+    await expect(this.page.getByTestId("stored-documents")).toBeVisible();
+  }
+
+  async uploadSampleDocument() {
+    await this.page.getByTestId("document-upload-input").setInputFiles({
+      name: "sample-client-note.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"),
+    });
+    await expect(this.page.getByTestId("upload-status")).toBeVisible();
+    const row = this.page.getByTestId("upload-status-item").filter({ hasText: "sample-client-note.pdf" });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(/Uploading|Done|Stored/);
+  }
+}

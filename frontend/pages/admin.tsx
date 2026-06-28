@@ -2,7 +2,7 @@ import Head from "next/head";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Copy, Loader2 } from "lucide-react";
 import { useLayout } from "../contexts/LayoutContext";
-import { Card, CardHeader, Button, EmptyState, ErrorState, TableSkeleton } from "../components/ui";
+import { Card, CardHeader, Button, EmptyState, ErrorState, TableSkeleton, PageIntro } from "../components/ui";
 import { useDocuments } from "../hooks/useApi";
 import { api, ApiError } from "../lib/api";
 import { formatDateTime, formatFileSize } from "../lib/format";
@@ -81,10 +81,10 @@ export default function IngestionPage() {
         <title>Ingestion — Jarvis</title>
       </Head>
 
-      <p className="mb-8 max-w-2xl text-sm leading-relaxed text-gray-500">
+      <PageIntro>
         Upload client documents — Jarvis extracts the data and indexes them for search.
         Duplicates are detected automatically.
-      </p>
+      </PageIntro>
 
       <input
         ref={fileInputRef}

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Download, FileText, Sparkles } from "lucide-react";
 import { useLayout } from "../contexts/LayoutContext";
-import { Card, Button, EmptyState, ErrorState, Skeleton } from "../components/ui";
+import { Card, Button, EmptyState, ErrorState, Skeleton, PageIntro } from "../components/ui";
 import { useClients, useBrief } from "../hooks/useApi";
 
 export default function BriefPage() {
@@ -61,9 +61,9 @@ export default function BriefPage() {
         <title>Pre-meeting brief — Jarvis</title>
       </Head>
 
-      <p className="mb-6 max-w-2xl text-sm leading-relaxed text-gray-500">
+      <PageIntro>
         A one-page brief and suggested talking points before any client meeting.
-      </p>
+      </PageIntro>
 
       <div className="mx-auto max-w-3xl space-y-6">
         <Card className="p-5">

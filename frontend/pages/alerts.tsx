@@ -12,6 +12,7 @@ import {
   EmptyState,
   ErrorState,
   TableSkeleton,
+  PageIntro,
 } from "../components/ui";
 import { useAlerts } from "../hooks/useApi";
 import { formatDate, todayISO } from "../lib/format";
@@ -90,9 +91,9 @@ export default function AlertsPage() {
         <title>Alerts — Jarvis</title>
       </Head>
 
-      <p className="mb-6 max-w-2xl text-sm leading-relaxed text-gray-500">
+      <PageIntro>
         Filter every client alert and draft a personalised email in a click.
-      </p>
+      </PageIntro>
 
       <div className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-xs">
         <Filter label="Window" value={days} onChange={(v) => setDays(Number(v))} options={DAYS_OPTIONS} format={(o) => `Next ${o} days`} />

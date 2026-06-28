@@ -2,7 +2,7 @@ import Head from "next/head";
 import { useEffect, useState } from "react";
 import { Trash2, User, Building2, ShieldCheck } from "lucide-react";
 import { useLayout } from "../contexts/LayoutContext";
-import { Card, CardHeader, Button, Modal, useToast } from "../components/ui";
+import { Card, CardHeader, Button, Modal, useToast, PageIntro } from "../components/ui";
 import { useClearData } from "../hooks/useApi";
 
 function SettingRow({
@@ -63,9 +63,9 @@ export default function SettingsPage() {
         <title>Settings — Jarvis</title>
       </Head>
 
-      <p className="mb-8 max-w-2xl text-sm leading-relaxed text-gray-500">
+      <PageIntro>
         Manage your workspace and data. Provider keys are configured securely on the server.
-      </p>
+      </PageIntro>
 
       <div className="max-w-3xl space-y-6">
         <Card>

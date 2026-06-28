@@ -14,6 +14,7 @@ import {
   EmptyState,
   ErrorState,
   DashboardSkeleton,
+  PageIntro,
 } from "../components/ui";
 import { usePulse, useCompleted, useUpdateAlertStatus } from "../hooks/useApi";
 import { formatDate, todayISO } from "../lib/format";
@@ -187,9 +188,9 @@ export default function Dashboard() {
 
       {pulse && !pulseQuery.isError && !hasNoData && (
         <>
-          <p className="mb-8 max-w-2xl text-sm leading-relaxed text-gray-500">
+          <PageIntro>
             What&apos;s due, pre-meeting briefs, and draft emails — in one place.
-          </p>
+          </PageIntro>
           <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
             <Kpi label="Total alerts" value={pulse.total} />
             <Kpi label="High risk" value={pulse.high_risk} />

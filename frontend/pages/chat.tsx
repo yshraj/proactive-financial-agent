@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Send } from "lucide-react";
 import { useLayout } from "../contexts/LayoutContext";
-import { Card, Button, ErrorState } from "../components/ui";
+import { Card, Button, ErrorState, PageIntro } from "../components/ui";
 import { useChat } from "../hooks/useApi";
 
 const SUGGESTIONS_POOL = [
@@ -74,9 +74,9 @@ export default function AskJarvisPage() {
         <title>Ask Jarvis — Jarvis</title>
       </Head>
 
-      <p className="mb-8 max-w-2xl text-sm leading-relaxed text-gray-500">
+      <PageIntro>
         Ask anything across your clients, alerts, and ingested documents.
-      </p>
+      </PageIntro>
 
       <div className="mx-auto max-w-2xl">
         <Card>

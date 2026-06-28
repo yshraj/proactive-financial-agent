@@ -9,12 +9,16 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
-    "mock": "node e2e/mock-server.mjs"
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "mock": "node tests/mock-server.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
     "@tanstack/react-query": "^5.101.2",
+    "framer-motion": "^12.42.0",
     "lucide-react": "^1.21.0",
     "next": "^14.2.33",
     "react": "^18.3.1",

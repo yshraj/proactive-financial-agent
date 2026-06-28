@@ -41,12 +41,12 @@ function Filter({
   format?: (o: string | number) => string;
 }) {
   return (
-    <label className="flex items-center gap-2">
-      <span className="text-xs font-medium text-gray-500">{label}</span>
+    <label className="flex flex-col gap-1.5">
+      <span className="overline">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+        className="input w-auto min-w-[8rem] pr-8"
       >
         {options.map((o) => (
           <option key={o} value={o}>
@@ -91,15 +91,14 @@ export default function AlertsPage() {
       </Head>
 
       <p className="mb-6 max-w-2xl text-sm leading-relaxed text-gray-500">
-        View and filter all client alerts in one place. Use the date picker and
-        filters to narrow the list, then draft a personalised email for any alert.
+        Filter every client alert and draft a personalised email in a click.
       </p>
 
-      <div className="mb-6 flex flex-wrap items-center gap-4">
+      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-xs">
         <Filter label="Window" value={days} onChange={(v) => setDays(Number(v))} options={DAYS_OPTIONS} format={(o) => `Next ${o} days`} />
-        <Filter label="Type" value={typeFilter} onChange={setTypeFilter} options={TYPE_OPTIONS} format={(o) => (o === "All" ? "All" : alertTypeLabel(String(o)))} />
-        <Filter label="Priority" value={priorityFilter} onChange={setPriorityFilter} options={PRIORITY_OPTIONS} />
-        <Filter label="Status" value={statusFilter} onChange={setStatusFilter} options={STATUS_OPTIONS} />
+        <Filter label="Type" value={typeFilter} onChange={setTypeFilter} options={TYPE_OPTIONS} format={(o) => (o === "All" ? "All types" : alertTypeLabel(String(o)))} />
+        <Filter label="Priority" value={priorityFilter} onChange={setPriorityFilter} options={PRIORITY_OPTIONS} format={(o) => (o === "All" ? "All priorities" : String(o))} />
+        <Filter label="Status" value={statusFilter} onChange={setStatusFilter} options={STATUS_OPTIONS} format={(o) => (o === "All" ? "All statuses" : String(o))} />
       </div>
 
       {isError ? (
@@ -126,7 +125,7 @@ export default function AlertsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-100">
+                  <tr className="border-b border-gray-200 bg-gray-50/60">
                     {["Client", "Type", "Priority", "Due date", "Status", ""].map((h, i) => (
                       <th
                         key={h || i}
@@ -143,7 +142,7 @@ export default function AlertsPage() {
                     return (
                       <tr
                         key={row.id}
-                        className={`border-b border-gray-50 last:border-0 hover:bg-gray-50/50 ${isCompleted ? "bg-gray-50/50" : ""}`}
+                        className={`border-b border-gray-100 last:border-0 transition-colors hover:bg-gray-50/70 ${isCompleted ? "bg-gray-50/40" : ""}`}
                       >
                         <td className={`px-6 py-4 font-medium ${isCompleted ? "text-gray-500" : "text-gray-900"}`}>
                           {row.client_name}

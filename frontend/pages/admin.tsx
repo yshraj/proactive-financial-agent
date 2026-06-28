@@ -82,9 +82,8 @@ export default function IngestionPage() {
       </Head>
 
       <p className="mb-8 max-w-2xl text-sm leading-relaxed text-gray-500">
-        Upload client PDFs and Word documents (fact-finds, meeting notes) to
-        extract structured data and index content for Ask Jarvis. Duplicate
-        content is detected by file hash and won&apos;t be stored twice.
+        Upload client documents — Jarvis extracts the data and indexes them for search.
+        Duplicates are detected automatically.
       </p>
 
       <input
@@ -100,8 +99,8 @@ export default function IngestionPage() {
       />
 
       <div
-        className={`mb-10 rounded-xl border-2 border-dashed p-12 text-center transition-colors ${
-          dragging ? "border-brand-400 bg-brand-50/50" : "border-gray-200 bg-white hover:border-brand-300 hover:bg-brand-50/30"
+        className={`mb-10 rounded-xl border border-dashed p-10 text-center transition-colors sm:p-12 ${
+          dragging ? "border-brand-400 bg-brand-50/50" : "border-gray-300 bg-white hover:border-brand-300 hover:bg-brand-50/30"
         }`}
         onDragOver={(e) => {
           e.preventDefault();
@@ -122,7 +121,7 @@ export default function IngestionPage() {
             <UploadCloud className="h-6 w-6" aria-hidden />
           </span>
         </div>
-        <h2 className="mb-2 text-lg font-semibold text-gray-900">Drop PDFs or Word docs here</h2>
+        <h2 className="mb-1.5 text-base font-semibold text-gray-900">Drop PDFs or Word docs here</h2>
         <p className="mb-6 text-sm text-gray-500">
           Supports PDF and .docx, up to 20 MB. Duplicates (same content) are detected and skipped.
         </p>
@@ -131,12 +130,12 @@ export default function IngestionPage() {
 
       {uploads.length > 0 && (
         <div className="mb-10">
-          <h2 className="mb-4 text-base font-semibold text-gray-900">Upload status</h2>
+          <h2 className="mb-3 text-sm font-semibold text-gray-900">Upload status</h2>
           <ul className="space-y-2">
             {uploads.map((f) => (
               <li
                 key={f.id}
-                className={`flex flex-wrap items-center gap-3 rounded-lg border px-5 py-4 shadow-sm ${
+                className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 shadow-xs ${
                   f.state === "duplicate"
                     ? "border-amber-200 bg-amber-50/50"
                     : f.state === "error"

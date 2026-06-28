@@ -75,9 +75,7 @@ export default function AskJarvisPage() {
       </Head>
 
       <p className="mb-8 max-w-2xl text-sm leading-relaxed text-gray-500">
-        Ask questions about your client data. Jarvis combines your client and
-        alert records with your ingested documents (PDFs and Word). Upload
-        documents in Ingestion for richer answers.
+        Ask anything across your clients, alerts, and ingested documents.
       </p>
 
       <div className="mx-auto max-w-2xl">
@@ -96,7 +94,7 @@ export default function AskJarvisPage() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="e.g. Which clients are worried about market volatility?"
                 aria-label="Ask Jarvis a question"
-                className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm shadow-sm transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-gray-50"
+                className="input flex-1"
                 disabled={chat.isPending}
               />
               <Button
@@ -109,10 +107,8 @@ export default function AskJarvisPage() {
               </Button>
             </form>
           </div>
-          <div className="px-4 pb-4 pt-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Suggestions
-            </p>
+          <div className="p-4">
+            <p className="overline mb-3">Suggestions</p>
             <div className="flex flex-wrap gap-2">
               {visibleChips.map((s) => (
                 <button
@@ -123,7 +119,7 @@ export default function AskJarvisPage() {
                     ask(s, s);
                   }}
                   disabled={chat.isPending}
-                  className="rounded-full border border-gray-200 bg-gray-50 px-3.5 py-1.5 text-xs text-gray-700 transition-all duration-200 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800 disabled:opacity-60"
+                  className="rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 disabled:opacity-60"
                 >
                   {s}
                 </button>
@@ -133,13 +129,13 @@ export default function AskJarvisPage() {
         </Card>
 
         {chat.isPending && (
-          <Card className="mt-6 animate-fade-in border-brand-100 bg-gradient-to-b from-brand-50/80 to-white">
-            <div className="flex items-start gap-5 px-6 py-6">
+          <Card className="mt-6 animate-fade-in">
+            <div className="flex items-start gap-4 px-6 py-6">
               <div
-                className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white shadow-md"
+                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white shadow-xs"
                 aria-hidden
               >
-                <span className="text-lg font-bold">J</span>
+                J
               </div>
               <div className="min-w-0 flex-1">
                 <p className="mb-1 text-sm font-semibold text-gray-900">
@@ -169,26 +165,22 @@ export default function AskJarvisPage() {
 
         {chat.data && !chat.isPending && (
           <Card
-            className="mt-6 animate-fade-in p-5 text-gray-800"
+            className="mt-6 animate-fade-in p-6 text-gray-800"
             aria-live="polite"
           >
             <div ref={answerRef} />
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Answer
-            </h2>
+            <h2 className="overline mb-2">Answer</h2>
             <div className="prose prose-sm max-w-none text-[13px] leading-relaxed [&_strong]:font-semibold [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-4 [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1.5 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-3">
               <ReactMarkdown>{chat.data.answer}</ReactMarkdown>
             </div>
             {sources.length > 0 && (
               <>
-                <h3 className="mb-1.5 mt-5 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  Sources
-                </h3>
+                <h3 className="overline mb-2 mt-6">Sources</h3>
                 <ul className="space-y-1.5 text-xs text-gray-600">
                   {sources.map((src, i) => (
                     <li
                       key={i}
-                      className="rounded-lg border border-gray-100 bg-gray-50/50 p-2.5"
+                      className="rounded-lg border border-gray-200 bg-gray-50/60 p-3"
                     >
                       <span className="font-medium text-gray-900">
                         {src.client_name}

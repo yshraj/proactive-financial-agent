@@ -62,17 +62,12 @@ export default function BriefPage() {
       </Head>
 
       <p className="mb-6 max-w-2xl text-sm leading-relaxed text-gray-500">
-        Get a one-page brief before a client meeting. Jarvis combines their
-        record, upcoming alerts, and notes from ingested documents, then suggests
-        what to cover.
+        A one-page brief and suggested talking points before any client meeting.
       </p>
 
       <div className="mx-auto max-w-3xl space-y-6">
         <Card className="p-5">
-          <label
-            htmlFor="client-select"
-            className="mb-2 block text-xs font-semibold uppercase tracking-wider text-gray-500"
-          >
+          <label htmlFor="client-select" className="overline mb-2 block">
             Client
           </label>
           {clientsQuery.isError ? (
@@ -87,7 +82,7 @@ export default function BriefPage() {
                 value={selectedId}
                 onChange={(e) => setSelectedId(e.target.value)}
                 disabled={brief.isPending || clients.length === 0}
-                className="min-w-[200px] flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-800 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-gray-50"
+                className="input min-w-[200px] flex-1"
               >
                 {clientsQuery.isLoading && <option>Loading clients…</option>}
                 {!clientsQuery.isLoading && clients.length === 0 && (
@@ -141,9 +136,7 @@ export default function BriefPage() {
           <div ref={briefRef} className="space-y-6">
             <Card className="animate-fade-in p-6 text-gray-800">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  Pre-meeting brief
-                </h2>
+                <h2 className="overline">Pre-meeting brief</h2>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -159,14 +152,17 @@ export default function BriefPage() {
             </Card>
 
             {brief.data.talking_points.length > 0 && (
-              <Card className="animate-fade-in border-brand-100 bg-brand-50/50 p-6">
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-brand-900">
-                  Jarvis suggests you cover
-                </h2>
-                <ul className="space-y-2 text-sm text-brand-900">
+              <Card className="animate-fade-in border-brand-100 bg-brand-50/40 p-6">
+                <div className="mb-3 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-brand-600" aria-hidden />
+                  <h2 className="text-sm font-semibold text-brand-900">
+                    Jarvis suggests you cover
+                  </h2>
+                </div>
+                <ul className="space-y-2 text-sm text-gray-700">
                   {brief.data.talking_points.map((point, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <span className="mt-0.5 shrink-0 text-brand-500">•</span>
+                    <li key={i} className="flex items-start gap-2.5">
+                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" aria-hidden />
                       <span>{point}</span>
                     </li>
                   ))}

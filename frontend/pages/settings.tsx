@@ -64,8 +64,7 @@ export default function SettingsPage() {
       </Head>
 
       <p className="mb-8 max-w-2xl text-sm leading-relaxed text-gray-500">
-        Manage your account, workspace, and data. API keys for the AI provider,
-        database, and vector store are configured securely on the server.
+        Manage your workspace and data. Provider keys are configured securely on the server.
       </p>
 
       <div className="max-w-3xl space-y-6">
@@ -155,7 +154,7 @@ export default function SettingsPage() {
           onChange={(e) => setConfirmText(e.target.value)}
           placeholder="DELETE"
           aria-label="Type DELETE to confirm"
-          className="w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+          className="input"
         />
       </Modal>
     </>

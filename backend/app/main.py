@@ -16,6 +16,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.auth import verify_supabase_jwt
 from app.logging_config import configure_logging
 from app.routers import chat, ingest, monitor, settings
 from app.security import limiter, require_api_key
@@ -59,8 +60,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RequestIdMiddleware)
 
-# All API routers require the shared API key (M0 stopgap auth).
-api_guard = [Depends(require_api_key)]
+# API auth: the shared API key (M0 stopgap) and/or a Supabase JWT. Each guard
+# enforces its scheme only when configured, so unconfigured environments run open.
+api_guard = [Depends(require_api_key), Depends(verify_supabase_jwt)]
 app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"], dependencies=api_guard)
 app.include_router(monitor.router, prefix="/api/monitor", tags=["monitor"], dependencies=api_guard)
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"], dependencies=api_guard)

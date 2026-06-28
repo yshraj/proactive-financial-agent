@@ -36,6 +36,10 @@ export default function SignupPage() {
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
+      // Where the email-confirmation link returns the user. Lands them straight
+      // in the app (or the original deep link). Must be allow-listed in
+      // Supabase → Authentication → URL Configuration → Redirect URLs.
+      options: { emailRedirectTo: `${window.location.origin}${redirectTo}` },
     });
     if (signUpError) {
       setError(signUpError.message);

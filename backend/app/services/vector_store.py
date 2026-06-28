@@ -42,9 +42,9 @@ def _prefix_context(chunk: str, client_name: str, doc_date: str | None) -> str:
 
 def get_embeddings_openai(texts: list[str], model: str | None = None) -> list[list[float]]:
     """Batch embed texts with OpenAI. Returns list of vectors."""
-    from openai import OpenAI
+    from app.services.clients import get_openai_client
     model = model or os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    client = get_openai_client()
     r = client.embeddings.create(input=texts, model=model)
     return [d.embedding for d in r.data]
 
@@ -69,14 +69,11 @@ def upsert_to_qdrant(
     Filterable payload fields: client_id, client_name, doc_type, date, topics,
     document_id, filename, source_type, ingested_at.
     """
-    from qdrant_client import QdrantClient
     from qdrant_client.models import PointStruct
 
-    url = os.environ.get("QDRANT_URL")
-    api_key = os.environ.get("QDRANT_API_KEY") or None
-    if not url:
-        raise RuntimeError("QDRANT_URL is not set")
-    client = QdrantClient(url=url, api_key=api_key)
+    from app.services.clients import get_qdrant_client
+
+    client = get_qdrant_client()
     topics = topics or []
     points = [
         PointStruct(

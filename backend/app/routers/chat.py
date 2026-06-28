@@ -7,10 +7,11 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from app.db import get_cursor
+from app.security import limiter
 from app.services.cache import (
     BRIEF_TTL,
     CHAT_TTL,
@@ -54,14 +55,11 @@ class BriefResponse(BaseModel):
 
 
 def _search_qdrant(query_vector: list[float], limit: int = 5, client_id: str | None = None):
-    from qdrant_client import QdrantClient
     from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-    url = os.environ.get("QDRANT_URL")
-    api_key = os.environ.get("QDRANT_API_KEY") or None
-    if not url:
-        raise RuntimeError("QDRANT_URL is not set")
-    client = QdrantClient(url=url, api_key=api_key)
+    from app.services.clients import get_qdrant_client
+
+    client = get_qdrant_client()
     query_filter = None
     if client_id:
         query_filter = Filter(must=[FieldCondition(key="client_id", match=MatchValue(value=client_id))])
@@ -181,8 +179,8 @@ def _get_structured_context() -> str:
 
 
 def _synthesize_openai(rag_context: str, structured_context: str, query: str, model: str) -> str:
-    from openai import OpenAI
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    from app.services.clients import get_openai_client
+    client = get_openai_client()
     combined = ""
     if structured_context.strip():
         combined += "Structured data (from your client and alert records):\n\n" + structured_context.strip() + "\n\n"
@@ -212,7 +210,8 @@ def _synthesize_openai(rag_context: str, structured_context: str, query: str, mo
 
 
 @router.post("/", response_model=ChatResponse)
-def chat(body: ChatRequest):
+@limiter.limit("30/minute")
+def chat(request: Request, body: ChatRequest):
     """
     Ask Jarvis: embed query + structured context (parallel when cache miss), search Qdrant, synthesize with LLM.
     Responses cached by query hash; structured context cached briefly to avoid DB every time.
@@ -273,8 +272,6 @@ def chat(body: ChatRequest):
 
 def _generate_brief(client_id: str) -> tuple[str, list[str]]:
     """Build pre-meeting brief for one client: structured data + RAG chunks, then LLM one-pager + talking points."""
-    from openai import OpenAI
-
     client_name = "Unknown"
     structured_parts = []
     with get_cursor() as cur:
@@ -345,7 +342,8 @@ def _generate_brief(client_id: str) -> tuple[str, list[str]]:
     )
     # Pre-meeting brief uses a lighter, faster model by default (override with BRIEF_LLM_MODEL or LLM_MODEL)
     model = os.environ.get("BRIEF_LLM_MODEL") or os.environ.get("LLM_MODEL") or "gpt-4o-mini"
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    from app.services.clients import get_openai_client
+    client = get_openai_client()
     r = client.chat.completions.create(
         model=model,
         messages=[
@@ -370,7 +368,8 @@ def _generate_brief(client_id: str) -> tuple[str, list[str]]:
 
 
 @router.post("/brief", response_model=BriefResponse)
-def post_brief(body: BriefRequest):
+@limiter.limit("30/minute")
+def post_brief(request: Request, body: BriefRequest):
     """Generate a pre-meeting brief for the given client (structured data + RAG). Cached by client_id. Includes suggested talking points."""
     client_id = (body.client_id or "").strip()
     if not client_id:

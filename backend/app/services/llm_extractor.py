@@ -77,8 +77,8 @@ Rules: Output only valid JSON, no markdown or code fences. Convert all UK dates 
 
 
 def _call_llm_openai(text: str, model: str) -> str:
-    from openai import OpenAI
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    from app.services.clients import get_openai_client
+    client = get_openai_client()
     r = client.chat.completions.create(
         model=model,
         messages=[

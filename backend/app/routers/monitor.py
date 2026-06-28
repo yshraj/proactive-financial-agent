@@ -7,10 +7,11 @@ import json
 import os
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.db import get_cursor
+from app.security import limiter
 from app.services.cache import DRAFT_EMAIL_TTL, delete as cache_delete, get as cache_get, set_ as cache_set
 
 router = APIRouter()
@@ -373,7 +374,7 @@ class DraftEmailResponse(BaseModel):
 
 
 def _call_llm_draft(client_name: str, title: str, description: str, action_payload: dict | None, model: str) -> str:
-    from openai import OpenAI
+    from app.services.clients import get_openai_client
     payload_str = json.dumps(action_payload, indent=2) if action_payload else "{}"
     prompt = f"""You are a financial adviser's assistant. Write a short, professional email draft to the client about the following alert.
 Client name: {client_name}
@@ -382,7 +383,7 @@ Alert description: {description or 'No description.'}
 Optional action context (use if relevant): {payload_str}
 
 Write only the email body (2–4 short paragraphs). Use a professional but friendly tone. Do not include subject line or greetings/signatures unless asked. Output plain text only."""
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    client = get_openai_client()
     r = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
@@ -392,7 +393,8 @@ Write only the email body (2–4 short paragraphs). Use a professional but frien
 
 
 @router.post("/draft-email", response_model=DraftEmailResponse)
-def draft_email(body: DraftEmailRequest):
+@limiter.limit("30/minute")
+def draft_email(request: Request, body: DraftEmailRequest):
     """Generate a personalised email draft for an alert using the LLM. Cached by alert_id; invalidated when alert status is updated."""
     alert_id = body.alert_id
     cache_key = f"draft:{alert_id}"

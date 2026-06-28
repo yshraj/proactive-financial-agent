@@ -11,15 +11,20 @@ import uuid
 from pathlib import Path
 
 import psycopg2
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from app.db import get_cursor
+from app.security import limiter
 from app.services.config import ADVISER_ID
 from app.services import llm_extractor
 from app.services import vector_store
 
 logger = logging.getLogger("jarvis.ingest")
+
+# Reject oversized uploads before buffering the whole file in memory (DoS guard).
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
+_READ_CHUNK = 1024 * 1024
 
 # Message when the ingested_documents table has not been created yet
 TABLE_MISSING_MSG = (
@@ -252,7 +257,8 @@ def list_documents():
 
 
 @router.post("/upload", response_model=DocumentOut, status_code=201)
-async def upload_document(file: UploadFile = File(...)):
+@limiter.limit("30/minute")
+async def upload_document(request: Request, file: UploadFile = File(...)):
     """
     Upload a PDF or DOCX file. Reads content, computes SHA-256 hash, checks for duplicate.
     If duplicate: 409 with existing document info. If new: stores file and metadata, returns 201.
@@ -263,7 +269,21 @@ async def upload_document(file: UploadFile = File(...)):
             detail="Only PDF and Word (.docx) files are accepted.",
         )
 
-    content = await file.read()
+    # Fast-path reject using Content-Length when present.
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.")
+
+    # Read in bounded chunks so a huge upload can't exhaust memory.
+    buffer = bytearray()
+    while True:
+        chunk = await file.read(_READ_CHUNK)
+        if not chunk:
+            break
+        buffer.extend(chunk)
+        if len(buffer) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.")
+    content = bytes(buffer)
     if not content:
         raise HTTPException(status_code=400, detail="File is empty.")
 

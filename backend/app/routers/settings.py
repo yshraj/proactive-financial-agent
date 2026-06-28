@@ -1,14 +1,17 @@
 """
 Settings API: clear all data (Postgres + Qdrant) for demo reset.
 """
+import logging
 import os
 
 from fastapi import APIRouter, HTTPException
 
 from app.db import get_cursor
+from app.security import data_reset_enabled
 from app.services.cache import delete_prefix
 from app.services.config import QDRANT_COLLECTION
 
+logger = logging.getLogger("jarvis.settings")
 router = APIRouter()
 
 
@@ -16,8 +19,16 @@ router = APIRouter()
 def clear_all_data():
     """
     Remove all clients, alerts, ingested document metadata, and Qdrant vectors.
-    Use for demo reset. Order: alerts (FK) -> clients -> ingested_documents; then clear Qdrant collection.
+    Destructive: requires ALLOW_DATA_RESET=true (in addition to the API key) so it
+    cannot be triggered accidentally in production.
+    Order: alerts (FK) -> clients -> ingested_documents; then clear Qdrant collection.
     """
+    if not data_reset_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Data reset is disabled. Set ALLOW_DATA_RESET=true to enable it.",
+        )
+    logger.warning("[settings] clear-data invoked — wiping all clients, alerts, documents and vectors")
     try:
         with get_cursor(commit=True) as cur:
             cur.execute("DELETE FROM alerts")

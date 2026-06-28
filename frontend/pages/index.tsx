@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { ButtonLink } from "../components/ui";
 import { GET_STARTED_HREF, ROUTES } from "../lib/routes";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from "../lib/seo";
 
 const NAV_LINKS = [
   { href: "#features", label: "Features" },
@@ -113,11 +114,17 @@ export default function LandingPage() {
   return (
     <>
       <Head>
-        <title>Jarvis — Proactive AI for financial advisers</title>
-        <meta
-          name="description"
-          content="Jarvis turns client documents into priorities, pre-meeting briefs, and ready-to-send emails — so nothing slips and every meeting is prepared."
-        />
+        <title>{SITE_TITLE}</title>
+        <meta name="description" content={SITE_DESCRIPTION} />
+        <link rel="canonical" href={`${SITE_URL}/`} />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content={SITE_NAME} />
+        <meta property="og:title" content={SITE_TITLE} />
+        <meta property="og:description" content={SITE_DESCRIPTION} />
+        <meta property="og:url" content={`${SITE_URL}/`} />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={SITE_TITLE} />
+        <meta name="twitter:description" content={SITE_DESCRIPTION} />
       </Head>
 
       <div className="min-h-screen bg-white font-sans text-gray-700">

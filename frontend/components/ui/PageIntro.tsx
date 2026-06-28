@@ -12,7 +12,7 @@ export function PageIntro({
   className?: string;
 }) {
   return (
-    <p className={`mb-8 max-w-2xl text-sm leading-relaxed text-gray-500 ${className}`}>
+    <p className={`mb-8 max-w-2xl text-sm leading-6 text-slate-500 ${className}`}>
       {children}
     </p>
   );

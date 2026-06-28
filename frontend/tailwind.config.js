@@ -11,35 +11,34 @@ module.exports = {
         sans: ["var(--font-inter)", "Inter", "system-ui", "sans-serif"],
       },
       colors: {
-        // Single source of truth for the primary accent. One accent only —
-        // everything else is neutral gray or a status colour.
         brand: {
-          50: "#f0f9ff",
-          100: "#e0f2fe",
-          200: "#bae6fd",
-          300: "#7dd3fc",
-          400: "#38bdf8",
-          500: "#0ea5e9",
-          600: "#0284c7",
-          700: "#0369a1",
-          800: "#075985",
-          900: "#0c4a6e",
+          50: "#EFF6FF",
+          100: "#DBEAFE",
+          200: "#BFDBFE",
+          300: "#93C5FD",
+          400: "#60A5FA",
+          500: "#3B82F6",
+          600: "#2563EB",
+          700: "#1D4ED8",
+          800: "#1E40AF",
+          900: "#1E3A8A",
+        },
+        ai: {
+          50: "#F5F3FF",
+          100: "#EDE9FE",
+          600: "#7C3AED",
+          700: "#6D28D9",
         },
       },
       fontSize: {
-        // Page-level title and the big KPI numbers. Tight tracking reads as
-        // more "designed" at large sizes.
         display: ["1.5rem", { lineHeight: "2rem", letterSpacing: "-0.02em" }],
         kpi: ["1.875rem", { lineHeight: "2.25rem", letterSpacing: "-0.02em" }],
       },
       boxShadow: {
-        // Restrained, cool-gray shadows. Borders do most of the separation;
-        // shadows only signal genuine elevation.
         xs: "0 1px 2px 0 rgb(16 24 40 / 0.05)",
-        card: "0 1px 2px 0 rgb(16 24 40 / 0.04)",
+        card: "0 1px 2px 0 rgb(15 23 42 / 0.04)",
         "card-hover":
-          "0 2px 8px -2px rgb(16 24 40 / 0.08), 0 1px 2px 0 rgb(16 24 40 / 0.04)",
-        // For true overlays only: modals, popovers, dropdowns, toasts.
+          "0 18px 36px -28px rgb(15 23 42 / 0.35), 0 1px 3px 0 rgb(15 23 42 / 0.06)",
         overlay:
           "0 16px 40px -12px rgb(16 24 40 / 0.18), 0 4px 10px -4px rgb(16 24 40 / 0.08)",
       },

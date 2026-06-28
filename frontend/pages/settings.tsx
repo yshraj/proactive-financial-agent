@@ -60,14 +60,14 @@ export default function SettingsPage() {
   return (
     <>
       <Head>
-        <title>Settings — Jarvis</title>
+        <title>Settings - KritiFin</title>
       </Head>
 
       <PageIntro>
         Manage your workspace and data. Provider keys are configured securely on the server.
       </PageIntro>
 
-      <div className="max-w-3xl space-y-6">
+      <div className="max-w-3xl space-y-6" data-testid="settings-page">
         <Card>
           <CardHeader title="Account" />
           <div className="divide-y divide-gray-100">

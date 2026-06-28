@@ -1,9 +1,10 @@
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AuthShell } from "../components/AuthShell";
 import { Button, ButtonLink, useToast } from "../components/ui";
+import { useAuth } from "../contexts/AuthContext";
 import { getSupabaseClient, isSupabaseConfigured } from "../lib/supabase/client";
 import { APP_ENTRY, ROUTES } from "../lib/routes";
 
@@ -17,12 +18,18 @@ function useRedirectTarget(): string {
 export default function SignupPage() {
   const router = useRouter();
   const { notify } = useToast();
+  const { loading: authLoading, user } = useAuth();
   const redirectTo = useRedirectTarget();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [checkEmail, setCheckEmail] = useState(false);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || authLoading || !user) return;
+    router.replace(redirectTo);
+  }, [authLoading, redirectTo, router, user]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -61,12 +68,12 @@ export default function SignupPage() {
   return (
     <>
       <Head>
-        <title>Create account — Jarvis</title>
+        <title>Create account - KritiFin</title>
         <meta name="robots" content="noindex" />
       </Head>
       <AuthShell
         title="Create your account"
-        subtitle="Start turning client documents into action."
+        subtitle="Start turning client intelligence into prepared action."
         footer={
           isSupabaseConfigured ? (
             <>
@@ -84,23 +91,23 @@ export default function SignupPage() {
               Sign-up isn&apos;t configured in this environment yet. You can
               continue straight into the app.
             </p>
-            <ButtonLink href={redirectTo} className="mt-4 w-full">
+            <ButtonLink href={redirectTo} className="mt-4 w-full" data-testid="continue-without-auth">
               Continue to the app
             </ButtonLink>
           </div>
         ) : checkEmail ? (
           <div role="status" className="rounded-xl border border-brand-100 bg-brand-50/50 p-5">
             <p className="text-sm text-brand-900">
-              Check your inbox to confirm your email, then sign in.
+              Check your inbox to confirm your email, then sign in to KritiFin.
             </p>
             <ButtonLink href={loginHref} variant="secondary" className="mt-4 w-full">
               Back to sign in
             </ButtonLink>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate data-testid="signup-form">
             <div>
-              <label htmlFor="email" className="overline mb-1.5 block">
+              <label htmlFor="email" className="mb-2 block text-sm font-medium text-slate-700">
                 Email
               </label>
               <input
@@ -112,10 +119,11 @@ export default function SignupPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@firm.com"
                 className="input"
+                data-testid="signup-email"
               />
             </div>
             <div>
-              <label htmlFor="password" className="overline mb-1.5 block">
+              <label htmlFor="password" className="mb-2 block text-sm font-medium text-slate-700">
                 Password
               </label>
               <input
@@ -128,6 +136,7 @@ export default function SignupPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 8 characters"
                 className="input"
+                data-testid="signup-password"
               />
             </div>
             {error && (
@@ -139,9 +148,11 @@ export default function SignupPage() {
               type="submit"
               loading={loading}
               disabled={!email || password.length < 8}
-              className="w-full"
+              size="lg"
+              data-testid="signup-submit"
+              className="mt-2 w-full"
             >
-              Create account
+              Create KritiFin account
             </Button>
           </form>
         )}

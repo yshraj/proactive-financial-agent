@@ -24,7 +24,7 @@ export default function BriefPage() {
   const brief = useBrief();
 
   useEffect(() => {
-    setPageTitle("Pre-meeting brief");
+    setPageTitle("Meeting Brief");
   }, [setPageTitle]);
 
   // Default to first client once loaded.
@@ -48,13 +48,13 @@ export default function BriefPage() {
     const content = printableRef.current.innerHTML;
     const win = window.open("", "_blank");
     if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pre-meeting brief — Jarvis</title>
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Meeting Brief - KritiFin</title>
       <style>body{font-family:system-ui,-apple-system,sans-serif;max-width:700px;margin:2rem auto;padding:0 1.5rem;color:#1f2937;line-height:1.6}
-      .brief-title{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;margin-bottom:1rem}
+      .brief-title{font-size:.875rem;font-weight:600;color:#6b7280;margin-bottom:1rem}
       .prose{font-size:13px}.prose strong{font-weight:600}.prose ul{list-style:disc;margin-left:1.5rem}
       .prose ol{list-style:decimal;margin-left:1.5rem}.prose li{margin:.25rem 0}.prose p{margin:.5rem 0}
       .prose h1,.prose h2,.prose h3{font-size:1rem;margin-top:1rem;font-weight:600}@media print{body{margin:1rem}}</style></head>
-      <body><div class="brief-title">Pre-meeting brief</div><div class="prose">${content}</div>
+      <body><div class="brief-title">Meeting Brief</div><div class="prose">${content}</div>
       <script>window.onload=function(){window.print();window.onafterprint=function(){window.close()}}</script></body></html>`);
     win.document.close();
   };
@@ -65,16 +65,16 @@ export default function BriefPage() {
   return (
     <>
       <Head>
-        <title>Pre-meeting brief — Jarvis</title>
+        <title>Meeting Brief - KritiFin</title>
       </Head>
 
       <PageIntro>
-        A one-page brief and suggested talking points before any client meeting.
+        Generate an executive client briefing with context, talking points, action checklist, and draftable follow-up.
       </PageIntro>
 
-      <div className="mx-auto max-w-3xl space-y-6">
+      <div className="mx-auto max-w-3xl space-y-6" data-testid="meeting-brief-page">
         <Card className="p-5">
-          <label htmlFor="client-select" className="overline mb-2 block">
+          <label htmlFor="client-select" className="ui-label mb-2 block">
             Client
           </label>
           {clientsQuery.isError ? (
@@ -90,6 +90,7 @@ export default function BriefPage() {
                 onChange={(e) => setSelectedId(e.target.value)}
                 disabled={brief.isPending || clients.length === 0}
                 className="input min-w-[200px] flex-1"
+                data-testid="client-select"
               >
                 {clientsQuery.isLoading && <option>Loading clients…</option>}
                 {!clientsQuery.isLoading && clients.length === 0 && (
@@ -105,9 +106,10 @@ export default function BriefPage() {
                 onClick={generateBrief}
                 loading={brief.isPending}
                 disabled={!selectedId}
+                data-testid="generate-brief-button"
                 leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
               >
-                {brief.isPending ? "Generating…" : "Generate brief"}
+                {brief.isPending ? "Generating..." : "Generate brief"}
               </Button>
             </div>
           )}
@@ -141,17 +143,32 @@ export default function BriefPage() {
 
         {brief.data && !brief.isPending && (
           <div ref={briefRef} className="space-y-6">
-            <Card className="animate-fade-in p-6 text-gray-800">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h2 className="overline">Pre-meeting brief</h2>
+            <Card className="animate-fade-in p-6 text-gray-800" data-testid="generated-brief">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="ui-label">Executive Meeting Brief</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Client snapshot, risk notes, goals, insights, and next actions.
+                  </p>
+                </div>
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={downloadBriefPdf}
                   leftIcon={<Download className="h-4 w-4" aria-hidden />}
                 >
-                  Download as PDF
+                  Export PDF
                 </Button>
+              </div>
+              <div className="mb-6 grid gap-3 sm:grid-cols-3">
+                {["Client Snapshot", "Risk Profile", "Action Checklist"].map((item) => (
+                  <div key={item} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                    <p className="text-sm font-medium text-slate-500">
+                      {item}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-600">Included in generated brief</p>
+                  </div>
+                ))}
               </div>
               <div ref={printableRef} className={proseClasses}>
                 <ReactMarkdown>{brief.data.brief}</ReactMarkdown>
@@ -163,7 +180,7 @@ export default function BriefPage() {
                 <div className="mb-3 flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-brand-600" aria-hidden />
                   <h2 className="text-sm font-semibold text-brand-900">
-                    Jarvis suggests you cover
+                    AI insights and talking points
                   </h2>
                 </div>
                 <ul className="space-y-2 text-sm text-gray-700">

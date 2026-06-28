@@ -40,7 +40,7 @@ export default function AlertCard({
     <article className="flex flex-col rounded-xl border border-gray-200 bg-white p-5 shadow-xs transition-shadow hover:shadow-card-hover">
       <div className="mb-3 flex items-center gap-2">
         {ICONS[type] ?? ICONS.DEADLINE}
-        <span className="overline">{alertTypeLabel(type)}</span>
+        <span className="ui-label">{alertTypeLabel(type)}</span>
         {priority === "HIGH" && (
           <Badge className="ml-auto bg-red-100 text-red-700">High</Badge>
         )}

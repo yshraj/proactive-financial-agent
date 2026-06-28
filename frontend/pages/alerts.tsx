@@ -43,7 +43,7 @@ function Filter({
 }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="overline">{label}</span>
+      <span className="ui-label">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -88,14 +88,14 @@ export default function AlertsPage() {
   return (
     <>
       <Head>
-        <title>Alerts — Jarvis</title>
+        <title>Alerts - KritiFin</title>
       </Head>
 
       <PageIntro>
         Filter every client alert and draft a personalised email in a click.
       </PageIntro>
 
-      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-xs">
+      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-xs" data-testid="alerts-filters">
         <Filter label="Window" value={days} onChange={(v) => setDays(Number(v))} options={DAYS_OPTIONS} format={(o) => `Next ${o} days`} />
         <Filter label="Type" value={typeFilter} onChange={setTypeFilter} options={TYPE_OPTIONS} format={(o) => (o === "All" ? "All types" : alertTypeLabel(String(o)))} />
         <Filter label="Priority" value={priorityFilter} onChange={setPriorityFilter} options={PRIORITY_OPTIONS} format={(o) => (o === "All" ? "All priorities" : String(o))} />
@@ -105,7 +105,7 @@ export default function AlertsPage() {
       {isError ? (
         <ErrorState message={(error as Error)?.message} onRetry={() => refetch()} />
       ) : (
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden" data-testid="alerts-table-card">
           <CardHeader
             title="All alerts"
             description={
@@ -130,7 +130,7 @@ export default function AlertsPage() {
                     {["Client", "Type", "Priority", "Due date", "Status", ""].map((h, i) => (
                       <th
                         key={h || i}
-                        className={`px-6 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 ${i === 5 ? "text-right" : "text-left"}`}
+                        className={`px-6 py-3 text-xs font-medium text-gray-500 ${i === 5 ? "text-right" : "text-left"}`}
                       >
                         {h}
                       </th>

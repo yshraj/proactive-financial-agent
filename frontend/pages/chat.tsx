@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Send } from "lucide-react";
+import { FileText, Send, Sparkles } from "lucide-react";
 import { useLayout } from "../contexts/LayoutContext";
 import { Card, Button, ErrorState, PageIntro } from "../components/ui";
 import { useChat } from "../hooks/useApi";
@@ -27,7 +27,7 @@ const SUGGESTIONS_POOL = [
 
 const CHIPS_VISIBLE = 5;
 
-export default function AskJarvisPage() {
+export default function AICopilotPage() {
   const { setPageTitle } = useLayout();
   const [query, setQuery] = useState("");
   const [visibleChips, setVisibleChips] = useState<string[]>(() =>
@@ -37,7 +37,7 @@ export default function AskJarvisPage() {
   const chat = useChat();
 
   useEffect(() => {
-    setPageTitle("Ask Jarvis");
+    setPageTitle("AI Copilot");
   }, [setPageTitle]);
 
   const ask = useCallback(
@@ -75,16 +75,25 @@ export default function AskJarvisPage() {
   return (
     <>
       <Head>
-        <title>Ask Jarvis — Jarvis</title>
+        <title>AI Copilot - KritiFin</title>
       </Head>
 
       <PageIntro>
-        Ask anything across your clients, alerts, and ingested documents.
+        Ask grounded questions across clients, alerts, and ingested documents with source-aware answers.
       </PageIntro>
 
-      <div className="mx-auto max-w-2xl">
-        <Card>
-          <div className="border-b border-gray-100 p-4">
+      <div className="mx-auto max-w-4xl" data-testid="ai-copilot-page">
+        <Card className="overflow-hidden">
+          <div className="border-b border-slate-100 bg-gradient-to-br from-ai-50 to-white p-5">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-ai-600 text-white shadow-xs">
+                <Sparkles className="h-5 w-5" aria-hidden />
+              </span>
+              <div>
+                <h2 className="text-base font-semibold text-slate-950">AI Copilot</h2>
+                <p className="text-sm text-slate-500">From question to cited client insight.</p>
+              </div>
+            </div>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -97,22 +106,24 @@ export default function AskJarvisPage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="e.g. Which clients are worried about market volatility?"
-                aria-label="Ask Jarvis a question"
+                aria-label="Ask AI Copilot a question"
                 className="input flex-1"
                 disabled={chat.isPending}
+                data-testid="ai-copilot-input"
               />
               <Button
                 type="submit"
                 loading={chat.isPending}
                 disabled={!query.trim()}
+                data-testid="ai-copilot-submit"
                 leftIcon={!chat.isPending ? <Send className="h-4 w-4" aria-hidden /> : undefined}
               >
-                {chat.isPending ? "Asking…" : "Ask"}
+                {chat.isPending ? "Thinking..." : "Ask"}
               </Button>
             </form>
           </div>
-          <div className="p-4">
-            <p className="overline mb-3">Suggestions</p>
+          <div className="p-5">
+            <p className="ui-label mb-3">Suggestions</p>
             <div className="flex flex-wrap gap-2">
               {visibleChips.map((s) => (
                 <button
@@ -123,7 +134,7 @@ export default function AskJarvisPage() {
                     ask(s, s);
                   }}
                   disabled={chat.isPending}
-                  className="rounded-full border border-gray-200 bg-white px-3.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 disabled:opacity-60"
+                  className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs text-slate-600 transition-colors hover:border-ai-100 hover:bg-ai-50 hover:text-ai-700 disabled:opacity-60"
                 >
                   {s}
                 </button>
@@ -136,14 +147,14 @@ export default function AskJarvisPage() {
           <Card className="mt-6 animate-fade-in">
             <div className="flex items-start gap-4 px-6 py-6">
               <div
-                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white shadow-xs"
+                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-ai-600 text-sm font-bold text-white shadow-xs"
                 aria-hidden
               >
-                J
+                <Sparkles className="h-5 w-5" aria-hidden />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="mb-1 text-sm font-semibold text-gray-900">
-                  Jarvis is thinking
+                  AI Copilot is thinking
                 </p>
                 <p className="mb-4 text-xs text-gray-500">
                   Searching your data and documents to answer your question.
@@ -169,31 +180,30 @@ export default function AskJarvisPage() {
 
         {chat.data && !chat.isPending && (
           <Card
-            className="mt-6 animate-fade-in p-6 text-gray-800"
+            className="mt-6 animate-fade-in p-6 text-slate-800"
             aria-live="polite"
+            data-testid="ai-copilot-answer"
           >
             <div ref={answerRef} />
-            <h2 className="overline mb-2">Answer</h2>
+            <h2 className="ui-label mb-2">Copilot Answer</h2>
             <div className="prose prose-sm max-w-none text-[13px] leading-relaxed [&_strong]:font-semibold [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-4 [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1.5 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-3">
               <ReactMarkdown>{chat.data.answer}</ReactMarkdown>
             </div>
             {sources.length > 0 && (
               <>
-                <h3 className="overline mb-2 mt-6">Sources</h3>
-                <ul className="space-y-1.5 text-xs text-gray-600">
+                <h3 className="ui-label mb-2 mt-6">Expandable Sources</h3>
+                <ul className="space-y-1.5 text-xs text-slate-600">
                   {sources.map((src, i) => (
-                    <li
-                      key={i}
-                      className="rounded-lg border border-gray-200 bg-gray-50/60 p-3"
-                    >
-                      <span className="font-medium text-gray-900">
-                        {src.client_name}
-                      </span>
-                      {src.doc_type && (
-                        <span className="ml-1.5 text-gray-500">({src.doc_type})</span>
-                      )}
-                      {src.date && <span className="ml-1.5 text-gray-500">{src.date}</span>}
-                      <p className="mt-0.5 text-gray-600">{src.content}</p>
+                    <li key={i}>
+                      <details className="group rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                        <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-slate-950">
+                          <FileText className="h-3.5 w-3.5 text-slate-400" aria-hidden />
+                          {src.client_name}
+                          {src.doc_type && <span className="text-slate-500">({src.doc_type})</span>}
+                          {src.date && <span className="ml-auto text-slate-500">{src.date}</span>}
+                        </summary>
+                        <p className="mt-2 text-slate-600">{src.content}</p>
+                      </details>
                     </li>
                   ))}
                 </ul>

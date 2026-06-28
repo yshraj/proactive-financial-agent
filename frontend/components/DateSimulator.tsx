@@ -92,15 +92,16 @@ export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
 
   return (
     <div className="relative flex items-center gap-2" ref={ref}>
-      <label className="overline hidden sm:block" htmlFor="simulate-date-trigger">
-        Simulate date
-      </label>
+      <span id="simulate-date-description" className="sr-only">
+        Simulate the dashboard date
+      </span>
       <button
         id="simulate-date-trigger"
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="flex h-10 max-w-[240px] items-center gap-2.5 rounded-lg border border-gray-200 bg-white px-3.5 text-left text-sm font-medium text-gray-900 shadow-xs transition-colors hover:border-gray-300 hover:bg-gray-50"
         aria-label="Choose date"
+        aria-describedby="simulate-date-description"
         aria-expanded={open}
       >
         <Calendar className="h-4 w-4 flex-shrink-0 text-gray-400" aria-hidden />
@@ -137,7 +138,7 @@ export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
           </div>
 
           <div className="p-4">
-            <div className="grid grid-cols-7 gap-px text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            <div className="grid grid-cols-7 gap-px text-center text-xs font-medium text-gray-400">
               {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
                 <div key={d} className="py-1.5">{d}</div>
               ))}

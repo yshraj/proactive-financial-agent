@@ -1,9 +1,10 @@
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AuthShell } from "../components/AuthShell";
 import { Button, ButtonLink, useToast } from "../components/ui";
+import { useAuth } from "../contexts/AuthContext";
 import { getSupabaseClient, isSupabaseConfigured } from "../lib/supabase/client";
 import { APP_ENTRY, ROUTES } from "../lib/routes";
 
@@ -19,11 +20,17 @@ function useRedirectTarget(): string {
 export default function LoginPage() {
   const router = useRouter();
   const { notify } = useToast();
+  const { loading: authLoading, user } = useAuth();
   const redirectTo = useRedirectTarget();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || authLoading || !user) return;
+    router.replace(redirectTo);
+  }, [authLoading, redirectTo, router, user]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -52,12 +59,12 @@ export default function LoginPage() {
   return (
     <>
       <Head>
-        <title>Sign in — Jarvis</title>
+        <title>Sign in - KritiFin</title>
         <meta name="robots" content="noindex" />
       </Head>
       <AuthShell
         title="Welcome back"
-        subtitle="Sign in to your Jarvis workspace."
+        subtitle="Sign in to your KritiFin workspace."
         footer={
           isSupabaseConfigured ? (
             <>
@@ -70,9 +77,9 @@ export default function LoginPage() {
         }
       >
         {isSupabaseConfigured ? (
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate data-testid="login-form">
             <div>
-              <label htmlFor="email" className="overline mb-1.5 block">
+              <label htmlFor="email" className="mb-2 block text-sm font-medium text-slate-700">
                 Email
               </label>
               <input
@@ -84,10 +91,11 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@firm.com"
                 className="input"
+                data-testid="login-email"
               />
             </div>
             <div>
-              <label htmlFor="password" className="overline mb-1.5 block">
+              <label htmlFor="password" className="mb-2 block text-sm font-medium text-slate-700">
                 Password
               </label>
               <input
@@ -99,7 +107,23 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className="input"
+                data-testid="login-password"
               />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-600"
+                />
+                Remember me
+              </label>
+              <button
+                type="button"
+                className="text-sm font-medium text-brand-600 hover:text-brand-700"
+              >
+                Forgot password?
+              </button>
             </div>
             {error && (
               <p role="alert" className="text-sm text-red-600">
@@ -110,9 +134,11 @@ export default function LoginPage() {
               type="submit"
               loading={loading}
               disabled={!email || !password}
-              className="w-full"
+              size="lg"
+              data-testid="login-submit"
+              className="mt-2 w-full"
             >
-              Sign in
+              Sign in to KritiFin
             </Button>
           </form>
         ) : (
@@ -121,7 +147,7 @@ export default function LoginPage() {
               Sign-in isn&apos;t configured in this environment yet. You can
               continue straight into the app.
             </p>
-            <ButtonLink href={redirectTo} className="mt-4 w-full">
+            <ButtonLink href={redirectTo} className="mt-4 w-full" data-testid="continue-without-auth">
               Continue to the app
             </ButtonLink>
           </div>

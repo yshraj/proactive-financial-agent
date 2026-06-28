@@ -78,17 +78,18 @@ export default function IngestionPage() {
   return (
     <>
       <Head>
-        <title>Ingestion — Jarvis</title>
+        <title>Ingestion - KritiFin</title>
       </Head>
 
       <PageIntro>
-        Upload client documents — Jarvis extracts the data and indexes them for search.
+        Upload client documents. KritiFin extracts the data, indexes it for search, and turns processing into adviser-ready intelligence.
         Duplicates are detected automatically.
       </PageIntro>
 
       <input
         ref={fileInputRef}
         type="file"
+        data-testid="document-upload-input"
         accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         multiple
         className="hidden"
@@ -99,8 +100,9 @@ export default function IngestionPage() {
       />
 
       <div
+        data-testid="document-dropzone"
         className={`mb-10 rounded-xl border border-dashed p-10 text-center transition-colors sm:p-12 ${
-          dragging ? "border-brand-400 bg-brand-50/50" : "border-gray-300 bg-white hover:border-brand-300 hover:bg-brand-50/30"
+          dragging ? "border-brand-400 bg-brand-50/50" : "border-slate-300 bg-white hover:border-brand-300 hover:bg-brand-50/30"
         }`}
         onDragOver={(e) => {
           e.preventDefault();
@@ -121,20 +123,21 @@ export default function IngestionPage() {
             <UploadCloud className="h-6 w-6" aria-hidden />
           </span>
         </div>
-        <h2 className="mb-1.5 text-base font-semibold text-gray-900">Drop PDFs or Word docs here</h2>
-        <p className="mb-6 text-sm text-gray-500">
+        <h2 className="mb-1.5 text-base font-semibold text-slate-950">Drop PDFs or Word docs here</h2>
+        <p className="mb-6 text-sm text-slate-500">
           Supports PDF and .docx, up to 20 MB. Duplicates (same content) are detected and skipped.
         </p>
-        <Button onClick={() => fileInputRef.current?.click()}>Choose files</Button>
+        <Button onClick={() => fileInputRef.current?.click()} data-testid="choose-files-button">Choose files</Button>
       </div>
 
       {uploads.length > 0 && (
-        <div className="mb-10">
+        <div className="mb-10" data-testid="upload-status">
           <h2 className="mb-3 text-sm font-semibold text-gray-900">Upload status</h2>
           <ul className="space-y-2">
             {uploads.map((f) => (
               <li
                 key={f.id}
+                data-testid="upload-status-item"
                 className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 shadow-xs ${
                   f.state === "duplicate"
                     ? "border-amber-200 bg-amber-50/50"
@@ -167,7 +170,7 @@ export default function IngestionPage() {
         </div>
       )}
 
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden" data-testid="stored-documents">
         <CardHeader title="Stored documents" />
         {docsQuery.isLoading ? (
           <TableSkeleton rows={3} />
@@ -179,7 +182,7 @@ export default function IngestionPage() {
           <EmptyState
             icon={<FileText className="h-5 w-5" aria-hidden />}
             title="No documents yet"
-            description="Upload a PDF or Word file above to populate your dashboard and power Ask Jarvis."
+            description="Upload a PDF or Word file above to populate your dashboard and power AI Copilot."
           />
         ) : (
           <ul className="divide-y divide-gray-100">

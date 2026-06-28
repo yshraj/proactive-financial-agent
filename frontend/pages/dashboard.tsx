@@ -57,11 +57,15 @@ function alertsByWeek(alerts: Alert[], baseDateStr: string) {
     });
 }
 
-function Kpi({ label, value }: { label: string; value: number }) {
+function Kpi({ label, value, hint }: { label: string; value: number; hint?: string }) {
   return (
-    <Card className="p-5 transition-shadow hover:shadow-card-hover">
-      <p className="overline">{label}</p>
-      <p className="mt-2 text-kpi font-semibold tabular-nums text-gray-900">{value}</p>
+    <Card
+      className="p-5 transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover"
+      data-testid={`kpi-card-${label.toLowerCase().replace(/\s+/g, "-")}`}
+    >
+      <p className="ui-label">{label}</p>
+      <p className="mt-2 text-kpi font-semibold tabular-nums text-slate-950">{value}</p>
+      {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
     </Card>
   );
 }
@@ -74,7 +78,7 @@ const SETUP_STEPS = [
   },
   {
     icon: <Sparkles className="h-4 w-4" aria-hidden />,
-    title: "Jarvis extracts the signal",
+    title: "KritiFin extracts the signal",
     text: "Clients, review dates, deadlines and follow-ups are pulled out automatically.",
   },
   {
@@ -87,17 +91,17 @@ const SETUP_STEPS = [
 /** Premium first-run experience shown when the workspace has no data yet. */
 function FirstRun() {
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden" data-testid="first-run-card">
       <div className="grid gap-px bg-gray-100 md:grid-cols-[1.1fr_1fr]">
         <div className="bg-white p-8 sm:p-10">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-xs">
             <Sparkles className="h-5 w-5" aria-hidden />
           </span>
           <h2 className="mt-5 text-xl font-semibold tracking-tight text-gray-900">
-            Welcome to Jarvis
+            Welcome to KritiFin
           </h2>
           <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-500">
-            Your proactive layer for client work. Upload a few documents and Jarvis
+            Your proactive layer for client work. Upload a few documents and KritiFin
             turns them into priorities, pre-meeting briefs, and ready-to-send emails.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
@@ -105,12 +109,12 @@ function FirstRun() {
               Upload documents
             </ButtonLink>
             <ButtonLink href="/chat" variant="secondary" leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}>
-              Ask Jarvis
+              AI Copilot
             </ButtonLink>
           </div>
         </div>
         <div className="bg-gray-50/60 p-8 sm:p-10">
-          <p className="overline mb-4">How it works</p>
+          <p className="ui-label mb-4">How it works</p>
           <ol className="space-y-5">
             {SETUP_STEPS.map((step, i) => (
               <li key={i} className="flex gap-3">
@@ -153,7 +157,7 @@ export default function Dashboard() {
     setHeaderExtra(
       <>
         <ButtonLink href="/chat" leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}>
-          Ask Jarvis
+          AI Copilot
         </ButtonLink>
         <DateSimulator value={simulatedDate} onChange={setSimulatedDate} />
       </>
@@ -164,7 +168,7 @@ export default function Dashboard() {
   return (
     <>
       <Head>
-        <title>Dashboard — Jarvis</title>
+        <title>Dashboard - KritiFin</title>
       </Head>
 
       {pulseQuery.isLoading && <DashboardSkeleton />}
@@ -181,26 +185,33 @@ export default function Dashboard() {
 
       {pulse && !pulseQuery.isError && !hasNoData && (
         <>
-          <PageIntro>
-            What&apos;s due, pre-meeting briefs, and draft emails — in one place.
-          </PageIntro>
-          <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Kpi label="Total alerts" value={pulse.total} />
-            <Kpi label="High risk" value={pulse.high_risk} />
-            <Kpi label="Upcoming deadlines" value={pulse.deadlines} />
-            <Kpi label="Clients" value={pulse.client_count} />
+          <div className="mb-8" data-testid="dashboard-hero">
+            <p className="text-sm font-medium text-slate-500">Good Morning, James.</p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-slate-950">
+              Here&apos;s what deserves your attention today.
+            </h2>
+            <PageIntro className="mb-0 mt-3">
+              Reviews, follow-ups, compliance items, and client intelligence in one proactive workspace.
+            </PageIntro>
+          </div>
+          <div className="mb-8 grid grid-cols-2 gap-4 xl:grid-cols-5" data-testid="dashboard-kpis">
+            <Kpi label="Reviews Due" value={pulse.total} hint="Open client priorities" />
+            <Kpi label="Follow-ups" value={overdueFollowUps.length} hint="Past due commitments" />
+            <Kpi label="Awaiting Response" value={pulse.high_risk} hint="High priority clients" />
+            <Kpi label="Compliance Items" value={pulse.deadlines} hint="Upcoming deadlines" />
+            <Kpi label="Documents Processed" value={pulse.client_count} hint="Active client records" />
           </div>
 
           {alerts.length > 0 ? (
-            <Card className="mb-8 overflow-hidden">
+            <Card className="mb-8 overflow-hidden" data-testid="priority-timeline">
               <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4 sm:px-6">
                 <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
                   <Sparkles className="h-4 w-4" aria-hidden />
                 </span>
                 <div>
-                  <h2 className="text-sm font-semibold text-gray-900">Start here</h2>
+                  <h2 className="text-sm font-semibold text-gray-900">Priority Timeline</h2>
                   <p className="mt-0.5 text-sm text-gray-500">
-                    Your top priorities for the next 30 days.
+                    The right client, insight, and action for the next 30 days.
                   </p>
                 </div>
               </div>
@@ -292,6 +303,49 @@ export default function Dashboard() {
                 ))}
               </ul>
             </Card>
+          )}
+
+          {alerts.length > 0 && (
+            <div className="mb-10 grid gap-4 lg:grid-cols-3" data-testid="dashboard-recommendations">
+              <Card className="border-ai-100 bg-ai-50/40 p-5 lg:col-span-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-ai-600" aria-hidden />
+                  <h2 className="text-sm font-semibold text-slate-950">AI Recommendations</h2>
+                </div>
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  {alerts.slice(0, 2).map((row) => (
+                    <div key={row.id} className="rounded-2xl border border-white bg-white/85 p-4 shadow-xs">
+                      <p className="text-sm font-semibold text-slate-950">{row.client_name}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        {row.description || row.title || "Review this client and confirm the next best action."}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="mt-4"
+                        onClick={() => setDraftEmailAlertId(row.id)}
+                      >
+                        Draft next action
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+              <Card className="p-5">
+                <h2 className="text-sm font-semibold text-slate-950">Upcoming Meetings</h2>
+                <div className="mt-5 space-y-4">
+                  {alerts.slice(0, 3).map((row) => (
+                    <div key={row.id} className="flex gap-3">
+                      <span className="mt-1 h-2 w-2 rounded-full bg-brand-600" />
+                      <div>
+                        <p className="text-sm font-medium text-slate-950">{row.client_name}</p>
+                        <p className="text-xs text-slate-500">{formatDate(row.trigger_date)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
           )}
 
           {alerts.length > 0 && (

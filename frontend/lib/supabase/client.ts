@@ -27,7 +27,13 @@ export async function getSupabaseClient(): Promise<SupabaseClient | null> {
   if (!isSupabaseConfigured) return null;
   if (!browserClient) {
     const { createBrowserClient } = await import("@supabase/ssr");
-    browserClient = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    browserClient = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        persistSession: true,
+      },
+    });
   }
   return browserClient;
 }

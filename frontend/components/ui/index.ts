@@ -1,5 +1,5 @@
-export { Button } from "./Button";
-export type { ButtonProps } from "./Button";
+export { Button, ButtonLink } from "./Button";
+export type { ButtonProps, ButtonLinkProps } from "./Button";
 export { Badge } from "./Badge";
 export { Card, CardHeader } from "./Card";
 export { Skeleton, DashboardSkeleton, TableSkeleton } from "./Skeleton";

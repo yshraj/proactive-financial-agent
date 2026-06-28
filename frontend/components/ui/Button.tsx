@@ -1,4 +1,5 @@
 import React from "react";
+import Link, { LinkProps } from "next/link";
 import { Loader2 } from "lucide-react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
@@ -20,6 +21,18 @@ const SIZES: Record<Size, string> = {
   md: "h-10 px-4 text-sm",
   lg: "h-11 px-5 text-sm",
 };
+
+const BASE =
+  "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed";
+
+/** Single source of truth for button styling, shared by Button and ButtonLink. */
+export function buttonClassName(
+  variant: Variant = "primary",
+  size: Size = "md",
+  className = ""
+): string {
+  return `${BASE} ${VARIANTS[variant]} ${SIZES[size]} ${className}`;
+}
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -43,7 +56,7 @@ export function Button({
     <button
       type="button"
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
+      className={buttonClassName(variant, size, className)}
       {...props}
     >
       {loading ? (
@@ -53,6 +66,34 @@ export function Button({
       )}
       {children}
     </button>
+  );
+}
+
+export interface ButtonLinkProps extends LinkProps {
+  variant?: Variant;
+  size?: Size;
+  leftIcon?: React.ReactNode;
+  className?: string;
+  children?: React.ReactNode;
+}
+
+/**
+ * A Next.js Link styled as a button. Use for navigations that should look like
+ * a button, instead of nesting <Button> inside <Link> (invalid <a><button>).
+ */
+export function ButtonLink({
+  variant = "primary",
+  size = "md",
+  leftIcon,
+  className = "",
+  children,
+  ...props
+}: ButtonLinkProps) {
+  return (
+    <Link className={buttonClassName(variant, size, className)} {...props}>
+      {leftIcon}
+      {children}
+    </Link>
   );
 }
 

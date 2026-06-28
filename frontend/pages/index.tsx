@@ -10,6 +10,7 @@ import {
   Card,
   CardHeader,
   Button,
+  ButtonLink,
   Badge,
   EmptyState,
   ErrorState,
@@ -100,16 +101,12 @@ function FirstRun() {
             turns them into priorities, pre-meeting briefs, and ready-to-send emails.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <Link href="/admin">
-              <Button leftIcon={<Upload className="h-4 w-4" aria-hidden />}>
-                Upload documents
-              </Button>
-            </Link>
-            <Link href="/chat">
-              <Button variant="secondary" leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}>
-                Ask Jarvis
-              </Button>
-            </Link>
+            <ButtonLink href="/admin" leftIcon={<Upload className="h-4 w-4" aria-hidden />}>
+              Upload documents
+            </ButtonLink>
+            <ButtonLink href="/chat" variant="secondary" leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}>
+              Ask Jarvis
+            </ButtonLink>
           </div>
         </div>
         <div className="bg-gray-50/60 p-8 sm:p-10">
@@ -155,13 +152,9 @@ export default function Dashboard() {
     setPageTitle("Dashboard");
     setHeaderExtra(
       <>
-        <Link
-          href="/chat"
-          className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white shadow-xs transition-colors hover:bg-brand-500"
-        >
-          <Sparkles className="h-4 w-4" aria-hidden />
+        <ButtonLink href="/chat" leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}>
           Ask Jarvis
-        </Link>
+        </ButtonLink>
         <DateSimulator value={simulatedDate} onChange={setSimulatedDate} />
       </>
     );
@@ -244,9 +237,9 @@ export default function Dashboard() {
               title="No priorities yet"
               description="Upload client documents in Ingestion to extract alerts, or move the simulated date to see what's coming up."
               action={
-                <Link href="/admin">
-                  <Button leftIcon={<Upload className="h-4 w-4" aria-hidden />}>Go to Ingestion</Button>
-                </Link>
+                <ButtonLink href="/admin" leftIcon={<Upload className="h-4 w-4" aria-hidden />}>
+                  Go to Ingestion
+                </ButtonLink>
               }
             />
           )}

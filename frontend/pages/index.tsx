@@ -1,7 +1,7 @@
 import Head from "next/head";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Bell, CheckCircle2, Mail, Sparkles, Upload } from "lucide-react";
+import { Bell, CheckCircle2, Clock, Mail, Sparkles, Upload } from "lucide-react";
 import AlertCard from "../components/AlertCard";
 import DateSimulator from "../components/DateSimulator";
 import DraftEmailModal from "../components/DraftEmailModal";
@@ -55,11 +55,79 @@ function alertsByWeek(alerts: Alert[], baseDateStr: string) {
     });
 }
 
-function Kpi({ label, value, tone }: { label: string; value: number; tone: string }) {
+function Kpi({ label, value }: { label: string; value: number }) {
   return (
-    <Card className={`bg-gradient-to-br p-6 transition-shadow hover:shadow-card-hover ${tone}`}>
-      <p className="mb-1 text-xs font-medium uppercase tracking-wider text-gray-500">{label}</p>
-      <p className="text-kpi font-bold tracking-tight text-gray-900">{value}</p>
+    <Card className="p-5 transition-shadow hover:shadow-card-hover">
+      <p className="overline">{label}</p>
+      <p className="mt-2 text-kpi font-semibold tabular-nums text-gray-900">{value}</p>
+    </Card>
+  );
+}
+
+const SETUP_STEPS = [
+  {
+    icon: <Upload className="h-4 w-4" aria-hidden />,
+    title: "Upload documents",
+    text: "Add client fact-finds and meeting notes — PDF or Word.",
+  },
+  {
+    icon: <Sparkles className="h-4 w-4" aria-hidden />,
+    title: "Jarvis extracts the signal",
+    text: "Clients, review dates, deadlines and follow-ups are pulled out automatically.",
+  },
+  {
+    icon: <Bell className="h-4 w-4" aria-hidden />,
+    title: "Act on priorities",
+    text: "See what's due, generate briefs, and draft emails in a click.",
+  },
+];
+
+/** Premium first-run experience shown when the workspace has no data yet. */
+function FirstRun() {
+  return (
+    <Card className="overflow-hidden">
+      <div className="grid gap-px bg-gray-100 md:grid-cols-[1.1fr_1fr]">
+        <div className="bg-white p-8 sm:p-10">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-xs">
+            <Sparkles className="h-5 w-5" aria-hidden />
+          </span>
+          <h2 className="mt-5 text-xl font-semibold tracking-tight text-gray-900">
+            Welcome to Jarvis
+          </h2>
+          <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-500">
+            Your proactive layer for client work. Upload a few documents and Jarvis
+            turns them into priorities, pre-meeting briefs, and ready-to-send emails.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link href="/admin">
+              <Button leftIcon={<Upload className="h-4 w-4" aria-hidden />}>
+                Upload documents
+              </Button>
+            </Link>
+            <Link href="/chat">
+              <Button variant="secondary" leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}>
+                Ask Jarvis
+              </Button>
+            </Link>
+          </div>
+        </div>
+        <div className="bg-gray-50/60 p-8 sm:p-10">
+          <p className="overline mb-4">How it works</p>
+          <ol className="space-y-5">
+            {SETUP_STEPS.map((step, i) => (
+              <li key={i} className="flex gap-3">
+                <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white text-brand-600 shadow-xs ring-1 ring-gray-100">
+                  {step.icon}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">{step.title}</p>
+                  <p className="mt-0.5 text-sm text-gray-500">{step.text}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
     </Card>
   );
 }
@@ -78,13 +146,17 @@ export default function Dashboard() {
   const overdueFollowUps = pulse?.overdue_follow_ups ?? [];
   const completedAlerts = completedQuery.data?.alerts ?? [];
 
+  // True first run: no clients and no alerts at all — show onboarding, not a
+  // grid of zeros (which reads as "broken" rather than "new").
+  const hasNoData = !!pulse && pulse.total === 0 && pulse.client_count === 0;
+
   useEffect(() => {
     setPageTitle("Dashboard");
     setHeaderExtra(
       <>
         <Link
           href="/chat"
-          className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-brand-500"
+          className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white shadow-xs transition-colors hover:bg-brand-500"
         >
           <Sparkles className="h-4 w-4" aria-hidden />
           Ask Jarvis
@@ -101,13 +173,6 @@ export default function Dashboard() {
         <title>Dashboard — Jarvis</title>
       </Head>
 
-      <p className="mb-1 text-sm font-medium text-gray-700">
-        Your proactive layer: see what&apos;s due, get briefs, and draft emails in one place.
-      </p>
-      <p className="mb-6 text-sm leading-relaxed text-gray-500">
-        Overview of alerts and activity for the selected date range. Use the date picker in the header to simulate a future date.
-      </p>
-
       {pulseQuery.isLoading && <DashboardSkeleton />}
 
       {pulseQuery.isError && (
@@ -118,35 +183,53 @@ export default function Dashboard() {
         />
       )}
 
-      {pulse && !pulseQuery.isError && (
+      {pulse && !pulseQuery.isError && hasNoData && <FirstRun />}
+
+      {pulse && !pulseQuery.isError && !hasNoData && (
         <>
-          <div className="mb-8 grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4">
-            <Kpi label="Total alerts" value={pulse.total} tone="from-white to-gray-50/80" />
-            <Kpi label="High risk" value={pulse.high_risk} tone="from-white to-red-50/30" />
-            <Kpi label="Upcoming deadlines" value={pulse.deadlines} tone="from-white to-amber-50/40" />
-            <Kpi label="Clients" value={pulse.client_count} tone="from-white to-brand-50/40" />
+          <p className="mb-8 max-w-2xl text-sm leading-relaxed text-gray-500">
+            What&apos;s due, pre-meeting briefs, and draft emails — in one place.
+          </p>
+          <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <Kpi label="Total alerts" value={pulse.total} />
+            <Kpi label="High risk" value={pulse.high_risk} />
+            <Kpi label="Upcoming deadlines" value={pulse.deadlines} />
+            <Kpi label="Clients" value={pulse.client_count} />
           </div>
 
           {alerts.length > 0 ? (
-            <Card className="mb-8 border-brand-100 bg-brand-50/40 p-6">
-              <h2 className="mb-1 text-sm font-semibold text-brand-900">Start here</h2>
-              <p className="mb-4 text-xs text-brand-700/90">
-                Your top priorities for the next 30 days. Tackle these first.
-              </p>
-              <ol className="space-y-2">
+            <Card className="mb-8 overflow-hidden">
+              <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4 sm:px-6">
+                <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                  <Sparkles className="h-4 w-4" aria-hidden />
+                </span>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">Start here</h2>
+                  <p className="mt-0.5 text-sm text-gray-500">
+                    Your top priorities for the next 30 days.
+                  </p>
+                </div>
+              </div>
+              <ol className="divide-y divide-gray-100">
                 {alerts.slice(0, 7).map((row, i) => (
-                  <li key={row.id} className="flex items-center justify-between gap-4 text-sm">
-                    <span className="text-gray-800">
-                      <strong className="text-gray-900">
-                        {i + 1}. {row.client_name}
-                      </strong>
-                      {" – "}
-                      {isReviewOverdue(row.type) ? "Annual review overdue" : row.title || alertTypeLabel(row.type)}
-                      {!isReviewOverdue(row.type) && row.trigger_date && (
-                        <span className="ml-1 text-gray-500">(due {formatDate(row.trigger_date)})</span>
-                      )}
-                    </span>
-                    <Button size="sm" className="shrink-0" onClick={() => setDraftEmailAlertId(row.id)}>
+                  <li
+                    key={row.id}
+                    className="flex items-center justify-between gap-4 px-5 py-3 sm:px-6"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-brand-50 text-xs font-semibold tabular-nums text-brand-700">
+                        {i + 1}
+                      </span>
+                      <span className="truncate text-sm text-gray-700">
+                        <strong className="font-medium text-gray-900">{row.client_name}</strong>
+                        {" — "}
+                        {isReviewOverdue(row.type) ? "Annual review overdue" : row.title || alertTypeLabel(row.type)}
+                        {!isReviewOverdue(row.type) && row.trigger_date && (
+                          <span className="ml-1 text-gray-400">· due {formatDate(row.trigger_date)}</span>
+                        )}
+                      </span>
+                    </div>
+                    <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setDraftEmailAlertId(row.id)}>
                       Draft email
                     </Button>
                   </li>
@@ -168,26 +251,35 @@ export default function Dashboard() {
           )}
 
           {overdueFollowUps.length > 0 && (
-            <Card className="mb-8 border-amber-200 bg-amber-50/50 p-6">
-              <h2 className="mb-1 text-sm font-semibold text-amber-900">Overdue follow-ups</h2>
-              <p className="mb-4 text-xs text-amber-800/90">
-                Follow-ups you committed to that are now past due. Chase these with the client.
-              </p>
-              <ul className="space-y-2">
+            <Card className="mb-8 overflow-hidden">
+              <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4 sm:px-6">
+                <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+                  <Clock className="h-4 w-4" aria-hidden />
+                </span>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">Overdue follow-ups</h2>
+                  <p className="mt-0.5 text-sm text-gray-500">
+                    Follow-ups you committed to that are now past due.
+                  </p>
+                </div>
+              </div>
+              <ul className="divide-y divide-gray-100">
                 {overdueFollowUps.map((row) => (
-                  <li key={row.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                    <span className="text-gray-800">
-                      <strong className="text-gray-900">{row.client_name}</strong>
-                      {" – "}
+                  <li
+                    key={row.id}
+                    className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 sm:px-6"
+                  >
+                    <span className="min-w-0 text-sm text-gray-700">
+                      <strong className="font-medium text-gray-900">{row.client_name}</strong>
+                      {" — "}
                       {row.title || "Follow-up"}
                       {row.trigger_date && (
-                        <span className="ml-1 text-gray-500">(was due {formatDate(row.trigger_date)})</span>
+                        <span className="ml-1 text-amber-700">· was due {formatDate(row.trigger_date)}</span>
                       )}
                     </span>
                     <div className="flex shrink-0 gap-2">
                       <Button
                         size="sm"
-                        className="bg-amber-600 hover:bg-amber-500"
                         leftIcon={<Mail className="h-4 w-4" aria-hidden />}
                         onClick={() => setDraftEmailAlertId(row.id)}
                       >
@@ -196,7 +288,6 @@ export default function Dashboard() {
                       <Button
                         variant="secondary"
                         size="sm"
-                        className="border-amber-300 text-amber-700 hover:bg-amber-50"
                         loading={updateStatus.isPending && updateStatus.variables?.alertId === row.id}
                         onClick={() => updateStatus.mutate({ alertId: row.id, status: "COMPLETED" })}
                       >
@@ -239,41 +330,30 @@ export default function Dashboard() {
                 title="Alerts over time"
                 description="Weekly count of alerts in the next 30 days from your selected date."
               />
-              <div className="bg-gray-50/50 px-6 py-6">
-                {(() => {
-                  const byWeek = alertsByWeek(alerts, simulatedDate);
-                  const maxCount = Math.max(1, ...byWeek.map((w) => w.count));
-                  return (
-                    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-gray-100 bg-gray-50/80">
-                            <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Week</th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Alerts</th>
-                            <th className="w-32 px-4 py-3"> </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {byWeek.map(({ weekLabel, count }) => (
-                            <tr key={weekLabel} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
-                              <td className="px-4 py-3 text-gray-700">{weekLabel}</td>
-                              <td className="px-4 py-3 text-right font-semibold tabular-nums text-gray-900">{count}</td>
-                              <td className="px-4 py-2">
-                                <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
-                                  <div
-                                    className="h-full rounded-full bg-brand-500"
-                                    style={{ width: `${(count / maxCount) * 100}%`, minWidth: count > 0 ? 4 : 0 }}
-                                  />
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  );
-                })()}
-              </div>
+              {(() => {
+                const byWeek = alertsByWeek(alerts, simulatedDate);
+                const maxCount = Math.max(1, ...byWeek.map((w) => w.count));
+                return (
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {byWeek.map(({ weekLabel, count }) => (
+                        <tr key={weekLabel} className="border-b border-gray-50 last:border-0">
+                          <td className="w-40 px-5 py-3 text-gray-600 sm:px-6">{weekLabel}</td>
+                          <td className="px-2 py-3">
+                            <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                              <div
+                                className="h-full rounded-full bg-brand-500 transition-all"
+                                style={{ width: `${(count / maxCount) * 100}%`, minWidth: count > 0 ? 4 : 0 }}
+                              />
+                            </div>
+                          </td>
+                          <td className="w-12 px-5 py-3 text-right font-semibold tabular-nums text-gray-900 sm:px-6">{count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                );
+              })()}
             </Card>
           )}
 

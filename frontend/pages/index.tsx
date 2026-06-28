@@ -1,5 +1,6 @@
 import Head from "next/head";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   MessageSquareText,
@@ -10,8 +11,11 @@ import {
   ArrowRight,
   Check,
   Sparkles,
+  Menu,
+  X,
 } from "lucide-react";
 import { ButtonLink } from "../components/ui";
+import { Reveal } from "../components/Reveal";
 import { GET_STARTED_HREF, ROUTES } from "../lib/routes";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from "../lib/seo";
 
@@ -111,6 +115,15 @@ function Logo() {
 }
 
 export default function LandingPage() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+
   return (
     <>
       <Head>
@@ -153,9 +166,69 @@ export default function LandingPage() {
               <ButtonLink href={GET_STARTED_HREF} size="sm">
                 Get Started
               </ButtonLink>
+              <button
+                type="button"
+                onClick={() => setMenuOpen(true)}
+                className="rounded-lg p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900 md:hidden"
+                aria-label="Open menu"
+                aria-expanded={menuOpen}
+              >
+                <Menu className="h-5 w-5" aria-hidden />
+              </button>
             </div>
           </div>
         </header>
+
+        {/* Mobile navigation drawer */}
+        {menuOpen && (
+          <div className="fixed inset-0 z-50 md:hidden">
+            <div
+              className="absolute inset-0 bg-black/40 animate-fade-in"
+              onClick={() => setMenuOpen(false)}
+              aria-hidden
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Menu"
+              className="absolute right-0 top-0 flex h-full w-72 flex-col gap-2 border-l border-gray-200 bg-white p-6 shadow-overlay"
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <Logo />
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen(false)}
+                  className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                  aria-label="Close menu"
+                >
+                  <X className="h-5 w-5" aria-hidden />
+                </button>
+              </div>
+              {NAV_LINKS.map((l) => (
+                <a
+                  key={l.href}
+                  href={l.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="rounded-lg px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100"
+                >
+                  {l.label}
+                </a>
+              ))}
+              <div className="mt-4 flex flex-col gap-3">
+                <ButtonLink href={GET_STARTED_HREF} className="w-full">
+                  Get Started
+                </ButtonLink>
+                <Link
+                  href={GET_STARTED_HREF}
+                  onClick={() => setMenuOpen(false)}
+                  className="text-center text-sm font-medium text-gray-600 hover:text-gray-900"
+                >
+                  Sign in
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
 
         <main>
           {/* ── Hero ── */}
@@ -195,6 +268,7 @@ export default function LandingPage() {
           {/* ── Features ── */}
           <section id="features" className="scroll-mt-20 border-t border-gray-100 py-20 sm:py-24">
             <div className="mx-auto max-w-6xl px-6">
+              <Reveal>
               <div className="mx-auto max-w-2xl text-center">
                 <p className="overline">Features</p>
                 <h2 className="mt-2 text-3xl font-semibold tracking-tight text-gray-900">
@@ -219,12 +293,14 @@ export default function LandingPage() {
                   </div>
                 ))}
               </div>
+              </Reveal>
             </div>
           </section>
 
           {/* ── How it works ── */}
           <section id="how" className="scroll-mt-20 border-t border-gray-100 bg-gray-50/60 py-20 sm:py-24">
             <div className="mx-auto max-w-6xl px-6">
+              <Reveal>
               <div className="mx-auto max-w-2xl text-center">
                 <p className="overline">How it works</p>
                 <h2 className="mt-2 text-3xl font-semibold tracking-tight text-gray-900">
@@ -245,6 +321,7 @@ export default function LandingPage() {
                   </li>
                 ))}
               </ol>
+              </Reveal>
             </div>
           </section>
 
@@ -298,6 +375,7 @@ export default function LandingPage() {
           {/* ── FAQ ── */}
           <section id="faq" className="scroll-mt-20 border-t border-gray-100 bg-gray-50/60 py-20 sm:py-24">
             <div className="mx-auto max-w-3xl px-6">
+              <Reveal>
               <div className="text-center">
                 <p className="overline">FAQ</p>
                 <h2 className="mt-2 text-3xl font-semibold tracking-tight text-gray-900">
@@ -318,12 +396,14 @@ export default function LandingPage() {
                   </details>
                 ))}
               </div>
+              </Reveal>
             </div>
           </section>
 
           {/* ── Closing CTA ── */}
           <section className="border-t border-gray-100 py-20 sm:py-24">
             <div className="mx-auto max-w-3xl px-6 text-center">
+              <Reveal>
               <h2 className="text-3xl font-semibold tracking-tight text-gray-900">
                 Ready to get ahead of your day?
               </h2>
@@ -340,6 +420,7 @@ export default function LandingPage() {
                   Get Started
                 </ButtonLink>
               </div>
+              </Reveal>
             </div>
           </section>
         </main>

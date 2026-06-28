@@ -80,14 +80,60 @@ export function useDocuments() {
   });
 }
 
+type AlertStatusVars = { alertId: string; status: string };
+
+interface AlertStatusContext {
+  prevPulse: [readonly unknown[], PulseData | undefined][];
+  prevAlerts: [readonly unknown[], { alerts: Alert[] } | undefined][];
+}
+
 export function useUpdateAlertStatus() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (vars: { alertId: string; status: string }) =>
+  return useMutation<Alert, ApiError, AlertStatusVars, AlertStatusContext>({
+    mutationFn: (vars) =>
       api.patch<Alert>(`/api/monitor/alerts/${encodeURIComponent(vars.alertId)}/status`, {
         status: vars.status,
       }),
-    onSuccess: () => {
+    // Optimistically reflect the change so "Mark done" feels instant: drop the
+    // alert from the dashboard pulse and flip its status in any alerts table.
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: ["pulse"] });
+      await qc.cancelQueries({ queryKey: ["alerts"] });
+
+      const prevPulse = qc.getQueriesData<PulseData>({ queryKey: ["pulse"] });
+      const prevAlerts = qc.getQueriesData<{ alerts: Alert[] }>({ queryKey: ["alerts"] });
+
+      const isDone = vars.status === "COMPLETED";
+
+      qc.setQueriesData<PulseData>({ queryKey: ["pulse"] }, (old) =>
+        old && isDone
+          ? {
+              ...old,
+              alerts: old.alerts.filter((a) => a.id !== vars.alertId),
+              overdue_follow_ups: old.overdue_follow_ups?.filter(
+                (a) => a.id !== vars.alertId
+              ),
+            }
+          : old
+      );
+
+      qc.setQueriesData<{ alerts: Alert[] }>({ queryKey: ["alerts"] }, (old) =>
+        old
+          ? {
+              alerts: old.alerts.map((a) =>
+                a.id === vars.alertId ? { ...a, status: vars.status } : a
+              ),
+            }
+          : old
+      );
+
+      return { prevPulse, prevAlerts };
+    },
+    onError: (_err, _vars, ctx) => {
+      ctx?.prevPulse.forEach(([key, data]) => qc.setQueryData(key, data));
+      ctx?.prevAlerts.forEach(([key, data]) => qc.setQueryData(key, data));
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["pulse"] });
       qc.invalidateQueries({ queryKey: ["alerts"] });
       qc.invalidateQueries({ queryKey: ["completed"] });

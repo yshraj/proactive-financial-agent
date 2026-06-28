@@ -1,0 +1,147 @@
+import Head from "next/head";
+import Link from "next/link";
+import { useRouter } from "next/router";
+import { useState } from "react";
+import { AuthShell } from "../components/AuthShell";
+import { Button, ButtonLink, useToast } from "../components/ui";
+import { getSupabaseClient, isSupabaseConfigured } from "../lib/supabase/client";
+import { APP_ENTRY, ROUTES } from "../lib/routes";
+
+function useRedirectTarget(): string {
+  const router = useRouter();
+  const raw = router.query.redirect;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value && value.startsWith("/") ? value : APP_ENTRY;
+}
+
+export default function SignupPage() {
+  const router = useRouter();
+  const { notify } = useToast();
+  const redirectTo = useRedirectTarget();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [checkEmail, setCheckEmail] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    const supabase = await getSupabaseClient();
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+    if (signUpError) {
+      setError(signUpError.message);
+      setLoading(false);
+      return;
+    }
+    // If email confirmation is required, there is no active session yet.
+    if (data.session) {
+      notify("Account created", "success");
+      router.replace(redirectTo);
+    } else {
+      setCheckEmail(true);
+      setLoading(false);
+    }
+  }
+
+  const loginHref = `${ROUTES.login}?redirect=${encodeURIComponent(redirectTo)}`;
+
+  return (
+    <>
+      <Head>
+        <title>Create account — Jarvis</title>
+        <meta name="robots" content="noindex" />
+      </Head>
+      <AuthShell
+        title="Create your account"
+        subtitle="Start turning client documents into action."
+        footer={
+          isSupabaseConfigured ? (
+            <>
+              Already have an account?{" "}
+              <Link href={loginHref} className="font-medium text-brand-600 hover:text-brand-700">
+                Sign in
+              </Link>
+            </>
+          ) : undefined
+        }
+      >
+        {!isSupabaseConfigured ? (
+          <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-5">
+            <p className="text-sm text-gray-600">
+              Sign-up isn&apos;t configured in this environment yet. You can
+              continue straight into the app.
+            </p>
+            <ButtonLink href={redirectTo} className="mt-4 w-full">
+              Continue to the app
+            </ButtonLink>
+          </div>
+        ) : checkEmail ? (
+          <div role="status" className="rounded-xl border border-brand-100 bg-brand-50/50 p-5">
+            <p className="text-sm text-brand-900">
+              Check your inbox to confirm your email, then sign in.
+            </p>
+            <ButtonLink href={loginHref} variant="secondary" className="mt-4 w-full">
+              Back to sign in
+            </ButtonLink>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            <div>
+              <label htmlFor="email" className="overline mb-1.5 block">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@firm.com"
+                className="input"
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="overline mb-1.5 block">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                autoComplete="new-password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                className="input"
+              />
+            </div>
+            {error && (
+              <p role="alert" className="text-sm text-red-600">
+                {error}
+              </p>
+            )}
+            <Button
+              type="submit"
+              loading={loading}
+              disabled={!email || password.length < 8}
+              className="w-full"
+            >
+              Create account
+            </Button>
+          </form>
+        )}
+      </AuthShell>
+    </>
+  );
+}

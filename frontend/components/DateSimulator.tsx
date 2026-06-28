@@ -90,26 +90,27 @@ export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
   const today = toISO(new Date()); // local date as YYYY-MM-DD
 
   return (
-    <div className="relative flex flex-col gap-1.5" ref={ref}>
-      <label className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+    <div className="relative flex items-center gap-2" ref={ref}>
+      <label className="overline hidden sm:block" htmlFor="simulate-date-trigger">
         Simulate date
       </label>
       <button
+        id="simulate-date-trigger"
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex h-10 max-w-[240px] items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 text-left text-sm font-medium text-gray-900 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+        className="flex h-10 max-w-[240px] items-center gap-2.5 rounded-lg border border-gray-200 bg-white px-3.5 text-left text-sm font-medium text-gray-900 shadow-xs transition-colors hover:border-gray-300 hover:bg-gray-50"
         aria-label="Choose date"
         aria-expanded={open}
       >
-        <span className="min-w-0 flex-1 truncate">{value ? formatDisplay(value) : "Select date"}</span>
         <svg className="h-4 w-4 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
+        <span className="min-w-0 flex-1 truncate">{value ? formatDisplay(value) : "Select date"}</span>
       </button>
 
       {open && (
         <div
-          className="absolute right-0 top-full z-50 mt-2 w-[300px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg ring-1 ring-black/5"
+          className="absolute right-0 top-full z-50 mt-2 w-[300px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-overlay animate-scale-in"
           role="dialog"
           aria-modal="true"
           aria-label="Choose date"
@@ -157,11 +158,11 @@ export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
                     key={iso}
                     type="button"
                     onClick={() => handleSelect(day)}
-                    className={`aspect-square min-w-[36px] rounded-lg text-[13px] font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1 ${
+                    className={`aspect-square min-w-[36px] rounded-lg text-[13px] font-medium transition-colors ${
                       isSelected
-                        ? "bg-sky-600 text-white shadow-sm hover:bg-sky-700"
+                        ? "bg-brand-600 text-white shadow-xs hover:bg-brand-700"
                         : isToday
-                          ? "bg-sky-50 text-sky-700 hover:bg-sky-100"
+                          ? "bg-brand-50 text-brand-700 hover:bg-brand-100"
                           : "text-gray-700 hover:bg-gray-100"
                     }`}
                   >
@@ -183,7 +184,7 @@ export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
             <button
               type="button"
               onClick={handleToday}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-sky-600 hover:bg-sky-50 hover:text-sky-700"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-brand-600 hover:bg-brand-50 hover:text-brand-700"
             >
               Today
             </button>

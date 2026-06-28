@@ -37,17 +37,15 @@ export default function AlertCard({
   onDraftEmail,
 }: AlertCardProps) {
   return (
-    <article className="flex flex-col rounded-xl border border-gray-200 bg-white p-5 shadow-card transition-shadow hover:shadow-card-hover">
+    <article className="flex flex-col rounded-xl border border-gray-200 bg-white p-5 shadow-xs transition-shadow hover:shadow-card-hover">
       <div className="mb-3 flex items-center gap-2">
         {ICONS[type] ?? ICONS.DEADLINE}
-        <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-          {alertTypeLabel(type)}
-        </span>
+        <span className="overline">{alertTypeLabel(type)}</span>
         {priority === "HIGH" && (
           <Badge className="ml-auto bg-red-100 text-red-700">High</Badge>
         )}
       </div>
-      <h3 className="mb-1 text-base font-semibold text-gray-900">
+      <h3 className="mb-1 text-sm font-semibold text-gray-900">
         {title || "Alert"}
       </h3>
       {clientName && <p className="mb-2 text-sm text-gray-500">{clientName}</p>}

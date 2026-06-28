@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Download, FileText, Sparkles } from "lucide-react";
 import { useLayout } from "../contexts/LayoutContext";
@@ -17,7 +17,10 @@ export default function BriefPage() {
   const printableRef = useRef<HTMLDivElement>(null);
 
   const clientsQuery = useClients();
-  const clients = clientsQuery.data?.clients ?? [];
+  const clients = useMemo(
+    () => clientsQuery.data?.clients ?? [],
+    [clientsQuery.data]
+  );
   const brief = useBrief();
 
   useEffect(() => {

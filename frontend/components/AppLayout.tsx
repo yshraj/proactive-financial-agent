@@ -10,8 +10,11 @@ import {
   Settings as SettingsIcon,
   Menu,
   X,
+  LogOut,
 } from "lucide-react";
 import { useLayout } from "../contexts/LayoutContext";
+import { useAuth } from "../contexts/AuthContext";
+import { ROUTES } from "../lib/routes";
 
 function Logo() {
   return (
@@ -87,15 +90,39 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function AccountMenu() {
+  const router = useRouter();
+  const { configured, user, signOut } = useAuth();
+  const email = user?.email ?? "";
+  const initials = email ? email.slice(0, 2).toUpperCase() : "FA";
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push(ROUTES.login);
+  };
+
   return (
-    <div className="mt-auto flex items-center gap-3 border-t border-gray-100 pt-4">
-      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-700">
-        FA
-      </span>
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-gray-900">Adviser</p>
-        <p className="truncate text-xs text-gray-500">Jarvis workspace</p>
+    <div className="mt-auto border-t border-gray-100 pt-4">
+      <div className="flex items-center gap-3">
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-700">
+          {initials}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-gray-900">
+            {configured && email ? email : "Adviser"}
+          </p>
+          <p className="truncate text-xs text-gray-500">Jarvis workspace</p>
+        </div>
       </div>
+      {configured && user && (
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="mt-3 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+        >
+          <LogOut className="h-4 w-4" aria-hidden />
+          Sign out
+        </button>
+      )}
     </div>
   );
 }

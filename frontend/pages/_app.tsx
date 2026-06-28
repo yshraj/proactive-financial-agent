@@ -5,6 +5,7 @@ import { useRouter } from "next/router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "../styles/globals.css";
 import { LayoutProvider } from "../contexts/LayoutContext";
+import { AuthProvider, AuthGuard } from "../contexts/AuthContext";
 import AppLayout from "../components/AppLayout";
 import { ErrorBoundary, ToastProvider } from "../components/ui";
 import { BARE_ROUTES } from "../lib/routes";
@@ -40,9 +41,13 @@ export default function App({ Component, pageProps }: AppProps) {
     <div className={`${inter.variable} font-sans`}>
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
-          <LayoutProvider>
-            {isBare ? page : <AppLayout>{page}</AppLayout>}
-          </LayoutProvider>
+          <AuthProvider>
+            <LayoutProvider>
+              <AuthGuard>
+                {isBare ? page : <AppLayout>{page}</AppLayout>}
+              </AuthGuard>
+            </LayoutProvider>
+          </AuthProvider>
         </ToastProvider>
       </QueryClientProvider>
     </div>

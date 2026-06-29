@@ -17,4 +17,14 @@ export class AiCopilotPage {
     await expect(this.page.getByTestId("ai-copilot-answer")).toBeVisible();
     await expect(this.page.getByText(/unused ISA allowance/i)).toBeVisible();
   }
+
+  async selectClientScope(clientLabel: string) {
+    await this.page.getByTestId("copilot-client-filter").selectOption({ label: clientLabel });
+  }
+
+  async askScopedQuestion() {
+    await this.page.getByTestId("ai-copilot-input").fill("Summarise open action items for this client");
+    await this.page.getByTestId("ai-copilot-submit").click();
+    await expect(this.page.getByTestId("ai-copilot-answer")).toBeVisible();
+  }
 }

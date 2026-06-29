@@ -2,6 +2,7 @@ import { expect, type Page } from "@playwright/test";
 
 const NAV_TEST_IDS: Record<string, string> = {
   Dashboard: "nav-link-dashboard",
+  Clients: "nav-link-clients",
   "AI Copilot": "nav-link-ai-copilot",
   "Meeting Brief": "nav-link-meeting-brief",
   Alerts: "nav-link-alerts",
@@ -17,19 +18,20 @@ export class AppShell {
   }
 
   async navigateTo(label: keyof typeof NAV_TEST_IDS) {
-    const links = this.page.getByTestId(NAV_TEST_IDS[label]);
-    if (await links.first().isVisible().catch(() => false)) {
-      await links.first().click();
+    const testId = NAV_TEST_IDS[label];
+    const mobileBtn = this.page.getByTestId("mobile-menu-button");
+
+    if (await mobileBtn.isVisible().catch(() => false)) {
+      await mobileBtn.click();
+      const drawer = this.page.getByRole("dialog", { name: "Navigation menu" });
+      await expect(drawer).toBeVisible();
+      await drawer.getByTestId(testId).click();
+      await this.page.waitForLoadState("domcontentloaded");
       return;
     }
 
-    if (await this.page.getByTestId("mobile-menu-button").isVisible().catch(() => false)) {
-      await this.page.getByTestId("mobile-menu-button").click();
-      await links.last().click();
-      return;
-    }
-
-    await links.first().click();
+    await this.page.getByTestId(testId).first().click();
+    await this.page.waitForLoadState("domcontentloaded");
   }
 
   async signOutIfAvailable() {

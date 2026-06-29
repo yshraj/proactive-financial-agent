@@ -1,7 +1,9 @@
 import { expect, test as base } from "@playwright/test";
 import { collectConsoleErrors } from "../helpers/console";
 import { AiCopilotPage } from "../pages/AiCopilotPage";
+import { AlertsPage } from "../pages/AlertsPage";
 import { AppShell } from "../pages/AppShell";
+import { ClientsPage } from "../pages/ClientsPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { IngestionPage } from "../pages/IngestionPage";
 import { LandingPage } from "../pages/LandingPage";
@@ -12,6 +14,8 @@ import { SettingsPage } from "../pages/SettingsPage";
 type AppFixtures = {
   app: {
     aiCopilot: AiCopilotPage;
+    alerts: AlertsPage;
+    clients: ClientsPage;
     dashboard: DashboardPage;
     ingestion: IngestionPage;
     landing: LandingPage;
@@ -32,6 +36,8 @@ export const test = base.extend<AppFixtures>({
   app: async ({ page }, use) => {
     await use({
       aiCopilot: new AiCopilotPage(page),
+      alerts: new AlertsPage(page),
+      clients: new ClientsPage(page),
       dashboard: new DashboardPage(page),
       ingestion: new IngestionPage(page),
       landing: new LandingPage(page),

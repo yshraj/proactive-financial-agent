@@ -18,6 +18,10 @@ test.describe("complete adviser journey", () => {
     await app.aiCopilot.expectLoaded();
     await captureMajorPageScreenshot(page, testInfo, "ai-copilot");
 
+    await app.shell.navigateTo("Clients");
+    await app.clients.expectLoaded();
+    await captureMajorPageScreenshot(page, testInfo, "clients");
+
     await app.shell.navigateTo("Meeting Brief");
     await app.meetingBrief.expectLoaded();
     await captureMajorPageScreenshot(page, testInfo, "meeting-brief");

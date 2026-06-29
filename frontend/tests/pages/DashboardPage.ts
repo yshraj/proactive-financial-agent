@@ -18,4 +18,15 @@ export class DashboardPage {
     await expect(this.page.getByTestId("kpi-card-follow-ups")).toBeVisible();
     await expect(this.page.getByTestId("kpi-card-compliance-items")).toBeVisible();
   }
+
+  async expectDigestVisible() {
+    await expect(this.page.getByTestId("dashboard-digest-card")).toBeVisible();
+    await expect(this.page.getByText(/Today's briefing/i)).toBeVisible();
+  }
+
+  async clickFirstPrepareBrief() {
+    const btn = this.page.getByTestId("prepare-brief-a1");
+    await expect(btn).toBeVisible();
+    await btn.click();
+  }
 }

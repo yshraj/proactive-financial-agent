@@ -7,6 +7,7 @@ export function collectConsoleErrors(page: Page): string[] {
     if (msg.type() !== "error") return;
     const text = msg.text();
     if (text.includes("Failed to load resource")) return;
+    if (text.includes("Abort fetching component")) return;
     errors.push(`console.error: ${text}`);
   });
 

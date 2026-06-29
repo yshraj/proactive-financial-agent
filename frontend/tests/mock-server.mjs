@@ -44,10 +44,61 @@ const DOCUMENTS = [
   { id: "d2", filename: "Chen_MeetingNotes_Jan.docx", content_hash: "cd34", file_size_bytes: 45056, uploaded_at: plus(-2) + "T14:05:00" },
 ];
 
+const CLIENT_DETAILS = {
+  c1: {
+    id: "c1",
+    full_name: "Alan & Lynne Partridge",
+    last_review_date: plus(-400),
+    retirement_target_age: 65,
+    risk_score: 5,
+    total_assets: 895000,
+    cash_savings: 62000,
+    raw_profile_json: null,
+    pending_alerts: [ALERTS[0]],
+    overdue_follow_ups: OVERDUE_FOLLOW_UPS.filter((a) => a.client_id === "c1"),
+    document_count: 1,
+    summary:
+      "Alan & Lynne Partridge last reviewed over a year ago with £895k assets. Priority: annual review in 3 days and pension contribution decision.",
+  },
+  c2: {
+    id: "c2",
+    full_name: "David & Sarah Chen",
+    last_review_date: plus(-120),
+    retirement_target_age: 60,
+    risk_score: 6,
+    total_assets: 620000,
+    cash_savings: 62000,
+    raw_profile_json: null,
+    pending_alerts: [ALERTS[1]],
+    overdue_follow_ups: [],
+    document_count: 1,
+    summary:
+      "David & Sarah Chen have unused ISA allowance and strong cash holdings. Follow up on tax-year planning.",
+  },
+};
+
+const CLIENTS_ENRICHED = CLIENTS.map((c) => ({
+  ...c,
+  last_review_date: CLIENT_DETAILS[c.id]?.last_review_date ?? plus(-200),
+  total_assets: CLIENT_DETAILS[c.id]?.total_assets ?? 500000,
+  risk_score: CLIENT_DETAILS[c.id]?.risk_score ?? 5,
+  open_alert_count: ALERTS.filter((a) => a.client_id === c.id).length,
+}));
+
+const DIGEST =
+  "Good morning. Start with Alan & Lynne Partridge — their annual review is due in 3 days and a pension decision is outstanding. Priya & Anil Sharma needs a signed LOA chased (21 days overdue). The Williams Family review is also overdue under Consumer Duty.";
+
 const CHAT_ANSWER =
-  "Based on your records, **David & Sarah Chen** have £20,000 of unused ISA allowance and **The Williams Family** have about £8,500 remaining. Prioritise the Chens given their cash holdings.";
+  "Based on your records, **David & Sarah Chen** have £20,000 of unused ISA allowance [1] and **The Williams Family** have about £8,500 remaining. Prioritise the Chens given their cash holdings.";
 const CHAT_SOURCES = [
-  { content: "Joint Savings: £62,000 easy access. Discussed using ISA allowance...", client_name: "David & Sarah Chen", doc_type: "Meeting notes", date: plus(-2) },
+  {
+    ref: 1,
+    content: "Joint Savings: £62,000 easy access. Discussed using ISA allowance...",
+    client_name: "David & Sarah Chen",
+    doc_type: "Meeting notes",
+    date: plus(-2),
+    relevance: 0.72,
+  },
 ];
 const BRIEF =
   "## Alan & Lynne Partridge\n\n### Client Snapshot\n- Total assets: **£895,000**; risk score **5/10**.\n\n### Upcoming Reviews\n- **Next review due in 3 days**.\n\n### Action Checklist\n- Alan to decide on pension contribution increase.";
@@ -85,7 +136,16 @@ const server = createServer((req, res) => {
       });
     }
     if (path === "/api/monitor/completed") return send(res, 200, { alerts: COMPLETED });
-    if (path === "/api/monitor/clients") return send(res, 200, { clients: CLIENTS });
+    if (path === "/api/monitor/clients") return send(res, 200, { clients: CLIENTS_ENRICHED });
+    if (path.startsWith("/api/monitor/clients/")) {
+      const id = path.split("/").pop();
+      const detail = CLIENT_DETAILS[id];
+      if (!detail) return send(res, 404, { detail: "Client not found" });
+      return send(res, 200, detail);
+    }
+    if (path === "/api/monitor/digest") {
+      return send(res, 200, { digest: DIGEST, generated_at: new Date().toISOString() });
+    }
     if (path === "/api/monitor/alerts")
       return send(res, 200, { alerts: [...ALERTS, ...REVIEW_OVERDUE, ...OVERDUE_FOLLOW_UPS] });
     if (path === "/api/ingest/documents") return send(res, 200, DOCUMENTS);
@@ -98,7 +158,11 @@ const server = createServer((req, res) => {
     if (path === "/api/chat") return send(res, 200, { answer: CHAT_ANSWER, sources: CHAT_SOURCES });
     if (path === "/api/chat/brief") return send(res, 200, { brief: BRIEF, talking_points: TALKING_POINTS });
     if (path === "/api/monitor/draft-email")
-      return send(res, 200, { draft: "Dear Alan and Lynne,\n\nAhead of our review, I wanted to confirm the pension contribution change and share an updated cashflow projection.\n\nKind regards," });
+      return send(res, 200, {
+        draft:
+          "Dear Alan and Lynne,\n\nAhead of our review, I wanted to confirm the pension contribution change and share an updated cashflow projection.\n\nKind regards,",
+        subject: "Follow-up: Alan & Lynne Partridge",
+      });
     if (path === "/api/ingest/upload")
       return send(res, 200, { id: "uploaded-doc", filename: "sample-client-note.pdf", content_hash: "upload", file_size_bytes: 620, uploaded_at: new Date().toISOString(), processing_error: null });
     if (path === "/api/settings/clear-data") return send(res, 200, { ok: true, message: "All data cleared." });

@@ -33,7 +33,7 @@ E2E_EMAIL=adviser@example.com
 E2E_PASSWORD=your-test-password
 ```
 
-When Supabase auth is not configured, tests use the local "Continue to the app" flow. When auth is configured, `E2E_EMAIL` and `E2E_PASSWORD` are required.
+When Supabase auth is not configured, tests use the local **Enter demo workspace** flow. When auth is configured, `E2E_EMAIL` and `E2E_PASSWORD` are required.
 
 ## Artifacts
 

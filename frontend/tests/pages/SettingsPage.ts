@@ -17,6 +17,10 @@ export class SettingsPage {
     await expect(this.page.getByTestId("audit-log-card")).toBeVisible();
   }
 
+  async approveFirstAuditEntry() {
+    await this.page.locator('[data-testid^="audit-approve-"]').first().click();
+  }
+
   /** Click an export button and return the resulting download's suggested filename. */
   async exportData(type: "clients" | "alerts"): Promise<string> {
     const testId = type === "clients" ? "export-clients-button" : "export-alerts-button";

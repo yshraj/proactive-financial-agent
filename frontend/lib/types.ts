@@ -163,6 +163,8 @@ export interface AuditEntry {
   model?: string | null;
   preview: string;
   ai_generated: boolean;
+  reviewed: boolean;
+  reviewed_at?: string | null;
 }
 
 export interface AuditLogResponse {

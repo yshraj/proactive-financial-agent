@@ -4,6 +4,7 @@ Duty signals. Deterministic (no LLM); the heavy lifting is in services/complianc
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -61,6 +62,8 @@ class AuditEntry(BaseModel):
     model: Optional[str] = None
     preview: str
     ai_generated: bool
+    reviewed: bool = False
+    reviewed_at: Optional[str] = None
 
 
 class AuditResponse(BaseModel):
@@ -71,3 +74,13 @@ class AuditResponse(BaseModel):
 def get_audit(limit: int = Query(50, ge=1, le=500, description="Max entries to return")):
     """Recent AI-output audit trail (newest first) for accountability."""
     return AuditResponse(entries=[AuditEntry(**e) for e in audit.recent(limit)])
+
+
+@router.post("/audit/{entry_id}/approve", response_model=AuditEntry)
+@limiter.limit("60/minute")
+def approve_audit_entry(request: Request, entry_id: int):
+    """Mark an AI output as human-reviewed — the Consumer-Duty approval gate."""
+    updated = audit.approve(entry_id, datetime.now().isoformat())
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Audit entry not found.")
+    return AuditEntry(**updated)

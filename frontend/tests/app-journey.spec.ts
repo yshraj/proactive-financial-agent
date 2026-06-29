@@ -86,6 +86,15 @@ test.describe("complete adviser journey", () => {
     expect(await app.settings.exportData("alerts")).toBe("kritifin-alerts.csv");
   });
 
+  test("approve an AI audit entry", async ({ app, page }) => {
+    await app.settings.goto();
+    await app.settings.expectLoaded();
+    await app.settings.expectAuditLogVisible();
+    await waitForSuccessfulApiResponse(page, "/approve", () =>
+      app.settings.approveFirstAuditEntry()
+    );
+  });
+
   test("settings page loads and logout works when auth is enabled", async ({ app }) => {
     await app.settings.goto();
     await app.settings.expectLoaded();

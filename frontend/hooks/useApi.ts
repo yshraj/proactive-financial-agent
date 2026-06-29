@@ -332,6 +332,15 @@ export function useAuditLog() {
   });
 }
 
+export function useApproveAuditEntry() {
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, number>({
+    mutationFn: (entryId) =>
+      api.post(`/api/compliance/audit/${entryId}/approve`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["audit"] }),
+  });
+}
+
 export function useComplianceScan() {
   return useMutation<ComplianceScanResponse, ApiError, string>({
     mutationFn: (text: string) =>

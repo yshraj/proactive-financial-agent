@@ -211,6 +211,8 @@ const server = createServer((req, res) => {
             model: "gpt-4o-mini",
             preview: "# Client review note — Alan & Lynne Partridge …",
             ai_generated: false,
+            reviewed: false,
+            reviewed_at: null,
           },
         ],
       });
@@ -250,6 +252,21 @@ const server = createServer((req, res) => {
     }
     if (/^\/api\/monitor\/clients\/[^/]+\/apply-playbook$/.test(path))
       return send(res, 200, { applied: 3 });
+    if (/^\/api\/compliance\/audit\/[^/]+\/approve$/.test(path)) {
+      const id = Number(path.split("/")[4]);
+      return send(res, 200, {
+        id,
+        kind: "review_note",
+        timestamp: new Date().toISOString(),
+        client_id: "c1",
+        client_name: "Alan & Lynne Partridge",
+        model: "gpt-4o-mini",
+        preview: "# Client review note …",
+        ai_generated: false,
+        reviewed: true,
+        reviewed_at: new Date().toISOString(),
+      });
+    }
     if (/^\/api\/monitor\/clients\/[^/]+\/review-note$/.test(path))
       return send(res, 200, {
         note:

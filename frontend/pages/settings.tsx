@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Download, History, Trash2 } from "lucide-react";
 import { Card, CardHeader, Button, Modal, useToast, PageIntro, PageShell } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useAuditLog, useClearData, useExportData } from "../hooks/useApi";
+import { useApproveAuditEntry, useAuditLog, useClearData, useExportData } from "../hooks/useApi";
 import type { ExportType } from "../lib/export";
 import { formatDateTime } from "../lib/format";
 
@@ -48,8 +48,17 @@ export default function SettingsPage() {
   const exportData = useExportData();
   const auditLog = useAuditLog();
   const auditEntries = auditLog.data?.entries ?? [];
+  const approveEntry = useApproveAuditEntry();
 
   usePageSetup("Settings");
+
+  const handleApprove = (id: number) => {
+    approveEntry.mutate(id, {
+      onSuccess: () => notify("Marked as reviewed.", "success"),
+      onError: (e: unknown) =>
+        notify(e instanceof Error ? e.message : "Couldn't approve", "error"),
+    });
+  };
 
   const handleExport = (type: ExportType) => {
     exportData.mutate(type, {
@@ -141,6 +150,24 @@ export default function SettingsPage() {
                         {entry.ai_generated ? "" : " · fallback"}
                       </p>
                     </div>
+                    {entry.reviewed ? (
+                      <span
+                        className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700"
+                        data-testid={`audit-reviewed-${entry.id}`}
+                      >
+                        Reviewed
+                      </span>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleApprove(entry.id)}
+                        loading={approveEntry.isPending && approveEntry.variables === entry.id}
+                        data-testid={`audit-approve-${entry.id}`}
+                      >
+                        Mark reviewed
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>

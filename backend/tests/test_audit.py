@@ -41,6 +41,25 @@ def test_clear_empties_the_log():
     assert audit.recent() == []
 
 
+def test_new_entries_start_unreviewed():
+    entry = audit.record(kind="review_note", timestamp="t", output="x")
+    assert entry["reviewed"] is False
+    assert entry["reviewed_at"] is None
+
+
+def test_approve_marks_reviewed():
+    entry = audit.record(kind="review_note", timestamp="t", output="x")
+    updated = audit.approve(entry["id"], "2026-06-29T12:00:00")
+    assert updated["reviewed"] is True
+    assert updated["reviewed_at"] == "2026-06-29T12:00:00"
+    # Persisted: a fresh read reflects the approval.
+    assert audit.recent()[0]["reviewed"] is True
+
+
+def test_approve_unknown_returns_none():
+    assert audit.approve(99999, "t") is None
+
+
 def test_records_metadata():
     entry = audit.record(
         kind="review_note",

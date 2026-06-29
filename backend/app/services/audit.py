@@ -56,16 +56,33 @@ def record(
             "model": model,
             "preview": preview,
             "ai_generated": ai_generated,
+            "reviewed": False,
+            "reviewed_at": None,
         }
         _entries.append(entry)
-        return entry
+        return dict(entry)
+
+
+def approve(entry_id: int, reviewed_at: str) -> Optional[dict[str, Any]]:
+    """
+    Mark an AI output as human-reviewed (the Consumer-Duty approval gate).
+
+    Returns the updated entry, or None if the id is unknown (e.g. evicted).
+    """
+    with _lock:
+        for entry in _entries:
+            if entry["id"] == entry_id:
+                entry["reviewed"] = True
+                entry["reviewed_at"] = reviewed_at
+                return dict(entry)
+    return None
 
 
 def recent(limit: int = 50) -> list[dict[str, Any]]:
     """Return up to ``limit`` most-recent entries, newest first."""
     limit = max(1, min(limit, _MAX_ENTRIES))
     with _lock:
-        items = list(_entries)[-limit:]
+        items = [dict(e) for e in list(_entries)[-limit:]]
     items.reverse()
     return items
 

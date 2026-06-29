@@ -92,6 +92,7 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 - **Async ingestion + job status** — Background processing via FastAPI BackgroundTasks (in-process, no external worker): `POST /api/ingest/upload-async` returns a job id, polled at `GET /api/ingest/jobs/{id}` (`services/jobs.py`). The synchronous `/upload` is unchanged.
 - **Compliance signal scan** — Paste notes to flag vulnerability drivers (FCA FG21/1) and Consumer Duty signals; deterministic word-boundary matching with contextual excerpts (`POST /api/compliance/scan`, `services/compliance.py`).
 - **AI audit log** — In-memory, accountable trail of AI outputs (review notes, draft emails, digests) via `GET /api/compliance/audit` (`services/audit.py`), shown on Settings and cleared on data reset.
+- **Human-review approval gate** — Mark AI outputs as reviewed (`POST /api/compliance/audit/{id}/approve`) — a Consumer-Duty accountability step surfaced on the Settings audit log.
 - **Extraction cache** — LLM result cached by content hash (24 h).
 - **Upload validation** — Magic-byte checks and size limits via `safety.py`.
 

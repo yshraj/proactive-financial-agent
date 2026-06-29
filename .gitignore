@@ -48,3 +48,6 @@ frontend/tests/.auth/
 
 # Local pyc cache used during validation
 backend/.pycache/
+
+# Local dummy/sample documents for manual testing (not committed)
+sample-documents/

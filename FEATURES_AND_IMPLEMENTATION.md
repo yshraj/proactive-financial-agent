@@ -94,6 +94,7 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 - **Compliance signal scan** — Paste notes to flag vulnerability drivers (FCA FG21/1) and Consumer Duty signals; deterministic word-boundary matching with contextual excerpts (`POST /api/compliance/scan`, `services/compliance.py`).
 - **AI audit log** — In-memory, accountable trail of AI outputs (review notes, draft emails, digests) via `GET /api/compliance/audit` (`services/audit.py`), shown on Settings and cleared on data reset.
 - **Human-review approval gate** — Mark AI outputs as reviewed (`POST /api/compliance/audit/{id}/approve`) — a Consumer-Duty accountability step surfaced on the Settings audit log.
+- **Data-handling & AI posture** — `GET /api/compliance/posture` reports configured residency, retention, LLM provider, encryption and that the app never trains on client data (`services/posture.py`); shown on Settings.
 - **Extraction cache** — LLM result cached by content hash (24 h).
 - **Upload validation** — Magic-byte checks and size limits via `safety.py`.
 

@@ -19,6 +19,7 @@ import type {
   ClientDetail,
   ClientUpdateInput,
   ComplianceScanResponse,
+  AuditLogResponse,
   DigestResponse,
   DraftEmailResponse,
   DraftEmailSource,
@@ -294,6 +295,14 @@ export function useIngestTranscript() {
       qc.invalidateQueries({ queryKey: ["clients"] });
       qc.invalidateQueries({ queryKey: ["pulse"] });
     },
+  });
+}
+
+export function useAuditLog() {
+  return useQuery({
+    queryKey: ["audit"],
+    queryFn: () => api.get<AuditLogResponse>("/api/compliance/audit?limit=50"),
+    staleTime: 30_000,
   });
 }
 

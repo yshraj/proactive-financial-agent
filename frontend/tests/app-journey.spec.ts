@@ -81,6 +81,7 @@ test.describe("complete adviser journey", () => {
   test("settings page exports clients and alerts as CSV", async ({ app }) => {
     await app.settings.goto();
     await app.settings.expectLoaded();
+    await app.settings.expectAuditLogVisible();
     expect(await app.settings.exportData("clients")).toBe("kritifin-clients.csv");
     expect(await app.settings.exportData("alerts")).toBe("kritifin-alerts.csv");
   });

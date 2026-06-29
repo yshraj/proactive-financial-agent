@@ -179,6 +179,21 @@ const server = createServer((req, res) => {
     if (path === "/api/monitor/alerts")
       return send(res, 200, { alerts: [...ALERTS, ...REVIEW_OVERDUE, ...OVERDUE_FOLLOW_UPS] });
     if (path === "/api/ingest/documents") return send(res, 200, DOCUMENTS);
+    if (path === "/api/compliance/audit")
+      return send(res, 200, {
+        entries: [
+          {
+            id: 2,
+            kind: "review_note",
+            timestamp: new Date().toISOString(),
+            client_id: "c1",
+            client_name: "Alan & Lynne Partridge",
+            model: "gpt-4o-mini",
+            preview: "# Client review note — Alan & Lynne Partridge …",
+            ai_generated: false,
+          },
+        ],
+      });
     return send(res, 404, { detail: "not found" });
   }
 

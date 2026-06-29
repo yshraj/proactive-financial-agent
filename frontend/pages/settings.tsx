@@ -1,10 +1,17 @@
 import Head from "next/head";
 import { useState } from "react";
-import { Download, Trash2 } from "lucide-react";
+import { Download, History, Trash2 } from "lucide-react";
 import { Card, CardHeader, Button, Modal, useToast, PageIntro, PageShell } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useClearData, useExportData } from "../hooks/useApi";
+import { useAuditLog, useClearData, useExportData } from "../hooks/useApi";
 import type { ExportType } from "../lib/export";
+import { formatDateTime } from "../lib/format";
+
+const AUDIT_KIND_LABELS: Record<string, string> = {
+  review_note: "Review note",
+  draft_email: "Draft email",
+  digest: "Morning digest",
+};
 
 function SettingRow({
   icon,
@@ -39,6 +46,8 @@ export default function SettingsPage() {
   const [confirmText, setConfirmText] = useState("");
   const clearData = useClearData();
   const exportData = useExportData();
+  const auditLog = useAuditLog();
+  const auditEntries = auditLog.data?.entries ?? [];
 
   usePageSetup("Settings");
 
@@ -103,6 +112,39 @@ export default function SettingsPage() {
                 </Button>
               </div>
             </SettingRow>
+          </div>
+        </Card>
+
+        <Card data-testid="audit-log-card">
+          <CardHeader
+            title="AI audit log"
+            description="Recent AI-generated outputs, for accountability. Held in memory on the server."
+          />
+          <div className="px-6 py-5">
+            {auditEntries.length === 0 ? (
+              <p className="flex items-center gap-2 text-sm text-slate-500">
+                <History className="h-4 w-4" aria-hidden />
+                No AI activity recorded yet.
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {auditEntries.map((entry) => (
+                  <li key={entry.id} className="flex flex-wrap items-start gap-3 py-3">
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                      {AUDIT_KIND_LABELS[entry.kind] ?? entry.kind}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-slate-700">{entry.preview}</p>
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        {entry.client_name ? `${entry.client_name} · ` : ""}
+                        {formatDateTime(entry.timestamp)}
+                        {entry.ai_generated ? "" : " · fallback"}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </Card>
 

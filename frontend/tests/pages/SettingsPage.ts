@@ -13,6 +13,10 @@ export class SettingsPage {
     await expect(this.page.getByText("Data & privacy")).toBeVisible();
   }
 
+  async expectAuditLogVisible() {
+    await expect(this.page.getByTestId("audit-log-card")).toBeVisible();
+  }
+
   /** Click an export button and return the resulting download's suggested filename. */
   async exportData(type: "clients" | "alerts"): Promise<string> {
     const testId = type === "clients" ? "export-clients-button" : "export-alerts-button";

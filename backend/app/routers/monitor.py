@@ -36,6 +36,7 @@ from app.services.cache import (
     set_ as cache_set,
 )
 from app.services.client_updates import validate_client_update
+from app.services import audit
 from app.services.analytics import compute_book_analytics
 from app.services.export import rows_to_csv
 from app.services.llm import complete_with_system, resolve_model
@@ -567,8 +568,18 @@ def client_review_note(request: Request, client_id: str):
         )
         ai_generated = False
 
-    payload = {"note": note, "generated_at": datetime.now().isoformat(), "ai_generated": ai_generated}
+    generated_at = datetime.now().isoformat()
+    payload = {"note": note, "generated_at": generated_at, "ai_generated": ai_generated}
     cache_set(cache_key, payload, BRIEF_TTL)
+    audit.record(
+        kind="review_note",
+        timestamp=generated_at,
+        client_id=client_id,
+        client_name=client_name,
+        model=model,
+        output=note,
+        ai_generated=ai_generated,
+    )
     return ReviewNoteResponse(**payload)
 
 

@@ -146,6 +146,21 @@ export interface ComplianceScanResponse {
   };
 }
 
+export interface AuditEntry {
+  id: number;
+  kind: string;
+  timestamp: string;
+  client_id?: string | null;
+  client_name?: string | null;
+  model?: string | null;
+  preview: string;
+  ai_generated: boolean;
+}
+
+export interface AuditLogResponse {
+  entries: AuditEntry[];
+}
+
 export interface StoredDocument {
   id: string;
   filename: string;

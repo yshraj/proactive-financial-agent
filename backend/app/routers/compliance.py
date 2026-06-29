@@ -6,10 +6,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.security import limiter
+from app.services import audit
 from app.services.compliance import scan_text
 
 router = APIRouter()
@@ -49,3 +50,24 @@ def scan(request: Request, body: ScanRequest):
         raise HTTPException(status_code=400, detail="Provide some text to scan.")
     result = scan_text(text[:MAX_SCAN_CHARS])
     return ScanResponse(**result)
+
+
+class AuditEntry(BaseModel):
+    id: int
+    kind: str
+    timestamp: str
+    client_id: Optional[str] = None
+    client_name: Optional[str] = None
+    model: Optional[str] = None
+    preview: str
+    ai_generated: bool
+
+
+class AuditResponse(BaseModel):
+    entries: list[AuditEntry]
+
+
+@router.get("/audit", response_model=AuditResponse)
+def get_audit(limit: int = Query(50, ge=1, le=500, description="Max entries to return")):
+    """Recent AI-output audit trail (newest first) for accountability."""
+    return AuditResponse(entries=[AuditEntry(**e) for e in audit.recent(limit)])

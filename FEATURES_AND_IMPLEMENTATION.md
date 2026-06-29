@@ -68,11 +68,12 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 - **Client detail** — Profile snapshot (incl. linked document count), open alerts, links to brief and Copilot.
 - **Edit details** — Correct mis-extracted profile fields (name, assets, cash, risk, retirement age, last review) via a modal, validated server-side.
 - **Client intelligence** — Deterministic engagement-risk and profile-completeness scores plus a ranked next-best-action list, computed from existing data (no LLM).
+- **Review note** — One-click Consumer-Duty review note (LLM with a deterministic fallback so it works without an LLM), with copy-to-clipboard.
 
 ### How we achieved it
 
-- **Backend:** `GET /api/monitor/clients`, `GET /api/monitor/clients/{id}`, `PATCH /api/monitor/clients/{id}`, `GET /api/monitor/analytics` — `monitor.py`; validation in `services/client_updates.py`; pure scoring in `services/scores.py`; aggregation in `services/analytics.py`.
-- **Frontend:** `frontend/pages/clients/index.tsx`, `frontend/pages/clients/[id].tsx`, `frontend/components/EditClientModal.tsx`.
+- **Backend:** `GET /api/monitor/clients`, `GET /api/monitor/clients/{id}`, `PATCH /api/monitor/clients/{id}`, `GET /api/monitor/analytics`, `POST /api/monitor/clients/{id}/review-note` — `monitor.py`; validation in `services/client_updates.py`; pure scoring in `services/scores.py`; aggregation in `services/analytics.py`; review-note fallback in `services/review_note.py`.
+- **Frontend:** `frontend/pages/clients/index.tsx`, `frontend/pages/clients/[id].tsx`, `frontend/components/EditClientModal.tsx`, `frontend/components/ReviewNoteModal.tsx`.
 
 ---
 
@@ -85,6 +86,7 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 - **Path A – LLM extraction → Postgres:** Client profile and alerts (`DEADLINE`, `OPPORTUNITY`, `COMPLIANCE`, `FOLLOW_UP`).
 - **Path B – Chunk → embed → Qdrant:** Text chunked, embedded, upserted to `client_memory`.
 - **Document ↔ client linking** — Each upload is linked to the client it produced (`ingested_documents.client_id`, migration 002) and counted on Client 360.
+- **Compliance signal scan** — Paste notes to flag vulnerability drivers (FCA FG21/1) and Consumer Duty signals; deterministic word-boundary matching with contextual excerpts (`POST /api/compliance/scan`, `services/compliance.py`).
 - **Extraction cache** — LLM result cached by content hash (24 h).
 - **Upload validation** — Magic-byte checks and size limits via `safety.py`.
 

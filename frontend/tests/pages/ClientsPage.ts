@@ -28,6 +28,12 @@ export class ClientsPage {
     await expect(this.page.getByTestId("client-ai-summary")).toBeVisible();
   }
 
+  /** Select and apply a playbook by its option value. */
+  async applyPlaybook(playbookId: string) {
+    await this.page.getByTestId("playbook-select").selectOption(playbookId);
+    await this.page.getByTestId("apply-playbook-button").click();
+  }
+
   /** Open the review-note modal and wait for the generated note to render. */
   async openReviewNote() {
     await this.page.getByTestId("client-review-note-button").click();

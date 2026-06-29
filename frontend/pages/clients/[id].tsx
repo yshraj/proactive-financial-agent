@@ -8,6 +8,7 @@ import {
   ListChecks,
   MessageSquareText,
   Pencil,
+  PlayCircle,
   ShieldAlert,
   Sparkles,
 } from "lucide-react";
@@ -25,10 +26,16 @@ import {
   Skeleton,
   PageIntro,
   PageShell,
+  useToast,
 } from "../../components/ui";
 import { useDraftEmailModalState } from "../../hooks/useDraftEmailModalState";
 import { usePageSetup } from "../../hooks/usePageSetup";
-import { useClientDetail, useClientReviewNote } from "../../hooks/useApi";
+import {
+  useApplyPlaybook,
+  useClientDetail,
+  useClientReviewNote,
+  usePlaybooks,
+} from "../../hooks/useApi";
 import { errorMessage } from "../../lib/api";
 import { formatCurrency, formatDate, formatRiskScore } from "../../lib/format";
 import { briefForClient, chatForClient, ROUTES } from "../../lib/routes";
@@ -38,11 +45,24 @@ export default function ClientDetailPage() {
   const router = useRouter();
   const clientId = typeof router.query.id === "string" ? router.query.id : undefined;
   const { source: draftEmailSource, openAlertDraft, closeDraft } = useDraftEmailModalState();
+  const { notify } = useToast();
   const [isEditing, setIsEditing] = useState(false);
   const [showReviewNote, setShowReviewNote] = useState(false);
+  const [selectedPlaybook, setSelectedPlaybook] = useState("");
   const detailQuery = useClientDetail(clientId);
   const reviewNote = useClientReviewNote(clientId);
+  const playbooksQuery = usePlaybooks();
+  const applyPlaybook = useApplyPlaybook(clientId);
+  const playbooks = playbooksQuery.data?.playbooks ?? [];
   const client = detailQuery.data;
+
+  const handleApplyPlaybook = () => {
+    if (!selectedPlaybook) return;
+    applyPlaybook.mutate(selectedPlaybook, {
+      onSuccess: (res) => notify(`Playbook applied — ${res.applied} tasks added.`, "success"),
+      onError: (e) => notify(errorMessage(e, "Couldn't apply playbook."), "error"),
+    });
+  };
 
   const openReviewNote = () => {
     setShowReviewNote(true);
@@ -252,6 +272,42 @@ export default function ClientDetailPage() {
                   </ul>
                 </div>
               )}
+            </Card>
+          )}
+
+          {playbooks.length > 0 && (
+            <Card className="p-6" data-testid="playbooks-card">
+              <div className="mb-3 flex items-center gap-2">
+                <PlayCircle className="h-4 w-4 text-brand-600" aria-hidden />
+                <h3 className="text-sm font-semibold text-slate-900">Playbooks</h3>
+              </div>
+              <p className="mb-4 text-sm text-slate-500">
+                Apply a task template to create a standard set of next steps for this client.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  className="input max-w-xs"
+                  value={selectedPlaybook}
+                  onChange={(e) => setSelectedPlaybook(e.target.value)}
+                  aria-label="Select a playbook"
+                  data-testid="playbook-select"
+                >
+                  <option value="">Choose a playbook…</option>
+                  {playbooks.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.task_count})
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  onClick={handleApplyPlaybook}
+                  loading={applyPlaybook.isPending}
+                  disabled={!selectedPlaybook}
+                  data-testid="apply-playbook-button"
+                >
+                  Apply
+                </Button>
+              </div>
             </Card>
           )}
 

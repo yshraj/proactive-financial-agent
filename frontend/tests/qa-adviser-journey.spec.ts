@@ -75,6 +75,15 @@ test.describe("adviser QA journey", () => {
     await expect(page.getByTestId("review-note-content")).toContainText("Consumer Duty");
   });
 
+  test("apply a playbook to a client", async ({ app, page }) => {
+    await page.goto("/clients/c1");
+    await app.clients.expectDetailLoaded();
+    await expect(page.getByTestId("playbooks-card")).toBeVisible();
+    await waitForSuccessfulApiResponse(page, "/apply-playbook", () =>
+      app.clients.applyPlaybook("annual_review")
+    );
+  });
+
   test("multi-turn copilot conversation keeps a thread", async ({ app }) => {
     await app.aiCopilot.goto();
     await app.aiCopilot.expectLoaded();

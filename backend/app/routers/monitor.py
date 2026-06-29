@@ -39,6 +39,7 @@ from app.services.client_updates import validate_client_update
 from app.services import audit
 from app.services.analytics import compute_book_analytics
 from app.services.export import rows_to_csv
+from app.services.playbooks import build_playbook_alerts, list_playbooks
 from app.services.llm import complete_with_system, resolve_model
 from app.services.scores import (
     at_risk_score,
@@ -265,6 +266,61 @@ def export_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="kritifin-{export_type}.csv"'},
     )
+
+
+class PlaybookOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    task_count: int
+
+
+class PlaybooksResponse(BaseModel):
+    playbooks: list[PlaybookOut]
+
+
+@router.get("/playbooks", response_model=PlaybooksResponse)
+def get_playbooks():
+    """List available task-template playbooks."""
+    return PlaybooksResponse(playbooks=[PlaybookOut(**p) for p in list_playbooks()])
+
+
+class ApplyPlaybookRequest(BaseModel):
+    playbook_id: str
+
+
+class ApplyPlaybookResponse(BaseModel):
+    applied: int
+
+
+@router.post("/clients/{client_id}/apply-playbook", response_model=ApplyPlaybookResponse)
+@limiter.limit("30/minute")
+def apply_playbook(request: Request, client_id: str, body: ApplyPlaybookRequest):
+    """Apply a playbook to a client, creating its task templates as alerts."""
+    with get_cursor() as cur:
+        cur.execute("SELECT id FROM clients WHERE id = %s", (client_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Client not found")
+    try:
+        alerts = build_playbook_alerts(body.playbook_id, datetime.now().date())
+    except KeyError:
+        raise HTTPException(status_code=400, detail="Unknown playbook.") from None
+
+    rows = [
+        (client_id, a["trigger_date"], a["type"], a["priority"], a["title"], a["description"])
+        for a in alerts
+    ]
+    with get_cursor(commit=True) as cur:
+        cur.executemany(
+            """
+            INSERT INTO alerts (client_id, trigger_date, type, priority, title, description)
+            VALUES (%s, %s::date, %s, %s, %s, %s)
+            """,
+            rows,
+        )
+    invalidate_client_ai_caches(client_id)
+    invalidate_pulse_caches()
+    return ApplyPlaybookResponse(applied=len(rows))
 
 
 def _generate_client_summary(client_name: str, profile_bits: str, alert_lines: str, model: str) -> str:

@@ -23,6 +23,7 @@ import type {
   DigestResponse,
   DraftEmailResponse,
   DraftEmailSource,
+  Playbook,
   PulseData,
   ReviewNoteResponse,
   StoredDocument,
@@ -227,6 +228,30 @@ export function useUpdateClient(clientId: string | undefined) {
       qc.invalidateQueries({ queryKey: ["clients"] });
       qc.invalidateQueries({ queryKey: ["pulse"] });
       qc.invalidateQueries({ queryKey: ["digest"] });
+    },
+  });
+}
+
+export function usePlaybooks() {
+  return useQuery({
+    queryKey: ["playbooks"],
+    queryFn: () => api.get<{ playbooks: Playbook[] }>("/api/monitor/playbooks"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useApplyPlaybook(clientId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<{ applied: number }, ApiError, string>({
+    mutationFn: (playbookId) =>
+      api.post<{ applied: number }>(
+        `/api/monitor/clients/${encodeURIComponent(clientId!)}/apply-playbook`,
+        { playbook_id: playbookId }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.clientDetail(clientId ?? "") });
+      qc.invalidateQueries({ queryKey: ["pulse"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
     },
   });
 }

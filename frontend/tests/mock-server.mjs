@@ -160,6 +160,13 @@ const server = createServer((req, res) => {
     }
     if (path === "/api/monitor/completed") return send(res, 200, { alerts: COMPLETED });
     if (path === "/api/monitor/clients") return send(res, 200, { clients: CLIENTS_ENRICHED });
+    if (path === "/api/monitor/playbooks")
+      return send(res, 200, {
+        playbooks: [
+          { id: "annual_review", name: "Annual review preparation", description: "Prep and run a review.", task_count: 3 },
+          { id: "new_client_onboarding", name: "New client onboarding", description: "Onboard a new client.", task_count: 3 },
+        ],
+      });
     if (path === "/api/monitor/analytics")
       return send(res, 200, {
         clients_total: CLIENTS.length,
@@ -228,6 +235,8 @@ const server = createServer((req, res) => {
       // Alert status update: PATCH /api/monitor/alerts/{id}/status
       return send(res, 200, { ...ALERTS[0], status: "COMPLETED" });
     }
+    if (/^\/api\/monitor\/clients\/[^/]+\/apply-playbook$/.test(path))
+      return send(res, 200, { applied: 3 });
     if (/^\/api\/monitor\/clients\/[^/]+\/review-note$/.test(path))
       return send(res, 200, {
         note:

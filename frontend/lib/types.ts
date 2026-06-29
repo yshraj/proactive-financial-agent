@@ -84,6 +84,13 @@ export interface BookAnalytics {
   reviews_overdue: number;
 }
 
+export interface Playbook {
+  id: string;
+  name: string;
+  description: string;
+  task_count: number;
+}
+
 // Partial edit of a client's extracted profile fields. Omitted fields are left
 // untouched by the backend; an explicit null clears an optional field.
 export interface ClientUpdateInput {

@@ -54,6 +54,8 @@ test.describe("adviser QA journey", () => {
     await app.clients.expectDetailLoaded();
     await expect(page.getByTestId("client-prepare-button")).toBeVisible();
     await expect(page.getByTestId("client-ask-button")).toBeVisible();
+    await expect(page.getByTestId("client-intelligence")).toBeVisible();
+    await expect(page.getByTestId("next-best-actions")).toBeVisible();
     await captureScreenshot(page, "08-client-detail", testInfo);
   });
 

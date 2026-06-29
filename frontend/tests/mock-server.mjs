@@ -59,6 +59,12 @@ const CLIENT_DETAILS = {
     document_count: 1,
     summary:
       "Alan & Lynne Partridge last reviewed over a year ago with £895k assets. Priority: annual review in 3 days and pension contribution decision.",
+    planning_completeness: { score: 100, missing: [] },
+    at_risk: { score: 65, level: "MEDIUM", rationale: "review overdue (13 months); 1 overdue follow-up(s)" },
+    next_best_actions: [
+      { action: "Book the annual review", reason: "Review is overdue — Consumer Duty expects ongoing-service evidence.", priority: "HIGH" },
+      { action: "Chase: Waiting on client: pension decision", reason: "Follow-up is past its due date.", priority: "HIGH" },
+    ],
   },
   c2: {
     id: "c2",

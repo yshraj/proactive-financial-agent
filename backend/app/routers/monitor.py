@@ -38,6 +38,11 @@ from app.services.cache import (
 from app.services.client_updates import validate_client_update
 from app.services.export import rows_to_csv
 from app.services.llm import complete_with_system, resolve_model
+from app.services.scores import (
+    at_risk_score,
+    next_best_actions,
+    planning_completeness,
+)
 from app.services.prompts import (
     CLIENT_SUMMARY_SYSTEM,
     DIGEST_SYSTEM,
@@ -78,6 +83,23 @@ class AlertOut(BaseModel):
     status: str
 
 
+class PlanningCompleteness(BaseModel):
+    score: int
+    missing: list[str] = []
+
+
+class AtRiskScore(BaseModel):
+    score: int
+    level: str
+    rationale: str
+
+
+class NextBestAction(BaseModel):
+    action: str
+    reason: str
+    priority: str
+
+
 class ClientDetailOut(BaseModel):
     id: str
     full_name: str
@@ -91,6 +113,9 @@ class ClientDetailOut(BaseModel):
     overdue_follow_ups: list[AlertOut] = []
     document_count: int = 0
     summary: Optional[str] = None
+    planning_completeness: Optional[PlanningCompleteness] = None
+    at_risk: Optional[AtRiskScore] = None
+    next_best_actions: list[NextBestAction] = []
 
 
 def _alert_from_row(r: dict) -> AlertOut:
@@ -323,6 +348,38 @@ def get_client_detail(request: Request, client_id: str):
         except Exception:
             summary = f"{client_name}: {profile_bits}. {len(pending_alerts)} open item(s)."
 
+    overdue_follow_ups = [_alert_from_row(r) for r in overdue_rows]
+
+    # Deterministic client-intelligence scores from the data already loaded.
+    review_overdue = last_review is None or last_review < review_cutoff
+    completeness = planning_completeness(
+        {
+            "total_assets": row.get("total_assets"),
+            "cash_savings": row.get("cash_savings"),
+            "risk_score": row.get("risk_score"),
+            "retirement_target_age": row.get("retirement_target_age"),
+            "last_review_date": last_review,
+        }
+    )
+    high_priority = sum(1 for a in pending_alerts if a.priority == "HIGH")
+    at_risk = at_risk_score(
+        last_review=last_review,
+        today=today,
+        overdue_follow_ups=len(overdue_follow_ups),
+        high_priority_alerts=high_priority,
+    )
+    top_pending_title = next(
+        (a.title for a in pending_alerts if a.type != "REVIEW_OVERDUE" and a.title),
+        None,
+    )
+    actions = next_best_actions(
+        completeness=completeness,
+        at_risk=at_risk,
+        review_overdue=review_overdue,
+        overdue_follow_up_titles=[a.title or "Follow-up" for a in overdue_follow_ups],
+        top_pending_title=top_pending_title,
+    )
+
     return ClientDetailOut(
         id=str(row["id"]),
         full_name=client_name,
@@ -333,9 +390,12 @@ def get_client_detail(request: Request, client_id: str):
         cash_savings=float(row["cash_savings"]) if row.get("cash_savings") is not None else None,
         raw_profile_json=raw_json if isinstance(raw_json, dict) else None,
         pending_alerts=pending_alerts,
-        overdue_follow_ups=[_alert_from_row(r) for r in overdue_rows],
+        overdue_follow_ups=overdue_follow_ups,
         document_count=document_count,
         summary=summary,
+        planning_completeness=PlanningCompleteness(**completeness),
+        at_risk=AtRiskScore(**at_risk),
+        next_best_actions=[NextBestAction(**a) for a in actions],
     )
 
 

@@ -44,12 +44,32 @@ export interface Client {
   open_alert_count?: number;
 }
 
+export interface PlanningCompleteness {
+  score: number;
+  missing: string[];
+}
+
+export interface AtRiskScore {
+  score: number;
+  level: string;
+  rationale: string;
+}
+
+export interface NextBestAction {
+  action: string;
+  reason: string;
+  priority: string;
+}
+
 export interface ClientDetail extends Client {
   raw_profile_json?: Record<string, unknown> | null;
   pending_alerts: Alert[];
   overdue_follow_ups: Alert[];
   document_count: number;
   summary?: string | null;
+  planning_completeness?: PlanningCompleteness | null;
+  at_risk?: AtRiskScore | null;
+  next_best_actions?: NextBestAction[];
 }
 
 export interface DigestResponse {

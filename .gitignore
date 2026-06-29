@@ -41,6 +41,7 @@ Thumbs.db
 # Playwright e2e artifacts
 frontend/test-results/
 frontend/playwright-report/
+frontend/playwright-results/
 frontend/blob-report/
 frontend/.cache/
 frontend/tests/.auth/

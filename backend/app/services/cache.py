@@ -17,6 +17,7 @@ DRAFT_EMAIL_TTL = 1800  # 30 min
 CHAT_TTL = 300  # 5 min
 STRUCTURED_CTX_TTL = 90  # 90 s – cache for Ask Jarvis structured context to avoid DB on every query
 EXTRACT_TTL = 86400  # 24 h (ingestion extraction by content hash)
+PULSE_TTL = 60  # 1 min – shared by /pulse and /digest to avoid duplicate DB work
 
 
 def _now() -> float:
@@ -58,3 +59,25 @@ def hash_query_for_key(query: str) -> str:
     """Stable hash for normalizing chat query for cache key."""
     normalized = (query or "").strip().lower()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+def invalidate_pulse_caches() -> None:
+    """Clear pulse snapshots when alert or client data changes."""
+    delete_prefix("pulse:")
+
+
+def invalidate_client_ai_caches(client_id: str) -> None:
+    """Bust LLM caches when client data or documents change."""
+    from app.services.prompts import PROMPT_VERSION
+
+    delete(f"brief:{PROMPT_VERSION}:{client_id}")
+    delete(f"summary:{PROMPT_VERSION}:{client_id}")
+    delete_prefix("chat:")
+    delete_prefix("digest:")
+    invalidate_pulse_caches()
+
+
+def invalidate_all_ai_caches() -> None:
+    """Clear all AI-related cache prefixes (used on full data reset)."""
+    for prefix in ("brief:", "draft:", "chat:", "extract:", "digest:", "summary:", "pulse:"):
+        delete_prefix(prefix)

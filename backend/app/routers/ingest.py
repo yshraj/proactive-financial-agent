@@ -18,8 +18,10 @@ from pydantic import BaseModel
 from app.db import get_cursor
 from app.security import limiter
 from app.services.config import ADVISER_ID
+from app.services.cache import invalidate_client_ai_caches
 from app.services import llm_extractor
 from app.services import vector_store
+from app.services.safety import public_error_message, validate_file_magic
 
 logger = logging.getLogger("jarvis.ingest")
 
@@ -115,7 +117,7 @@ def _run_dual_path_ingestion(
         extracted = llm_extractor.extract_structured(file_path)
     except Exception as e:
         logger.exception("[ingest] Extraction failed: %s", e)
-        return f"Extraction failed: {e!s}"
+        return public_error_message("ingest_extraction", e)
 
     client_data = extracted.get("client") or {}
     alerts_data = extracted.get("alerts") or []
@@ -163,6 +165,7 @@ def _run_dual_path_ingestion(
         logger.exception("[ingest] Failed to insert client: %s", e)
         return f"Failed to insert client: {e!s}"
 
+    alert_rows: list[tuple] = []
     for a in alerts_data:
         trigger_date = a.get("trigger_date")
         if not trigger_date:
@@ -177,24 +180,35 @@ def _run_dual_path_ingestion(
             action_payload = json.dumps(action_payload)
         elif action_payload is not None and not isinstance(action_payload, str):
             action_payload = json.dumps(action_payload)
+        alert_rows.append(
+            (client_id, trigger_date, typ, priority, title, description, action_type, action_payload)
+        )
+
+    if alert_rows:
         try:
             with get_cursor(commit=True) as cur:
-                cur.execute(
+                cur.executemany(
                     """
                     INSERT INTO alerts (client_id, trigger_date, type, priority, title, description, action_type, action_payload)
                     VALUES (%s, %s::date, %s, %s, %s, %s, %s, %s::jsonb)
                     """,
-                    (client_id, trigger_date, typ, priority, title, description, action_type, action_payload),
+                    alert_rows,
                 )
-            logger.info(
-                "[ingest] Postgres alert inserted: trigger_date=%s, type=%s, priority=%s, title=%s",
-                trigger_date,
-                typ,
-                priority,
-                (title or "")[:60],
-            )
+            logger.info("[ingest] Postgres alerts inserted: count=%s", len(alert_rows))
         except psycopg2.Error as err:
-            logger.warning("[ingest] Alert insert skipped (bad row): %s", err)
+            logger.warning("[ingest] Batch alert insert failed, falling back row-by-row: %s", err)
+            for row in alert_rows:
+                try:
+                    with get_cursor(commit=True) as cur:
+                        cur.execute(
+                            """
+                            INSERT INTO alerts (client_id, trigger_date, type, priority, title, description, action_type, action_payload)
+                            VALUES (%s, %s::date, %s, %s, %s, %s, %s, %s::jsonb)
+                            """,
+                            row,
+                        )
+                except psycopg2.Error as row_err:
+                    logger.warning("[ingest] Alert insert skipped (bad row): %s", row_err)
 
     try:
         doc_type = "PDF" if ext == ".pdf" else "Word"
@@ -215,6 +229,7 @@ def _run_dual_path_ingestion(
         logger.exception("[ingest] Qdrant indexing failed: %s", e)
         return f"Qdrant indexing failed: {e!s}"
 
+    invalidate_client_ai_caches(client_id)
     return None
 
 
@@ -288,6 +303,13 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
     if not content:
         raise HTTPException(status_code=400, detail="File is empty.")
 
+    ext = _get_extension(file.filename)
+    if not validate_file_magic(content, ext):
+        raise HTTPException(
+            status_code=400,
+            detail="File content does not match its extension. Only valid PDF and DOCX files are accepted.",
+        )
+
     content_hash = _compute_content_hash(content)
     existing = _find_by_hash(content_hash)
     if existing:
@@ -303,7 +325,6 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
         )
 
     _ensure_uploads_dir()
-    ext = _get_extension(file.filename)
     file_id = str(uuid.uuid4())
     stored_name = f"{file_id}{ext}"
     file_path = UPLOADS_DIR / stored_name

@@ -108,6 +108,23 @@ def upsert_to_qdrant(
     logger.info("[ingest] Qdrant upsert done: %d points in %s", len(points), collection)
 
 
+def recreate_collection(collection: str = QDRANT_COLLECTION) -> None:
+    """Delete and recreate the Qdrant collection (demo reset)."""
+    from qdrant_client.models import Distance, VectorParams
+
+    from app.services.clients import get_qdrant_client
+
+    client = get_qdrant_client()
+    try:
+        client.delete_collection(collection)
+    except Exception:
+        pass
+    client.create_collection(
+        collection_name=collection,
+        vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+    )
+
+
 def index_document_text(
     raw_text: str,
     client_id: str,

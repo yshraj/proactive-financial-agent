@@ -19,9 +19,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.auth import verify_supabase_jwt
 from app.logging_config import configure_logging
 from app.routers import chat, ingest, monitor, settings
-from app.security import limiter, require_api_key
+from app.security import limiter, require_api_key, require_auth_in_production
 
 configure_logging()
+require_auth_in_production()
 
 app = FastAPI(
     title="Jarvis API",

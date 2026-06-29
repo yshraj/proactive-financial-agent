@@ -2,21 +2,24 @@
 Settings API: clear all data (Postgres + Qdrant) for demo reset.
 """
 import logging
-import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from app.db import get_cursor
-from app.security import data_reset_enabled
-from app.services.cache import delete_prefix
+from app.security import data_reset_enabled, limiter
+from app.services.cache import invalidate_all_ai_caches
 from app.services.config import QDRANT_COLLECTION
+from app.services.safety import public_error_message
+from app.services.vector_store import recreate_collection
+import os
 
 logger = logging.getLogger("jarvis.settings")
 router = APIRouter()
 
 
 @router.post("/clear-data")
-def clear_all_data():
+@limiter.limit("3/hour")
+def clear_all_data(request: Request):
     """
     Remove all clients, alerts, ingested document metadata, and Qdrant vectors.
     Destructive: requires ALLOW_DATA_RESET=true (in addition to the API key) so it
@@ -35,31 +38,21 @@ def clear_all_data():
             cur.execute("DELETE FROM clients")
             cur.execute("DELETE FROM ingested_documents")
         # Clear in-memory caches (brief, draft, chat, extract)
-        delete_prefix("brief:")
-        delete_prefix("draft:")
-        delete_prefix("chat:")
-        delete_prefix("extract:")
+        invalidate_all_ai_caches()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to clear Postgres data: {e}") from e
+        raise HTTPException(
+            status_code=500,
+            detail=public_error_message("postgres_clear", e),
+        ) from e
 
-    # Recreate Qdrant collection (delete + create) to clear all vectors
-    url = os.environ.get("QDRANT_URL")
-    api_key = os.environ.get("QDRANT_API_KEY") or None
-    if url:
+    # Recreate Qdrant collection when configured (delete + create clears all vectors)
+    if os.environ.get("QDRANT_URL"):
         try:
-            from qdrant_client import QdrantClient
-            from qdrant_client.models import Distance, VectorParams
-
-            client = QdrantClient(url=url, api_key=api_key)
-            try:
-                client.delete_collection(QDRANT_COLLECTION)
-            except Exception:
-                pass  # Collection may not exist
-            client.create_collection(
-                collection_name=QDRANT_COLLECTION,
-                vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
-            )
+            recreate_collection(QDRANT_COLLECTION)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to clear Qdrant: {e}") from e
+            raise HTTPException(
+                status_code=500,
+                detail=public_error_message("qdrant_clear", e),
+            ) from e
 
     return {"ok": True, "message": "All data cleared (clients, alerts, ingested documents, vector index)."}

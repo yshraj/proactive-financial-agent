@@ -1,11 +1,11 @@
 """
 Monitor / Pulse API: alerts by simulated date for the dashboard (time-travel).
 GET /api/monitor/pulse?simulated_date=YYYY-MM-DD returns alerts in the next 30 days + KPI counts.
-POST /api/monitor/draft-email: generate personalised email draft for an alert (LLM).
+POST /api/monitor/draft-email: generate personalised email draft for an alert or meeting brief (LLM).
 """
+import hashlib
 import json
-import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -13,7 +13,36 @@ from pydantic import BaseModel
 
 from app.db import get_cursor
 from app.security import limiter
-from app.services.cache import DRAFT_EMAIL_TTL, delete as cache_delete, get as cache_get, set_ as cache_set
+from app.services.alert_helpers import (
+    ALERTS_WITH_CLIENT_SQL,
+    alert_from_row as _alert_row_dict,
+    alert_sort_key,
+    get_client_name,
+    require_client_name,
+    synthetic_review_overdue,
+)
+from app.services.cache import (
+    BRIEF_TTL,
+    DRAFT_EMAIL_TTL,
+    PULSE_TTL,
+    delete as cache_delete,
+    get as cache_get,
+    invalidate_client_ai_caches,
+    invalidate_pulse_caches,
+    set_ as cache_set,
+)
+from app.services.llm import complete_with_system, resolve_model
+from app.services.prompts import (
+    CLIENT_SUMMARY_SYSTEM,
+    DIGEST_SYSTEM,
+    DRAFT_ALERT_EMAIL_SYSTEM,
+    DRAFT_BRIEF_FOLLOWUP_SYSTEM,
+    PROMPT_VERSION,
+    client_summary_user_message,
+    digest_user_message,
+    draft_alert_user_message,
+    draft_brief_followup_user_message,
+)
 
 router = APIRouter()
 
@@ -21,23 +50,14 @@ router = APIRouter()
 class ClientOut(BaseModel):
     id: str
     full_name: str
+    last_review_date: Optional[str] = None
+    total_assets: Optional[float] = None
+    risk_score: Optional[float] = None
+    open_alert_count: int = 0
 
 
 class ClientsListResponse(BaseModel):
     clients: list[ClientOut]
-
-
-@router.get("/clients", response_model=ClientsListResponse)
-def get_clients():
-    """List all clients (id, full_name) for dropdowns e.g. Pre-meeting brief."""
-    with get_cursor() as cur:
-        cur.execute("SELECT id, full_name FROM clients ORDER BY full_name")
-        rows = cur.fetchall()
-    clients = [
-        ClientOut(id=str(r["id"]), full_name=(r.get("full_name") or "Unknown").strip())
-        for r in rows
-    ]
-    return ClientsListResponse(clients=clients)
 
 
 class AlertOut(BaseModel):
@@ -52,6 +72,166 @@ class AlertOut(BaseModel):
     status: str
 
 
+class ClientDetailOut(BaseModel):
+    id: str
+    full_name: str
+    last_review_date: Optional[str] = None
+    retirement_target_age: Optional[int] = None
+    risk_score: Optional[float] = None
+    total_assets: Optional[float] = None
+    cash_savings: Optional[float] = None
+    raw_profile_json: Optional[dict] = None
+    pending_alerts: list[AlertOut] = []
+    overdue_follow_ups: list[AlertOut] = []
+    document_count: int = 0
+    summary: Optional[str] = None
+
+
+def _alert_from_row(r: dict) -> AlertOut:
+    return AlertOut(**_alert_row_dict(r))
+
+
+@router.get("/clients", response_model=ClientsListResponse)
+def get_clients():
+    """List all clients with key profile fields for dropdowns and client list page."""
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT c.id, c.full_name, c.last_review_date, c.total_assets, c.risk_score,
+                   (SELECT COUNT(*) FROM alerts a
+                    WHERE a.client_id = c.id AND a.status = 'PENDING') AS open_alert_count
+            FROM clients c
+            ORDER BY c.full_name
+            """
+        )
+        rows = cur.fetchall()
+    clients = [
+        ClientOut(
+            id=str(r["id"]),
+            full_name=(r.get("full_name") or "Unknown").strip(),
+            last_review_date=r["last_review_date"].isoformat() if r.get("last_review_date") else None,
+            total_assets=float(r["total_assets"]) if r.get("total_assets") is not None else None,
+            risk_score=float(r["risk_score"]) if r.get("risk_score") is not None else None,
+            open_alert_count=int(r.get("open_alert_count") or 0),
+        )
+        for r in rows
+    ]
+    return ClientsListResponse(clients=clients)
+
+
+def _generate_client_summary(client_name: str, profile_bits: str, alert_lines: str, model: str) -> str:
+    return complete_with_system(
+        system=CLIENT_SUMMARY_SYSTEM,
+        user=client_summary_user_message(
+            client_name=client_name,
+            profile=profile_bits,
+            alerts=alert_lines,
+        ),
+        max_tokens=220,
+        model=model,
+        purpose="brief",
+    )
+
+
+@router.get("/clients/{client_id}", response_model=ClientDetailOut)
+@limiter.limit("30/minute")
+def get_client_detail(request: Request, client_id: str):
+    """Client 360° view: profile, open alerts, overdue follow-ups, and AI relationship summary."""
+    today = datetime.now().date()
+    end_90 = today + timedelta(days=90)
+    review_cutoff = today - timedelta(days=365)
+
+    with get_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, full_name, last_review_date, retirement_target_age, risk_score,
+                   total_assets, cash_savings, raw_profile_json
+            FROM clients WHERE id = %s
+            """,
+            (client_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        cur.execute(
+            f"""
+            {ALERTS_WITH_CLIENT_SQL}
+            WHERE a.client_id = %s AND a.status = 'PENDING'
+              AND a.trigger_date >= %s AND a.trigger_date <= %s
+            ORDER BY a.trigger_date, a.priority DESC
+            """,
+            (client_id, today, end_90),
+        )
+        pending_rows = cur.fetchall()
+
+        cur.execute(
+            f"""
+            {ALERTS_WITH_CLIENT_SQL}
+            WHERE a.client_id = %s AND a.trigger_date < %s
+              AND a.status = 'PENDING' AND a.type = 'FOLLOW_UP'
+            ORDER BY a.trigger_date ASC
+            """,
+            (client_id, today),
+        )
+        overdue_rows = cur.fetchall()
+
+    client_name = (row.get("full_name") or "Unknown").strip()
+    pending_alerts = [_alert_from_row(r) for r in pending_rows]
+
+    last_review = row.get("last_review_date")
+    if last_review is None or last_review < review_cutoff:
+        pending_alerts.insert(
+            0,
+            AlertOut(**synthetic_review_overdue(client_id, client_name, today)),
+        )
+
+    raw_json = row.get("raw_profile_json")
+    if isinstance(raw_json, str):
+        try:
+            raw_json = json.loads(raw_json)
+        except json.JSONDecodeError:
+            raw_json = None
+
+    profile_bits = ", ".join(
+        bit
+        for bit in [
+            f"last review {last_review}" if last_review else "no review on file",
+            f"assets {row.get('total_assets')}" if row.get("total_assets") is not None else None,
+            f"risk {row.get('risk_score')}" if row.get("risk_score") is not None else None,
+        ]
+        if bit
+    )
+    alert_lines = "; ".join(
+        f"{a.title or a.type} (due {a.trigger_date})" for a in pending_alerts[:5]
+    )
+
+    cache_key = f"summary:{PROMPT_VERSION}:{client_id}"
+    summary = cache_get(cache_key)
+    if summary is None:
+        model = resolve_model("brief")
+        try:
+            summary = _generate_client_summary(client_name, profile_bits, alert_lines, model)
+            cache_set(cache_key, summary, BRIEF_TTL)
+        except Exception:
+            summary = f"{client_name}: {profile_bits}. {len(pending_alerts)} open item(s)."
+
+    return ClientDetailOut(
+        id=str(row["id"]),
+        full_name=client_name,
+        last_review_date=last_review.isoformat() if last_review else None,
+        retirement_target_age=row.get("retirement_target_age"),
+        risk_score=float(row["risk_score"]) if row.get("risk_score") is not None else None,
+        total_assets=float(row["total_assets"]) if row.get("total_assets") is not None else None,
+        cash_savings=float(row["cash_savings"]) if row.get("cash_savings") is not None else None,
+        raw_profile_json=raw_json if isinstance(raw_json, dict) else None,
+        pending_alerts=pending_alerts,
+        overdue_follow_ups=[_alert_from_row(r) for r in overdue_rows],
+        document_count=0,
+        summary=summary,
+    )
+
+
 class PulseResponse(BaseModel):
     alerts: list[AlertOut]
     total: int
@@ -61,29 +241,27 @@ class PulseResponse(BaseModel):
     overdue_follow_ups: list[AlertOut] = []
 
 
-@router.get("/pulse", response_model=PulseResponse)
-def get_pulse(
-    simulated_date: str = Query(..., description="YYYY-MM-DD"),
-):
-    """
-    Alerts whose trigger_date is in [simulated_date, simulated_date + 30 days], status PENDING.
-    Joins clients for display name. Also returns KPI counts for the dashboard.
-    """
-    try:
-        base = datetime.strptime(simulated_date, "%Y-%m-%d").date()
-    except ValueError:
-        base = datetime.now().date()
-    end = base + timedelta(days=30)
+class DigestResponse(BaseModel):
+    digest: str
+    generated_at: str
 
+
+def _parse_simulated_date(simulated_date: str) -> date:
+    try:
+        return datetime.strptime(simulated_date, "%Y-%m-%d").date()
+    except ValueError:
+        return datetime.now().date()
+
+
+def _build_pulse(base: date) -> PulseResponse:
+    """Shared pulse logic for dashboard and morning digest."""
+    end = base + timedelta(days=30)
     review_cutoff = base - timedelta(days=365)
 
     with get_cursor() as cur:
         cur.execute(
-            """
-            SELECT a.id, a.client_id, a.trigger_date, a.type, a.priority, a.title, a.description, a.status,
-                   c.full_name AS client_name
-            FROM alerts a
-            JOIN clients c ON c.id = a.client_id
+            f"""
+            {ALERTS_WITH_CLIENT_SQL}
             WHERE a.trigger_date >= %s AND a.trigger_date <= %s AND a.status = 'PENDING'
             ORDER BY a.trigger_date, a.priority DESC
             """,
@@ -91,7 +269,6 @@ def get_pulse(
         )
         rows = cur.fetchall()
 
-        # Dynamic "Review Overdue" (Consumer Duty): clients with no review in 365+ days
         cur.execute(
             """
             SELECT c.id AS client_id, c.full_name AS client_name, c.last_review_date
@@ -106,13 +283,9 @@ def get_pulse(
         cur.execute("SELECT COUNT(*) AS n FROM clients")
         client_count = cur.fetchone()["n"] or 0
 
-        # Overdue follow-ups: PENDING FOLLOW_UP alerts whose trigger_date is before simulated date
         cur.execute(
-            """
-            SELECT a.id, a.client_id, a.trigger_date, a.type, a.priority, a.title, a.description, a.status,
-                   c.full_name AS client_name
-            FROM alerts a
-            JOIN clients c ON c.id = a.client_id
+            f"""
+            {ALERTS_WITH_CLIENT_SQL}
             WHERE a.trigger_date < %s AND a.status = 'PENDING' AND a.type = 'FOLLOW_UP'
             ORDER BY a.trigger_date ASC
             """,
@@ -120,69 +293,115 @@ def get_pulse(
         )
         overdue_follow_up_rows = cur.fetchall()
 
-    alerts = [
-        AlertOut(
-            id=str(r["id"]),
-            client_id=str(r["client_id"]),
-            client_name=(r["client_name"] or "Unknown").strip(),
-            trigger_date=r["trigger_date"].isoformat() if r["trigger_date"] else "",
-            type=(r["type"] or ""),
-            priority=(r["priority"] or ""),
-            title=r["title"],
-            description=r["description"],
-            status=(r["status"] or "PENDING"),
-        )
-        for r in rows
-    ]
+    alerts = [_alert_from_row(r) for r in rows]
 
-    # Append synthetic REVIEW_OVERDUE alerts (trigger_date = simulated date so they appear "due now")
     for r in review_overdue_rows:
         cid = str(r["client_id"])
         alerts.append(
-            AlertOut(
-                id=f"review-overdue-{cid}",
-                client_id=cid,
-                client_name=(r["client_name"] or "Unknown").strip(),
-                trigger_date=base.isoformat(),
-                type="REVIEW_OVERDUE",
-                priority="HIGH",
-                title="Annual review overdue",
-                description="No review in 12+ months. Consumer Duty requires demonstrating ongoing value.",
-                status="PENDING",
-            )
+            AlertOut(**synthetic_review_overdue(cid, r["client_name"] or "Unknown", base))
         )
 
-    # Sort by trigger_date then priority (HIGH first)
-    def sort_key(a: AlertOut):
-        return (a.trigger_date, 0 if a.priority == "HIGH" else 1 if a.priority == "MEDIUM" else 2)
-    alerts.sort(key=sort_key)
-
-    high_risk = sum(1 for a in alerts if a.priority == "HIGH")
-    deadlines = sum(1 for a in alerts if a.type == "DEADLINE")
-
-    overdue_follow_ups = [
-        AlertOut(
-            id=str(r["id"]),
-            client_id=str(r["client_id"]),
-            client_name=(r["client_name"] or "Unknown").strip(),
-            trigger_date=r["trigger_date"].isoformat() if r["trigger_date"] else "",
-            type=(r["type"] or "FOLLOW_UP"),
-            priority=(r["priority"] or "MEDIUM"),
-            title=r["title"],
-            description=r["description"],
-            status=(r["status"] or "PENDING"),
-        )
-        for r in overdue_follow_up_rows
-    ]
+    alerts.sort(key=alert_sort_key)
 
     return PulseResponse(
         alerts=alerts,
         total=len(alerts),
-        high_risk=high_risk,
-        deadlines=deadlines,
+        high_risk=sum(1 for a in alerts if a.priority == "HIGH"),
+        deadlines=sum(1 for a in alerts if a.type == "DEADLINE"),
         client_count=client_count,
-        overdue_follow_ups=overdue_follow_ups,
+        overdue_follow_ups=[_alert_from_row(r) for r in overdue_follow_up_rows],
     )
+
+
+def _get_pulse_cached(simulated_date: str) -> PulseResponse:
+    """Return pulse data, reusing a short-lived cache shared with /digest."""
+    cache_key = f"pulse:{simulated_date}"
+    cached = cache_get(cache_key)
+    if isinstance(cached, dict):
+        return PulseResponse.model_validate(cached)
+    base = _parse_simulated_date(simulated_date)
+    pulse = _build_pulse(base)
+    cache_set(cache_key, pulse.model_dump(), PULSE_TTL)
+    return pulse
+
+
+def _generate_morning_digest(pulse: PulseResponse, simulated_date: str, model: str) -> str:
+    priority_lines = [
+        f"- {a.client_name}: {a.title or a.type} (due {a.trigger_date}, {a.priority} priority)"
+        for a in pulse.alerts[:7]
+    ]
+    follow_up_lines = [
+        f"- {a.client_name}: {a.title or 'Follow-up'} (was due {a.trigger_date})"
+        for a in pulse.overdue_follow_ups[:5]
+    ]
+    context = f"""Date: {simulated_date}
+Open priorities: {pulse.total} | High priority: {pulse.high_risk} | Deadlines: {pulse.deadlines} | Clients: {pulse.client_count}
+
+Top priorities:
+{chr(10).join(priority_lines) or 'None'}
+
+Overdue follow-ups:
+{chr(10).join(follow_up_lines) or 'None'}"""
+
+    return complete_with_system(
+        system=DIGEST_SYSTEM,
+        user=digest_user_message(context=context),
+        max_tokens=280,
+        model=model,
+        purpose="brief",
+    )
+
+
+@router.get("/pulse", response_model=PulseResponse)
+def get_pulse(
+    simulated_date: str = Query(..., description="YYYY-MM-DD"),
+):
+    """
+    Alerts whose trigger_date is in [simulated_date, simulated_date + 30 days], status PENDING.
+    Joins clients for display name. Also returns KPI counts for the dashboard.
+    """
+    return _get_pulse_cached(simulated_date)
+
+
+@router.get("/digest", response_model=DigestResponse)
+@limiter.limit("30/minute")
+def get_digest(
+    request: Request,
+    simulated_date: str = Query(..., description="YYYY-MM-DD"),
+    refresh: bool = Query(False, description="Bypass cache and regenerate digest"),
+):
+    """AI-generated morning briefing summarising today's priorities from pulse data."""
+    if refresh:
+        invalidate_pulse_caches()
+    pulse = _get_pulse_cached(simulated_date)
+    pulse_json = pulse.model_dump_json()
+    ctx_hash = hashlib.md5(pulse_json.encode()).hexdigest()[:16]
+    cache_key = f"digest:{PROMPT_VERSION}:{simulated_date}:{ctx_hash}"
+
+    if not refresh:
+        cached = cache_get(cache_key)
+        if isinstance(cached, dict) and cached.get("digest"):
+            return DigestResponse(
+                digest=cached["digest"],
+                generated_at=cached.get("generated_at", datetime.now().isoformat()),
+            )
+
+    model = resolve_model("brief")
+    try:
+        digest_text = _generate_morning_digest(pulse, simulated_date, model)
+    except Exception:
+        if pulse.total == 0:
+            digest_text = "Your book looks clear today — a good moment for proactive client outreach or reviewing uploaded documents."
+        else:
+            top = pulse.alerts[0]
+            digest_text = (
+                f"You have {pulse.total} open priorities. Start with {top.client_name}: "
+                f"{top.title or top.type} due {top.trigger_date}."
+            )
+
+    generated_at = datetime.now().isoformat()
+    cache_set(cache_key, {"digest": digest_text, "generated_at": generated_at}, BRIEF_TTL)
+    return DigestResponse(digest=digest_text, generated_at=generated_at)
 
 
 class AlertsListResponse(BaseModel):
@@ -201,22 +420,13 @@ def get_alerts(
     All alerts in [simulated_date, simulated_date + days], with optional type/priority/status filters.
     Includes synthetic REVIEW_OVERDUE for clients with no review in 12+ months (PENDING only).
     """
-    if simulated_date:
-        try:
-            base = datetime.strptime(simulated_date, "%Y-%m-%d").date()
-        except ValueError:
-            base = datetime.now().date()
-    else:
-        base = datetime.now().date()
+    base = _parse_simulated_date(simulated_date) if simulated_date else datetime.now().date()
     end = base + timedelta(days=days)
     review_cutoff = base - timedelta(days=365)
 
     with get_cursor() as cur:
-        sql = """
-            SELECT a.id, a.client_id, a.trigger_date, a.type, a.priority, a.title, a.description, a.status,
-                   c.full_name AS client_name
-            FROM alerts a
-            JOIN clients c ON c.id = a.client_id
+        sql = f"""
+            {ALERTS_WITH_CLIENT_SQL}
             WHERE a.trigger_date >= %s AND a.trigger_date <= %s
             """
         params: list = [base, end]
@@ -243,20 +453,7 @@ def get_alerts(
         )
         review_overdue_rows = cur.fetchall()
 
-    alerts = [
-        AlertOut(
-            id=str(r["id"]),
-            client_id=str(r["client_id"]),
-            client_name=(r["client_name"] or "Unknown").strip(),
-            trigger_date=r["trigger_date"].isoformat() if r["trigger_date"] else "",
-            type=(r["type"] or ""),
-            priority=(r["priority"] or ""),
-            title=r["title"],
-            description=r["description"],
-            status=(r["status"] or "PENDING"),
-        )
-        for r in rows
-    ]
+    alerts = [_alert_from_row(r) for r in rows]
 
     for r in review_overdue_rows:
         cid = str(r["client_id"])
@@ -267,22 +464,10 @@ def get_alerts(
         if priority and priority != "HIGH":
             continue
         alerts.append(
-            AlertOut(
-                id=f"review-overdue-{cid}",
-                client_id=cid,
-                client_name=(r["client_name"] or "Unknown").strip(),
-                trigger_date=base.isoformat(),
-                type="REVIEW_OVERDUE",
-                priority="HIGH",
-                title="Annual review overdue",
-                description="No review in 12+ months. Consumer Duty requires demonstrating ongoing value.",
-                status="PENDING",
-            )
+            AlertOut(**synthetic_review_overdue(cid, r["client_name"] or "Unknown", base))
         )
 
-    def sort_key(a: AlertOut):
-        return (a.trigger_date, 0 if a.priority == "HIGH" else 1 if a.priority == "MEDIUM" else 2)
-    alerts.sort(key=sort_key)
+    alerts.sort(key=alert_sort_key)
 
     return AlertsListResponse(alerts=alerts)
 
@@ -297,11 +482,8 @@ def get_completed(
     """
     with get_cursor() as cur:
         cur.execute(
-            """
-            SELECT a.id, a.client_id, a.trigger_date, a.type, a.priority, a.title, a.description, a.status,
-                   c.full_name AS client_name
-            FROM alerts a
-            JOIN clients c ON c.id = a.client_id
+            f"""
+            {ALERTS_WITH_CLIENT_SQL}
             WHERE a.status = 'COMPLETED'
             ORDER BY a.updated_at DESC
             LIMIT %s
@@ -309,20 +491,7 @@ def get_completed(
             (limit,),
         )
         rows = cur.fetchall()
-    alerts = [
-        AlertOut(
-            id=str(r["id"]),
-            client_id=str(r["client_id"]),
-            client_name=(r["client_name"] or "Unknown").strip(),
-            trigger_date=r["trigger_date"].isoformat() if r["trigger_date"] else "",
-            type=(r["type"] or ""),
-            priority=(r["priority"] or ""),
-            title=r["title"],
-            description=r["description"],
-            status=(r["status"] or "COMPLETED"),
-        )
-        for r in rows
-    ]
+    alerts = [_alert_from_row(r) for r in rows]
     return AlertsListResponse(alerts=alerts)
 
 
@@ -331,7 +500,8 @@ class AlertStatusUpdate(BaseModel):
 
 
 @router.patch("/alerts/{alert_id}/status", response_model=AlertOut)
-def update_alert_status(alert_id: str, body: AlertStatusUpdate):
+@limiter.limit("60/minute")
+def update_alert_status(alert_id: str, body: AlertStatusUpdate, request: Request):
     """
     Update alert status (e.g. mark as COMPLETED). Only for real alerts (UUID); synthetic review-overdue cannot be updated.
     """
@@ -342,21 +512,25 @@ def update_alert_status(alert_id: str, body: AlertStatusUpdate):
     status = "COMPLETED" if body.status.upper() in ("COMPLETED", "DONE") else body.status.upper()
     with get_cursor(commit=True) as cur:
         cur.execute(
-            "UPDATE alerts SET status = %s, updated_at = NOW() WHERE id = %s RETURNING id, client_id, trigger_date, type, priority, title, description, status",
+            """
+            UPDATE alerts a
+            SET status = %s, updated_at = NOW()
+            FROM clients c
+            WHERE a.id = %s AND c.id = a.client_id
+            RETURNING a.id, a.client_id, a.trigger_date, a.type, a.priority,
+                      a.title, a.description, a.status, c.full_name AS client_name
+            """,
             (status, alert_id),
         )
         row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Alert not found")
-    cache_delete(f"draft:{alert_id}")
-    with get_cursor() as cur:
-        cur.execute("SELECT full_name FROM clients WHERE id = %s", (row["client_id"],))
-        client_row = cur.fetchone()
-    client_name = (client_row.get("full_name") or "Unknown").strip() if client_row else "Unknown"
+    cache_delete(f"draft:{PROMPT_VERSION}:{alert_id}")
+    invalidate_client_ai_caches(str(row["client_id"]))
     return AlertOut(
         id=str(row["id"]),
         client_id=str(row["client_id"]),
-        client_name=client_name,
+        client_name=row["client_name"] or "Unknown",
         trigger_date=row["trigger_date"].isoformat() if row["trigger_date"] else "",
         type=(row["type"] or ""),
         priority=(row["priority"] or ""),
@@ -367,56 +541,98 @@ def update_alert_status(alert_id: str, body: AlertStatusUpdate):
 
 
 class DraftEmailRequest(BaseModel):
-    alert_id: str
+    alert_id: Optional[str] = None
+    client_id: Optional[str] = None
+    context: Optional[str] = None
+    talking_points: Optional[list[str]] = None
 
 
 class DraftEmailResponse(BaseModel):
     draft: str
+    subject: Optional[str] = None
 
 
 def _call_llm_draft(client_name: str, title: str, description: str, action_payload: Optional[dict], model: str) -> str:
-    from app.services.clients import get_openai_client
-    payload_str = json.dumps(action_payload, indent=2) if action_payload else "{}"
-    prompt = f"""You are a financial adviser's assistant. Write a short, professional email draft to the client about the following alert.
-Client name: {client_name}
-Alert title: {title or 'Follow-up'}
-Alert description: {description or 'No description.'}
-Optional action context (use if relevant): {payload_str}
-
-Write only the email body (2–4 short paragraphs). Use a professional but friendly tone. Do not include subject line or greetings/signatures unless asked. Output plain text only."""
-    client = get_openai_client()
-    r = client.chat.completions.create(
+    payload_str = json.dumps(action_payload, indent=2) if action_payload else "None"
+    return complete_with_system(
+        system=DRAFT_ALERT_EMAIL_SYSTEM,
+        user=draft_alert_user_message(
+            client_name=client_name,
+            title=title or "Follow-up",
+            description=description or "No description.",
+            action_payload=payload_str,
+        ),
+        max_tokens=450,
         model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=512,
+        purpose="draft",
     )
-    return (r.choices[0].message.content or "").strip()
+
+
+def _call_llm_brief_followup(
+    client_name: str,
+    context: str,
+    talking_points: Optional[list[str]],
+    model: str,
+) -> str:
+    points_str = "\n".join(f"- {p}" for p in (talking_points or [])) if talking_points else "None listed"
+    return complete_with_system(
+        system=DRAFT_BRIEF_FOLLOWUP_SYSTEM,
+        user=draft_brief_followup_user_message(
+            client_name=client_name,
+            context=(context or "")[:3000],
+            talking_points=points_str,
+        ),
+        max_tokens=450,
+        model=model,
+        purpose="draft",
+    )
 
 
 @router.post("/draft-email", response_model=DraftEmailResponse)
 @limiter.limit("30/minute")
 def draft_email(request: Request, body: DraftEmailRequest):
-    """Generate a personalised email draft for an alert using the LLM. Cached by alert_id; invalidated when alert status is updated."""
-    alert_id = body.alert_id
-    cache_key = f"draft:{alert_id}"
+    """Generate a personalised email draft for an alert or meeting brief. Cached by alert_id or client+context hash."""
+    model = resolve_model("draft")
+
+    if body.client_id and (body.context or "").strip():
+        client_id = body.client_id.strip()
+        context = (body.context or "").strip()
+        ctx_hash = hashlib.md5(context.encode()).hexdigest()[:16]
+        cache_key = f"draft:{PROMPT_VERSION}:brief:{client_id}:{ctx_hash}"
+        draft = cache_get(cache_key)
+        if draft is not None:
+            return DraftEmailResponse(
+                draft=draft,
+                subject=f"Follow-up: {get_client_name(client_id)}",
+            )
+        try:
+            client_name = require_client_name(client_id)
+        except LookupError:
+            raise HTTPException(status_code=404, detail="Client not found") from None
+        draft = _call_llm_brief_followup(client_name, context, body.talking_points, model)
+        cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
+        return DraftEmailResponse(draft=draft, subject=f"Follow-up: {client_name}")
+
+    alert_id = (body.alert_id or "").strip()
+    if not alert_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide alert_id or client_id with context for brief follow-up.",
+        )
+
+    cache_key = f"draft:{PROMPT_VERSION}:{alert_id}"
     draft = cache_get(cache_key)
     if draft is not None:
         return DraftEmailResponse(draft=draft)
 
     if alert_id.startswith("review-overdue-"):
         client_id = alert_id.replace("review-overdue-", "", 1)
-        with get_cursor() as cur:
-            cur.execute(
-                "SELECT full_name FROM clients WHERE id = %s",
-                (client_id,),
-            )
-            row = cur.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Client not found")
-        client_name = (row.get("full_name") or "Client").strip()
+        try:
+            client_name = require_client_name(client_id)
+        except LookupError:
+            raise HTTPException(status_code=404, detail="Client not found") from None
         title = "Annual review overdue"
         description = "No review in 12+ months. Consumer Duty requires demonstrating ongoing value."
-        model = os.environ.get("LLM_MODEL", "gpt-4o")
         draft = _call_llm_draft(client_name, title, description, None, model)
         cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
         return DraftEmailResponse(draft=draft)
@@ -443,7 +659,6 @@ def draft_email(request: Request, body: DraftEmailRequest):
             action_payload = json.loads(action_payload)
         except json.JSONDecodeError:
             action_payload = None
-    model = os.environ.get("LLM_MODEL", "gpt-4o")
     draft = _call_llm_draft(client_name, title, description, action_payload, model)
     cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
     return DraftEmailResponse(draft=draft)

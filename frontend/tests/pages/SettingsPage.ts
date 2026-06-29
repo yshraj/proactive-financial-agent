@@ -17,6 +17,10 @@ export class SettingsPage {
     await expect(this.page.getByTestId("audit-log-card")).toBeVisible();
   }
 
+  async expectPostureVisible() {
+    await expect(this.page.getByTestId("posture-card")).toBeVisible();
+  }
+
   async approveFirstAuditEntry() {
     await this.page.locator('[data-testid^="audit-approve-"]').first().click();
   }

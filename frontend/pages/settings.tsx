@@ -1,9 +1,9 @@
 import Head from "next/head";
 import { useState } from "react";
-import { Download, History, Trash2 } from "lucide-react";
+import { Download, History, ShieldCheck, Trash2 } from "lucide-react";
 import { Card, CardHeader, Button, Modal, useToast, PageIntro, PageShell } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useApproveAuditEntry, useAuditLog, useClearData, useExportData } from "../hooks/useApi";
+import { useApproveAuditEntry, useAuditLog, useClearData, useCompliancePosture, useExportData } from "../hooks/useApi";
 import type { ExportType } from "../lib/export";
 import { formatDateTime } from "../lib/format";
 
@@ -49,6 +49,7 @@ export default function SettingsPage() {
   const auditLog = useAuditLog();
   const auditEntries = auditLog.data?.entries ?? [];
   const approveEntry = useApproveAuditEntry();
+  const posture = useCompliancePosture().data;
 
   usePageSetup("Settings");
 
@@ -123,6 +124,36 @@ export default function SettingsPage() {
             </SettingRow>
           </div>
         </Card>
+
+        {posture && (
+          <Card data-testid="posture-card">
+            <CardHeader
+              title="Data handling & AI posture"
+              description="How this workspace handles data and AI — for due diligence."
+            />
+            <dl className="grid grid-cols-1 gap-px bg-slate-100 sm:grid-cols-2">
+              {[
+                { label: "Trains on client data", value: posture.trains_on_client_data ? "Yes" : "No" },
+                { label: "Data residency", value: posture.data_residency },
+                { label: "LLM provider", value: posture.llm_provider },
+                {
+                  label: "Data retention",
+                  value: posture.data_retention_days != null ? `${posture.data_retention_days} days` : "Not configured",
+                },
+                { label: "Encryption in transit", value: posture.encryption_in_transit ? "Enabled" : "Not configured" },
+                { label: "Encryption at rest", value: posture.encryption_at_rest ? "Enabled" : "Not configured" },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-center gap-3 bg-white px-6 py-4">
+                  <ShieldCheck className="h-4 w-4 flex-shrink-0 text-brand-600" aria-hidden />
+                  <div>
+                    <dt className="text-xs font-medium text-slate-500">{label}</dt>
+                    <dd className="text-sm font-semibold capitalize text-slate-900">{value}</dd>
+                  </div>
+                </div>
+              ))}
+            </dl>
+          </Card>
+        )}
 
         <Card data-testid="audit-log-card">
           <CardHeader

@@ -167,6 +167,16 @@ export interface AuditEntry {
   reviewed_at?: string | null;
 }
 
+export interface CompliancePosture {
+  trains_on_client_data: boolean;
+  data_residency: string;
+  data_retention_days: number | null;
+  llm_provider: string;
+  encryption_at_rest: boolean;
+  encryption_in_transit: boolean;
+  auth_required: boolean;
+}
+
 export interface AuditLogResponse {
   entries: AuditEntry[];
 }

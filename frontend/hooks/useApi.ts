@@ -19,6 +19,7 @@ import type {
   ClientDetail,
   ClientUpdateInput,
   ComplianceScanResponse,
+  CompliancePosture,
   AuditLogResponse,
   DigestResponse,
   DraftEmailResponse,
@@ -351,6 +352,14 @@ export function useAuditLog() {
     queryKey: ["audit"],
     queryFn: () => api.get<AuditLogResponse>("/api/compliance/audit?limit=50"),
     staleTime: 30_000,
+  });
+}
+
+export function useCompliancePosture() {
+  return useQuery({
+    queryKey: ["posture"],
+    queryFn: () => api.get<CompliancePosture>("/api/compliance/posture"),
+    staleTime: 5 * 60_000,
   });
 }
 

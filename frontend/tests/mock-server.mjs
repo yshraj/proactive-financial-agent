@@ -214,6 +214,16 @@ const server = createServer((req, res) => {
         error: null,
       });
     }
+    if (path === "/api/compliance/posture")
+      return send(res, 200, {
+        trains_on_client_data: false,
+        data_residency: "UK",
+        data_retention_days: 365,
+        llm_provider: "openai",
+        encryption_at_rest: true,
+        encryption_in_transit: true,
+        auth_required: true,
+      });
     if (path === "/api/compliance/audit")
       return send(res, 200, {
         entries: [

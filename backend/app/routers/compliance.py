@@ -4,6 +4,7 @@ Duty signals. Deterministic (no LLM); the heavy lifting is in services/complianc
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Optional
 
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 from app.security import limiter
 from app.services import audit
 from app.services.compliance import scan_text
+from app.services.posture import get_posture
 
 router = APIRouter()
 
@@ -74,6 +76,22 @@ class AuditResponse(BaseModel):
 def get_audit(limit: int = Query(50, ge=1, le=500, description="Max entries to return")):
     """Recent AI-output audit trail (newest first) for accountability."""
     return AuditResponse(entries=[AuditEntry(**e) for e in audit.recent(limit)])
+
+
+class PostureResponse(BaseModel):
+    trains_on_client_data: bool
+    data_residency: str
+    data_retention_days: Optional[int] = None
+    llm_provider: str
+    encryption_at_rest: bool
+    encryption_in_transit: bool
+    auth_required: bool
+
+
+@router.get("/posture", response_model=PostureResponse)
+def get_compliance_posture():
+    """Report the deployment's configured data-handling & AI posture."""
+    return PostureResponse(**get_posture(os.environ))
 
 
 @router.post("/audit/{entry_id}/approve", response_model=AuditEntry)

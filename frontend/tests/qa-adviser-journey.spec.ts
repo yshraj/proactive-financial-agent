@@ -49,6 +49,7 @@ test.describe("adviser QA journey", () => {
     await app.dashboard.goto();
     await app.shell.navigateTo("Clients");
     await app.clients.expectLoaded();
+    await app.clients.expectAnalyticsVisible();
     await captureScreenshot(page, "07-clients-list", testInfo);
     await app.clients.openFirstClient();
     await app.clients.expectDetailLoaded();

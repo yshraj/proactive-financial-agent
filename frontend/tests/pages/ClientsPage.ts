@@ -12,6 +12,10 @@ export class ClientsPage {
     await expect(this.page.getByTestId("clients-list-page")).toBeVisible();
   }
 
+  async expectAnalyticsVisible() {
+    await expect(this.page.getByTestId("book-analytics")).toBeVisible();
+  }
+
   async openFirstClient() {
     const link = this.page.getByTestId("client-link-c1");
     await expect(link).toBeVisible();

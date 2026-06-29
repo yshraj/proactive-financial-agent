@@ -77,6 +77,13 @@ export interface DigestResponse {
   generated_at: string;
 }
 
+export interface BookAnalytics {
+  clients_total: number;
+  total_aum: number;
+  average_risk_score: number | null;
+  reviews_overdue: number;
+}
+
 // Partial edit of a client's extracted profile fields. Omitted fields are left
 // untouched by the backend; an explicit null clears an optional field.
 export interface ClientUpdateInput {

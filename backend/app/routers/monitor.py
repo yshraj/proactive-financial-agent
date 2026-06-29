@@ -36,6 +36,7 @@ from app.services.cache import (
     set_ as cache_set,
 )
 from app.services.client_updates import validate_client_update
+from app.services.analytics import compute_book_analytics
 from app.services.export import rows_to_csv
 from app.services.llm import complete_with_system, resolve_model
 from app.services.scores import (
@@ -166,6 +167,22 @@ def get_clients():
         for r in rows
     ]
     return ClientsListResponse(clients=clients)
+
+
+class BookAnalytics(BaseModel):
+    clients_total: int
+    total_aum: float
+    average_risk_score: Optional[float] = None
+    reviews_overdue: int
+
+
+@router.get("/analytics", response_model=BookAnalytics)
+def get_book_analytics():
+    """Headline metrics across the whole client book (AUM, avg risk, overdue reviews)."""
+    with get_cursor() as cur:
+        cur.execute("SELECT total_assets, risk_score, last_review_date FROM clients")
+        rows = [dict(r) for r in cur.fetchall()]
+    return BookAnalytics(**compute_book_analytics(rows, datetime.now().date()))
 
 
 # CSV export column specs: (db key, human header). Kept as data so the column

@@ -12,6 +12,7 @@ import { downloadExport, type ExportType } from "@/lib/export";
 import { uploadDocument } from "@/lib/ingest";
 import type {
   Alert,
+  BookAnalytics,
   BriefResponse,
   ChatResponse,
   Client,
@@ -29,6 +30,7 @@ export const queryKeys = {
   digest: (date: string) => ["digest", date] as const,
   completed: () => ["completed"] as const,
   clients: () => ["clients"] as const,
+  analytics: () => ["analytics"] as const,
   clientDetail: (id: string) => ["client", id] as const,
   alerts: (params: Record<string, string>) => ["alerts", params] as const,
   documents: () => ["documents"] as const,
@@ -66,6 +68,15 @@ export function useClients() {
   return useQuery({
     queryKey: queryKeys.clients(),
     queryFn: () => api.get<{ clients: Client[] }>("/api/monitor/clients"),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+  });
+}
+
+export function useBookAnalytics() {
+  return useQuery({
+    queryKey: queryKeys.analytics(),
+    queryFn: () => api.get<BookAnalytics>("/api/monitor/analytics"),
     staleTime: 60_000,
     gcTime: 10 * 60_000,
   });

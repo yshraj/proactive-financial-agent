@@ -10,6 +10,7 @@ test.describe("backend API contract smoke tests", () => {
       `/api/monitor/pulse?simulated_date=${today}`,
       "/api/monitor/completed",
       "/api/monitor/clients",
+      "/api/monitor/analytics",
       `/api/monitor/digest?simulated_date=${today}`,
       `/api/monitor/alerts?simulated_date=${today}&days=90`,
       "/api/ingest/documents",

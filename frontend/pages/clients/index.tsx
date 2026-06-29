@@ -12,7 +12,7 @@ import {
   PageShell,
 } from "../../components/ui";
 import { usePageSetup } from "../../hooks/usePageSetup";
-import { useClients } from "../../hooks/useApi";
+import { useBookAnalytics, useClients } from "../../hooks/useApi";
 import { errorMessage } from "../../lib/api";
 import { formatCurrency, formatDate, formatRiskScore } from "../../lib/format";
 import { clientDetail, ROUTES } from "../../lib/routes";
@@ -20,7 +20,9 @@ import { chatWithQuery, DEMO_COPILOT_QUERY } from "../../lib/demo";
 
 export default function ClientsPage() {
   const clientsQuery = useClients();
+  const analyticsQuery = useBookAnalytics();
   const clients = clientsQuery.data?.clients ?? [];
+  const analytics = analyticsQuery.data;
 
   usePageSetup(
     "Clients",
@@ -45,6 +47,28 @@ export default function ClientsPage() {
       <PageIntro>
         Browse your client book — profile snapshots, open alerts, and AI summaries in one place.
       </PageIntro>
+
+      {analytics && clients.length > 0 && (
+        <div
+          className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4"
+          data-testid="book-analytics"
+        >
+          {[
+            { label: "Clients", value: String(analytics.clients_total) },
+            { label: "Assets under advice", value: formatCurrency(analytics.total_aum) },
+            {
+              label: "Average risk",
+              value: formatRiskScore(analytics.average_risk_score),
+            },
+            { label: "Reviews overdue", value: String(analytics.reviews_overdue) },
+          ].map(({ label, value }) => (
+            <Card key={label} className="p-4">
+              <p className="ui-label">{label}</p>
+              <p className="mt-2 text-xl font-semibold tabular-nums text-slate-950">{value}</p>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {clientsQuery.isError && (
         <ErrorState

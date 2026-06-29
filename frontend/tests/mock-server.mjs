@@ -160,6 +160,13 @@ const server = createServer((req, res) => {
     }
     if (path === "/api/monitor/completed") return send(res, 200, { alerts: COMPLETED });
     if (path === "/api/monitor/clients") return send(res, 200, { clients: CLIENTS_ENRICHED });
+    if (path === "/api/monitor/analytics")
+      return send(res, 200, {
+        clients_total: CLIENTS.length,
+        total_aum: CLIENTS_ENRICHED.reduce((sum, c) => sum + (c.total_assets || 0), 0),
+        average_risk_score: 5,
+        reviews_overdue: 2,
+      });
     if (path.startsWith("/api/monitor/clients/")) {
       const id = path.split("/").pop();
       const detail = CLIENT_DETAILS[id];

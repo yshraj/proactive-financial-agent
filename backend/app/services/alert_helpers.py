@@ -52,10 +52,18 @@ def synthetic_review_overdue(
 
 
 def alert_sort_key(alert: Any) -> tuple:
-    """Sort by trigger_date then priority (HIGH first)."""
-    priority_rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}.get(getattr(alert, "priority", alert.get("priority")), 2)
-    trigger = getattr(alert, "trigger_date", alert.get("trigger_date", ""))
-    return (trigger, priority_rank)
+    """Sort by trigger_date then priority (HIGH first). Accepts dicts or AlertOut objects."""
+    # Read fields type-safely: a dict uses .get, a pydantic AlertOut uses attributes.
+    # (The previous one-liner eagerly evaluated alert.get(...) as a getattr default,
+    # which crashed on AlertOut objects that have no .get method.)
+    if isinstance(alert, dict):
+        priority = alert.get("priority")
+        trigger = alert.get("trigger_date", "")
+    else:
+        priority = getattr(alert, "priority", None)
+        trigger = getattr(alert, "trigger_date", "")
+    priority_rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}.get(priority, 2)
+    return (trigger or "", priority_rank)
 
 
 def get_client_name(client_id: str, default: str = "Client") -> str:

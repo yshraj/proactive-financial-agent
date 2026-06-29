@@ -59,6 +59,12 @@ const CLIENT_DETAILS = {
     document_count: 1,
     summary:
       "Alan & Lynne Partridge last reviewed over a year ago with £895k assets. Priority: annual review in 3 days and pension contribution decision.",
+    planning_completeness: { score: 100, missing: [] },
+    at_risk: { score: 65, level: "MEDIUM", rationale: "review overdue (13 months); 1 overdue follow-up(s)" },
+    next_best_actions: [
+      { action: "Book the annual review", reason: "Review is overdue — Consumer Duty expects ongoing-service evidence.", priority: "HIGH" },
+      { action: "Chase: Waiting on client: pension decision", reason: "Follow-up is past its due date.", priority: "HIGH" },
+    ],
   },
   c2: {
     id: "c2",
@@ -124,6 +130,23 @@ const server = createServer((req, res) => {
 
   if (req.method === "GET") {
     if (path === "/health") return send(res, 200, { status: "ok" });
+    if (path === "/api/monitor/export") {
+      const type = url.searchParams.get("type") === "alerts" ? "alerts" : "clients";
+      const csv =
+        type === "alerts"
+          ? "Client,Trigger date,Type,Priority,Status,Title,Description\r\nAlan & Lynne Partridge," +
+            plus(3) +
+            ",DEADLINE,HIGH,PENDING,Next review due,Scheduled annual review\r\n"
+          : "Name,Last review,Total assets,Cash savings,Risk score,Retirement target age,Open alerts\r\nAlan & Lynne Partridge," +
+            plus(-400) +
+            ",895000,62000,5,65,1\r\n";
+      res.writeHead(200, {
+        "Content-Type": "text/csv",
+        "Content-Disposition": `attachment; filename="kritifin-${type}.csv"`,
+        "Access-Control-Allow-Origin": "*",
+      });
+      return res.end(csv);
+    }
     if (path === "/api/monitor/pulse") {
       const alerts = [...ALERTS, ...REVIEW_OVERDUE];
       return send(res, 200, {
@@ -137,6 +160,20 @@ const server = createServer((req, res) => {
     }
     if (path === "/api/monitor/completed") return send(res, 200, { alerts: COMPLETED });
     if (path === "/api/monitor/clients") return send(res, 200, { clients: CLIENTS_ENRICHED });
+    if (path === "/api/monitor/playbooks")
+      return send(res, 200, {
+        playbooks: [
+          { id: "annual_review", name: "Annual review preparation", description: "Prep and run a review.", task_count: 3 },
+          { id: "new_client_onboarding", name: "New client onboarding", description: "Onboard a new client.", task_count: 3 },
+        ],
+      });
+    if (path === "/api/monitor/analytics")
+      return send(res, 200, {
+        clients_total: CLIENTS.length,
+        total_aum: CLIENTS_ENRICHED.reduce((sum, c) => sum + (c.total_assets || 0), 0),
+        average_risk_score: 5,
+        reviews_overdue: 2,
+      });
     if (path.startsWith("/api/monitor/clients/")) {
       const id = path.split("/").pop();
       const detail = CLIENT_DETAILS[id];
@@ -149,13 +186,132 @@ const server = createServer((req, res) => {
     if (path === "/api/monitor/alerts")
       return send(res, 200, { alerts: [...ALERTS, ...REVIEW_OVERDUE, ...OVERDUE_FOLLOW_UPS] });
     if (path === "/api/ingest/documents") return send(res, 200, DOCUMENTS);
+    if (path === "/api/ingest/note-templates")
+      return send(res, 200, {
+        templates: [
+          { id: "discovery", name: "Discovery meeting", section_count: 5 },
+          { id: "annual_review", name: "Annual review", section_count: 6 },
+        ],
+      });
+    if (/^\/api\/ingest\/note-templates\/[^/]+$/.test(path)) {
+      const id = path.split("/").pop();
+      return send(res, 200, {
+        id,
+        name: "Annual review",
+        markdown: "# Annual review\n\n## Changes since last review\n\n- \n",
+      });
+    }
+    if (/^\/api\/ingest\/jobs\/[^/]+$/.test(path)) {
+      const jobId = path.split("/").pop();
+      return send(res, 200, {
+        id: jobId,
+        kind: "upload",
+        filename: "sample.pdf",
+        status: "DONE",
+        progress: 100,
+        message: "Done",
+        document_id: jobId,
+        error: null,
+      });
+    }
+    if (path === "/api/compliance/posture")
+      return send(res, 200, {
+        trains_on_client_data: false,
+        data_residency: "UK",
+        data_retention_days: 365,
+        llm_provider: "openai",
+        encryption_at_rest: true,
+        encryption_in_transit: true,
+        auth_required: true,
+      });
+    if (path === "/api/compliance/audit")
+      return send(res, 200, {
+        entries: [
+          {
+            id: 2,
+            kind: "review_note",
+            timestamp: new Date().toISOString(),
+            client_id: "c1",
+            client_name: "Alan & Lynne Partridge",
+            model: "gpt-4o-mini",
+            preview: "# Client review note — Alan & Lynne Partridge …",
+            ai_generated: false,
+            reviewed: false,
+            reviewed_at: null,
+          },
+        ],
+      });
     return send(res, 404, { detail: "not found" });
   }
 
-  req.resume();
+  let rawBody = "";
+  req.on("data", (chunk) => {
+    rawBody += chunk;
+  });
   req.on("end", () => {
-    if (req.method === "PATCH") return send(res, 200, { ...ALERTS[0], status: "COMPLETED" });
-    if (path === "/api/chat") return send(res, 200, { answer: CHAT_ANSWER, sources: CHAT_SOURCES });
+    if (req.method === "PATCH") {
+      // Client profile edit: PATCH /api/monitor/clients/{id}
+      const clientMatch = path.match(/^\/api\/monitor\/clients\/([^/]+)$/);
+      if (clientMatch) {
+        let body = {};
+        try {
+          body = rawBody ? JSON.parse(rawBody) : {};
+        } catch {
+          body = {};
+        }
+        const id = clientMatch[1];
+        const base = CLIENT_DETAILS[id] ?? { id, full_name: "Client" };
+        return send(res, 200, {
+          id,
+          full_name: body.full_name ?? base.full_name,
+          last_review_date: body.last_review_date ?? base.last_review_date ?? null,
+          retirement_target_age:
+            body.retirement_target_age ?? base.retirement_target_age ?? null,
+          risk_score: body.risk_score ?? base.risk_score ?? null,
+          total_assets: body.total_assets ?? base.total_assets ?? null,
+          cash_savings: body.cash_savings ?? base.cash_savings ?? null,
+        });
+      }
+      // Alert status update: PATCH /api/monitor/alerts/{id}/status
+      return send(res, 200, { ...ALERTS[0], status: "COMPLETED" });
+    }
+    if (/^\/api\/monitor\/clients\/[^/]+\/apply-playbook$/.test(path))
+      return send(res, 200, { applied: 3 });
+    if (/^\/api\/compliance\/audit\/[^/]+\/approve$/.test(path)) {
+      const id = Number(path.split("/")[4]);
+      return send(res, 200, {
+        id,
+        kind: "review_note",
+        timestamp: new Date().toISOString(),
+        client_id: "c1",
+        client_name: "Alan & Lynne Partridge",
+        model: "gpt-4o-mini",
+        preview: "# Client review note …",
+        ai_generated: false,
+        reviewed: true,
+        reviewed_at: new Date().toISOString(),
+      });
+    }
+    if (/^\/api\/monitor\/clients\/[^/]+\/review-note$/.test(path))
+      return send(res, 200, {
+        note:
+          "# Client review note — Alan & Lynne Partridge\n\n## Summary\nReview overdue; £895k assets.\n\n## Open items\n- Annual review overdue\n\n## Consumer Duty\n- Ongoing value to confirm.\n\nDraft for adviser review — confirm before filing.",
+        generated_at: new Date().toISOString(),
+        ai_generated: false,
+      });
+    if (path === "/api/chat") {
+      let body = {};
+      try {
+        body = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        body = {};
+      }
+      return send(res, 200, {
+        answer: CHAT_ANSWER,
+        sources: CHAT_SOURCES,
+        conversation_id: body.conversation_id || "conv-mock-1",
+      });
+    }
     if (path === "/api/chat/brief") return send(res, 200, { brief: BRIEF, talking_points: TALKING_POINTS });
     if (path === "/api/monitor/draft-email")
       return send(res, 200, {
@@ -165,7 +321,43 @@ const server = createServer((req, res) => {
       });
     if (path === "/api/ingest/upload")
       return send(res, 200, { id: "uploaded-doc", filename: "sample-client-note.pdf", content_hash: "upload", file_size_bytes: 620, uploaded_at: new Date().toISOString(), processing_error: null });
+    if (path === "/api/ingest/transcript")
+      return send(res, 201, { id: "transcript-doc", filename: "transcript-abc123.txt", content_hash: "transcript", file_size_bytes: 1200, uploaded_at: new Date().toISOString(), processing_error: null });
+    if (path === "/api/ingest/upload-async")
+      return send(res, 202, { job_id: "job-async-1", document_id: "job-async-1", status: "PENDING" });
+    if (path === "/api/compliance/scan") {
+      let body = {};
+      try {
+        body = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        body = {};
+      }
+      const text = (body.text || "").toLowerCase();
+      const vulnerability_signals = [];
+      const consumer_duty_flags = [];
+      if (text.includes("cancer") || text.includes("diagnosis"))
+        vulnerability_signals.push({ category: "Health", phrase: "diagnosis", excerpt: "…cancer diagnosis…" });
+      if (text.includes("redundancy") || text.includes("divorce"))
+        vulnerability_signals.push({ category: "Life events", phrase: "redundancy", excerpt: "…redundancy…" });
+      if (text.includes("did not understand") || text.includes("unclear"))
+        consumer_duty_flags.push({ outcome: "Consumer understanding", phrase: "unclear", excerpt: "…unclear…" });
+      return send(res, 200, {
+        vulnerability_signals,
+        consumer_duty_flags,
+        summary: {
+          vulnerability_count: vulnerability_signals.length,
+          consumer_duty_count: consumer_duty_flags.length,
+        },
+      });
+    }
     if (path === "/api/settings/clear-data") return send(res, 200, { ok: true, message: "All data cleared." });
+    if (path === "/api/settings/load-sample-data")
+      return send(res, 200, {
+        loaded: true,
+        message: "Loaded 4 demo clients and 6 alerts.",
+        clients: 4,
+        alerts: 6,
+      });
     return send(res, 404, { detail: "not found" });
   });
 });

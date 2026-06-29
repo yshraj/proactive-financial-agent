@@ -49,12 +49,48 @@ test.describe("adviser QA journey", () => {
     await app.dashboard.goto();
     await app.shell.navigateTo("Clients");
     await app.clients.expectLoaded();
+    await app.clients.expectAnalyticsVisible();
     await captureScreenshot(page, "07-clients-list", testInfo);
     await app.clients.openFirstClient();
     await app.clients.expectDetailLoaded();
     await expect(page.getByTestId("client-prepare-button")).toBeVisible();
     await expect(page.getByTestId("client-ask-button")).toBeVisible();
+    await expect(page.getByTestId("client-intelligence")).toBeVisible();
+    await expect(page.getByTestId("next-best-actions")).toBeVisible();
     await captureScreenshot(page, "08-client-detail", testInfo);
+  });
+
+  test("edit client details", async ({ app, page }) => {
+    await page.goto("/clients/c1");
+    await app.clients.expectDetailLoaded();
+    await app.clients.editClientName("Alan & Lynne Partridge (updated)");
+    // Modal closes on a successful save (asserted inside editClientName).
+    await expect(page.getByTestId("client-edit-button")).toBeVisible();
+  });
+
+  test("generate client review note", async ({ app, page }) => {
+    await page.goto("/clients/c1");
+    await app.clients.expectDetailLoaded();
+    await app.clients.openReviewNote();
+    await expect(page.getByTestId("review-note-content")).toContainText("Consumer Duty");
+  });
+
+  test("apply a playbook to a client", async ({ app, page }) => {
+    await page.goto("/clients/c1");
+    await app.clients.expectDetailLoaded();
+    await expect(page.getByTestId("playbooks-card")).toBeVisible();
+    await waitForSuccessfulApiResponse(page, "/apply-playbook", () =>
+      app.clients.applyPlaybook("annual_review")
+    );
+  });
+
+  test("multi-turn copilot conversation keeps a thread", async ({ app }) => {
+    await app.aiCopilot.goto();
+    await app.aiCopilot.expectLoaded();
+    await app.aiCopilot.ask("Which clients have unused ISA allowance?");
+    await app.aiCopilot.ask("And which of those have the most cash?");
+    // Both turns remain on screen — the conversation thread is preserved.
+    expect(await app.aiCopilot.answerCount()).toBe(2);
   });
 
   test("client-scoped AI copilot via deep link", async ({ app, page }, testInfo) => {

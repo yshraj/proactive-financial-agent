@@ -35,10 +35,11 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 - **Auto-ask deep link** — `?q=` query parameter triggers Copilot on page load.
 - **Citation UX** — Markdown answers, source list, trust footer, thinking states, follow-up chips.
 - **Caching** — Response cache (5 min); structured context cache (90 s); parallel DB + embedding on miss.
+- **Conversation memory** — Multi-turn threads via an in-memory conversation store; `conversation_id` flows through requests so follow-ups are context-aware (`services/conversations.py`).
 
 ### How we achieved it
 
-- **Backend:** `POST /api/chat` — `backend/app/routers/chat.py`, `backend/app/services/rag_context.py`, `backend/app/services/prompts.py`, `backend/app/services/llm.py`.
+- **Backend:** `POST /api/chat` — `backend/app/routers/chat.py`, `backend/app/services/rag_context.py`, `backend/app/services/prompts.py`, `backend/app/services/llm.py`, `backend/app/services/conversations.py`.
 - **Frontend:** `frontend/pages/chat.tsx`, `frontend/components/ai/`, `frontend/lib/ai.ts`.
 
 ---
@@ -64,13 +65,17 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 
 ### What we implemented
 
-- **Client list** — Table with last review, assets, risk score, open alert count.
-- **Client detail** — Profile snapshot, open alerts, ingested documents, links to brief and Copilot.
+- **Client list** — Table with last review, assets, risk score, open alert count, plus a book-analytics strip (clients, AUM, average risk, reviews overdue).
+- **Client detail** — Profile snapshot (incl. linked document count), open alerts, links to brief and Copilot.
+- **Edit details** — Correct mis-extracted profile fields (name, assets, cash, risk, retirement age, last review) via a modal, validated server-side.
+- **Client intelligence** — Deterministic engagement-risk and profile-completeness scores plus a ranked next-best-action list, computed from existing data (no LLM).
+- **Review note** — One-click Consumer-Duty review note (LLM with a deterministic fallback so it works without an LLM), with copy-to-clipboard.
+- **Playbooks** — Apply a task template (annual review, onboarding, protection review) to a client to create a standard set of alerts.
 
 ### How we achieved it
 
-- **Backend:** `GET /api/monitor/clients`, `GET /api/monitor/clients/{id}` — `monitor.py`.
-- **Frontend:** `frontend/pages/clients/index.tsx`, `frontend/pages/clients/[id].tsx`.
+- **Backend:** `GET /api/monitor/clients`, `GET /api/monitor/clients/{id}`, `PATCH /api/monitor/clients/{id}`, `GET /api/monitor/analytics`, `POST /api/monitor/clients/{id}/review-note`, `GET /api/monitor/playbooks`, `POST /api/monitor/clients/{id}/apply-playbook` — `monitor.py`; validation in `services/client_updates.py`; pure scoring in `services/scores.py`; aggregation in `services/analytics.py`; review-note fallback in `services/review_note.py`; playbook catalog in `services/playbooks.py`.
+- **Frontend:** `frontend/pages/clients/index.tsx`, `frontend/pages/clients/[id].tsx`, `frontend/components/EditClientModal.tsx`, `frontend/components/ReviewNoteModal.tsx`.
 
 ---
 
@@ -82,6 +87,14 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 - **Duplicate detection** — By content hash (SHA-256).
 - **Path A – LLM extraction → Postgres:** Client profile and alerts (`DEADLINE`, `OPPORTUNITY`, `COMPLIANCE`, `FOLLOW_UP`).
 - **Path B – Chunk → embed → Qdrant:** Text chunked, embedded, upserted to `client_memory`.
+- **Document ↔ client linking** — Each upload is linked to the client it produced (`ingested_documents.client_id`, migration 002) and counted on Client 360.
+- **Transcript ingestion** — Paste a meeting transcript and run the same dual-path pipeline as uploads (`POST /api/ingest/transcript`), with content-hash dedup.
+- **Async ingestion + job status** — Background processing via FastAPI BackgroundTasks (in-process, no external worker): `POST /api/ingest/upload-async` returns a job id, polled at `GET /api/ingest/jobs/{id}` (`services/jobs.py`). The synchronous `/upload` is unchanged.
+- **Note templates** — Structured meeting-note skeletons (discovery, annual review, prospect, suitability) via `GET /api/ingest/note-templates` (`services/note_templates.py`), with copy-to-clipboard.
+- **Compliance signal scan** — Paste notes to flag vulnerability drivers (FCA FG21/1) and Consumer Duty signals; deterministic word-boundary matching with contextual excerpts (`POST /api/compliance/scan`, `services/compliance.py`).
+- **AI audit log** — In-memory, accountable trail of AI outputs (review notes, draft emails, digests) via `GET /api/compliance/audit` (`services/audit.py`), shown on Settings and cleared on data reset.
+- **Human-review approval gate** — Mark AI outputs as reviewed (`POST /api/compliance/audit/{id}/approve`) — a Consumer-Duty accountability step surfaced on the Settings audit log.
+- **Data-handling & AI posture** — `GET /api/compliance/posture` reports configured residency, retention, LLM provider, encryption and that the app never trains on client data (`services/posture.py`); shown on Settings.
 - **Extraction cache** — LLM result cached by content hash (24 h).
 - **Upload validation** — Magic-byte checks and size limits via `safety.py`.
 
@@ -106,16 +119,18 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 
 ---
 
-## 7. Settings and clear data
+## 7. Settings, data export, onboarding, and clear data
 
 ### What we implemented
 
+- **Data export (CSV)** — Download the client book or alert list as a CSV (RFC 4180 quoting).
+- **Load demo data** — One-click seeding of a realistic demo book from the dashboard first-run (only when the workspace is empty).
 - **Clear data** — Removes clients, alerts, documents, Qdrant vectors, and in-memory caches.
 
 ### How we achieved it
 
-- **Backend:** `POST /api/settings/clear-data` — `backend/app/routers/settings.py`.
-- **Frontend:** `frontend/pages/settings.tsx`.
+- **Backend:** `GET /api/monitor/export` (serializer in `services/export.py`); `POST /api/settings/load-sample-data` (dataset in `services/sample_data.py`); `POST /api/settings/clear-data` — `backend/app/routers/settings.py`.
+- **Frontend:** `frontend/pages/settings.tsx`, `frontend/lib/export.ts`, dashboard first-run in `frontend/pages/dashboard.tsx`.
 
 ---
 
@@ -143,5 +158,6 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 | **LLM** | OpenAI GPT-4o (or Gemini); briefs use `BRIEF_LLM_MODEL` (default gpt-4o-mini) |
 | **Security** | Input clamping, RAG injection stripping, rate limits, safe redirects — `safety.py` |
 | **Frontend** | React Query hooks, lazy-loaded modals, Playwright E2E with POM |
+| **Tests** | Backend unit tests via `pytest` (run `pip install -r requirements-dev.txt`, then `pytest`); frontend Playwright E2E against a mock server |
 
 For setup and running locally, see the main [README](README.md#run-the-project-locally).

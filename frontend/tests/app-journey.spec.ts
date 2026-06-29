@@ -58,6 +58,51 @@ test.describe("complete adviser journey", () => {
     await waitForSuccessfulApiResponse(page, "/api/ingest/upload", () => app.ingestion.uploadSampleDocument());
   });
 
+  test("note templates render a skeleton", async ({ app, page }) => {
+    await app.ingestion.goto();
+    await app.ingestion.expectLoaded();
+    await app.ingestion.selectNoteTemplate("annual_review");
+    await expect(page.getByTestId("note-template-preview")).toContainText("Annual review");
+  });
+
+  test("paste transcript ingestion", async ({ app, page }) => {
+    await app.ingestion.goto();
+    await app.ingestion.expectLoaded();
+    await waitForSuccessfulApiResponse(page, "/api/ingest/transcript", () =>
+      app.ingestion.ingestTranscript(
+        "Met with the client today. They confirmed their pension contribution increase and we agreed to review protection cover before the next annual review."
+      )
+    );
+  });
+
+  test("compliance scan flags vulnerability and consumer duty signals", async ({ app, page }) => {
+    await app.ingestion.goto();
+    await app.ingestion.expectLoaded();
+    await app.ingestion.runComplianceScan(
+      "Client disclosed a recent cancer diagnosis and said the fees were unclear."
+    );
+    await expect(page.getByTestId("compliance-scan-results")).toContainText("Health");
+    await expect(page.getByTestId("compliance-scan-results")).toContainText("Consumer understanding");
+  });
+
+  test("settings page exports clients and alerts as CSV", async ({ app }) => {
+    await app.settings.goto();
+    await app.settings.expectLoaded();
+    await app.settings.expectAuditLogVisible();
+    await app.settings.expectPostureVisible();
+    expect(await app.settings.exportData("clients")).toBe("kritifin-clients.csv");
+    expect(await app.settings.exportData("alerts")).toBe("kritifin-alerts.csv");
+  });
+
+  test("approve an AI audit entry", async ({ app, page }) => {
+    await app.settings.goto();
+    await app.settings.expectLoaded();
+    await app.settings.expectAuditLogVisible();
+    await waitForSuccessfulApiResponse(page, "/approve", () =>
+      app.settings.approveFirstAuditEntry()
+    );
+  });
+
   test("settings page loads and logout works when auth is enabled", async ({ app }) => {
     await app.settings.goto();
     await app.settings.expectLoaded();

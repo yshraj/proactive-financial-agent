@@ -44,17 +44,62 @@ export interface Client {
   open_alert_count?: number;
 }
 
+export interface PlanningCompleteness {
+  score: number;
+  missing: string[];
+}
+
+export interface AtRiskScore {
+  score: number;
+  level: string;
+  rationale: string;
+}
+
+export interface NextBestAction {
+  action: string;
+  reason: string;
+  priority: string;
+}
+
 export interface ClientDetail extends Client {
   raw_profile_json?: Record<string, unknown> | null;
   pending_alerts: Alert[];
   overdue_follow_ups: Alert[];
   document_count: number;
   summary?: string | null;
+  planning_completeness?: PlanningCompleteness | null;
+  at_risk?: AtRiskScore | null;
+  next_best_actions?: NextBestAction[];
 }
 
 export interface DigestResponse {
   digest: string;
   generated_at: string;
+}
+
+export interface BookAnalytics {
+  clients_total: number;
+  total_aum: number;
+  average_risk_score: number | null;
+  reviews_overdue: number;
+}
+
+export interface Playbook {
+  id: string;
+  name: string;
+  description: string;
+  task_count: number;
+}
+
+// Partial edit of a client's extracted profile fields. Omitted fields are left
+// untouched by the backend; an explicit null clears an optional field.
+export interface ClientUpdateInput {
+  full_name?: string;
+  retirement_target_age?: number | null;
+  risk_score?: number | null;
+  total_assets?: number | null;
+  cash_savings?: number | null;
+  last_review_date?: string | null;
 }
 
 export interface ChatSource {
@@ -69,6 +114,7 @@ export interface ChatSource {
 export interface ChatResponse {
   answer: string;
   sources: ChatSource[];
+  conversation_id?: string | null;
 }
 
 export interface BriefResponse {
@@ -82,9 +128,70 @@ export interface DraftEmailResponse {
   subject?: string | null;
 }
 
+export interface ReviewNoteResponse {
+  note: string;
+  generated_at: string;
+  ai_generated: boolean;
+}
+
 export type DraftEmailSource =
   | { type: "alert"; alertId: string }
   | { type: "brief"; clientId: string; context: string; talkingPoints?: string[] };
+
+export interface ComplianceSignal {
+  category?: string | null;
+  outcome?: string | null;
+  phrase: string;
+  excerpt: string;
+}
+
+export interface ComplianceScanResponse {
+  vulnerability_signals: ComplianceSignal[];
+  consumer_duty_flags: ComplianceSignal[];
+  summary: {
+    vulnerability_count: number;
+    consumer_duty_count: number;
+  };
+}
+
+export interface AuditEntry {
+  id: number;
+  kind: string;
+  timestamp: string;
+  client_id?: string | null;
+  client_name?: string | null;
+  model?: string | null;
+  preview: string;
+  ai_generated: boolean;
+  reviewed: boolean;
+  reviewed_at?: string | null;
+}
+
+export interface CompliancePosture {
+  trains_on_client_data: boolean;
+  data_residency: string;
+  data_retention_days: number | null;
+  llm_provider: string;
+  encryption_at_rest: boolean;
+  encryption_in_transit: boolean;
+  auth_required: boolean;
+}
+
+export interface AuditLogResponse {
+  entries: AuditEntry[];
+}
+
+export interface NoteTemplate {
+  id: string;
+  name: string;
+  section_count: number;
+}
+
+export interface RenderedTemplate {
+  id: string;
+  name: string;
+  markdown: string;
+}
 
 export interface StoredDocument {
   id: string;

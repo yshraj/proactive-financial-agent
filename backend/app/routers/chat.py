@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from app.db import get_cursor
 from app.security import limiter
+from app.services import conversations
 from app.services.cache import (
     BRIEF_TTL,
     CHAT_TTL,
@@ -41,6 +42,7 @@ router = APIRouter()
 class ChatRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000)
     client_id: Optional[str] = Field(default=None, max_length=64)
+    conversation_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class SourceOut(BaseModel):
@@ -55,6 +57,7 @@ class SourceOut(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: list[SourceOut]
+    conversation_id: Optional[str] = None
 
 
 class BriefRequest(BaseModel):
@@ -220,14 +223,30 @@ def chat(request: Request, body: ChatRequest):
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="Client not found")
 
+    # Resolve the conversation thread: reuse the supplied one or start a new one.
+    conversation_id = (body.conversation_id or "").strip() or None
+    if conversation_id and not conversations.exists(conversation_id):
+        conversation_id = None
+    if conversation_id is None:
+        conversation_id = conversations.create()
+    prior_messages = conversations.get_messages(conversation_id)
+    history = conversations.format_history(prior_messages)
+
     user_sub = getattr(getattr(request, "state", None), "user", {}) or {}
     user_prefix = user_sub.get("id") or "anon"
     scope_key = client_id or "all"
+    # Only cache stateless (first-turn) queries; follow-ups depend on history.
+    use_cache = not history
     cache_key = f"chat:{PROMPT_VERSION}:{user_prefix}:{hash_query_for_key(query)}:{scope_key}"
-    cached = cache_get(cache_key)
-    if cached is not None and isinstance(cached, dict):
-        sources = [SourceOut(**s) for s in (cached.get("sources") or []) if isinstance(s, dict)]
-        return ChatResponse(answer=cached.get("answer", ""), sources=sources)
+    if use_cache:
+        cached = cache_get(cache_key)
+        if cached is not None and isinstance(cached, dict):
+            conversations.add_message(conversation_id, "user", query)
+            conversations.add_message(conversation_id, "assistant", cached.get("answer", ""))
+            sources = [SourceOut(**s) for s in (cached.get("sources") or []) if isinstance(s, dict)]
+            return ChatResponse(
+                answer=cached.get("answer", ""), sources=sources, conversation_id=conversation_id
+            )
 
     cache_key_ctx = f"chat:structured_ctx:{scope_key}"
     structured_cached = cache_get(cache_key_ctx)
@@ -244,7 +263,9 @@ def chat(request: Request, body: ChatRequest):
     model = resolve_model("chat")
     answer = complete_with_system(
         system=CHAT_SYSTEM,
-        user=chat_user_message(structured=structured_context, documents=rag_context, query=query),
+        user=chat_user_message(
+            structured=structured_context, documents=rag_context, query=query, history=history
+        ),
         max_tokens=900,
         model=model,
         purpose="chat",
@@ -257,11 +278,16 @@ def chat(request: Request, body: ChatRequest):
         )
 
     sources_out = [SourceOut(**s) for s in source_dicts]
+    final_answer = answer or "I couldn't find a clear answer from the available context."
     out = ChatResponse(
-        answer=answer or "I couldn't find a clear answer from the available context.",
+        answer=final_answer,
         sources=sources_out,
+        conversation_id=conversation_id,
     )
-    cache_set(cache_key, {"answer": out.answer, "sources": [s.model_dump() for s in out.sources]}, CHAT_TTL)
+    if use_cache:
+        cache_set(cache_key, {"answer": out.answer, "sources": [s.model_dump() for s in out.sources]}, CHAT_TTL)
+    conversations.add_message(conversation_id, "user", query)
+    conversations.add_message(conversation_id, "assistant", final_answer)
     return out
 
 

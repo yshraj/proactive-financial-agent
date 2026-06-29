@@ -12,4 +12,26 @@ export class SettingsPage {
     await expect(this.page.getByTestId("settings-page")).toBeVisible();
     await expect(this.page.getByText("Data & privacy")).toBeVisible();
   }
+
+  async expectAuditLogVisible() {
+    await expect(this.page.getByTestId("audit-log-card")).toBeVisible();
+  }
+
+  async expectPostureVisible() {
+    await expect(this.page.getByTestId("posture-card")).toBeVisible();
+  }
+
+  async approveFirstAuditEntry() {
+    await this.page.locator('[data-testid^="audit-approve-"]').first().click();
+  }
+
+  /** Click an export button and return the resulting download's suggested filename. */
+  async exportData(type: "clients" | "alerts"): Promise<string> {
+    const testId = type === "clients" ? "export-clients-button" : "export-alerts-button";
+    const [download] = await Promise.all([
+      this.page.waitForEvent("download"),
+      this.page.getByTestId(testId).click(),
+    ]);
+    return download.suggestedFilename();
+  }
 }

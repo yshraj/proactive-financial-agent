@@ -10,7 +10,9 @@ import json
 from datetime import datetime, timedelta, date
 from typing import Optional
 
+import psycopg2
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.db import get_cursor
@@ -33,18 +35,31 @@ from app.services.cache import (
     invalidate_pulse_caches,
     set_ as cache_set,
 )
+from app.services.client_updates import validate_client_update
+from app.services import audit
+from app.services.analytics import compute_book_analytics
+from app.services.export import rows_to_csv
+from app.services.playbooks import build_playbook_alerts, list_playbooks
 from app.services.llm import complete_with_system, resolve_model
+from app.services.scores import (
+    at_risk_score,
+    next_best_actions,
+    planning_completeness,
+)
 from app.services.prompts import (
     CLIENT_SUMMARY_SYSTEM,
     DIGEST_SYSTEM,
     DRAFT_ALERT_EMAIL_SYSTEM,
     DRAFT_BRIEF_FOLLOWUP_SYSTEM,
     PROMPT_VERSION,
+    REVIEW_NOTE_SYSTEM,
     client_summary_user_message,
     digest_user_message,
     draft_alert_user_message,
     draft_brief_followup_user_message,
+    review_note_user_message,
 )
+from app.services.review_note import fallback_review_note
 
 router = APIRouter()
 
@@ -74,6 +89,23 @@ class AlertOut(BaseModel):
     status: str
 
 
+class PlanningCompleteness(BaseModel):
+    score: int
+    missing: list[str] = []
+
+
+class AtRiskScore(BaseModel):
+    score: int
+    level: str
+    rationale: str
+
+
+class NextBestAction(BaseModel):
+    action: str
+    reason: str
+    priority: str
+
+
 class ClientDetailOut(BaseModel):
     id: str
     full_name: str
@@ -87,10 +119,31 @@ class ClientDetailOut(BaseModel):
     overdue_follow_ups: list[AlertOut] = []
     document_count: int = 0
     summary: Optional[str] = None
+    planning_completeness: Optional[PlanningCompleteness] = None
+    at_risk: Optional[AtRiskScore] = None
+    next_best_actions: list[NextBestAction] = []
 
 
 def _alert_from_row(r: dict) -> AlertOut:
     return AlertOut(**_alert_row_dict(r))
+
+
+def _document_count_for_client(cur, client_id: str) -> int:
+    """
+    Count documents linked to a client.
+
+    Returns 0 if the ``client_id`` link column does not exist yet (migration 002
+    not applied), so Client 360 degrades gracefully instead of erroring.
+    """
+    try:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM ingested_documents WHERE client_id = %s",
+            (client_id,),
+        )
+        row = cur.fetchone()
+        return int((row or {}).get("n") or 0)
+    except psycopg2.errors.UndefinedColumn:
+        return 0
 
 
 @router.get("/clients", response_model=ClientsListResponse)
@@ -119,6 +172,155 @@ def get_clients():
         for r in rows
     ]
     return ClientsListResponse(clients=clients)
+
+
+class BookAnalytics(BaseModel):
+    clients_total: int
+    total_aum: float
+    average_risk_score: Optional[float] = None
+    reviews_overdue: int
+
+
+@router.get("/analytics", response_model=BookAnalytics)
+def get_book_analytics():
+    """Headline metrics across the whole client book (AUM, avg risk, overdue reviews)."""
+    with get_cursor() as cur:
+        cur.execute("SELECT total_assets, risk_score, last_review_date FROM clients")
+        rows = [dict(r) for r in cur.fetchall()]
+    return BookAnalytics(**compute_book_analytics(rows, datetime.now().date()))
+
+
+# CSV export column specs: (db key, human header). Kept as data so the column
+# set is explicit and the serialiser stays generic.
+_CLIENT_EXPORT_COLUMNS = [
+    ("full_name", "Name"),
+    ("last_review_date", "Last review"),
+    ("total_assets", "Total assets"),
+    ("cash_savings", "Cash savings"),
+    ("risk_score", "Risk score"),
+    ("retirement_target_age", "Retirement target age"),
+    ("open_alert_count", "Open alerts"),
+]
+_ALERT_EXPORT_COLUMNS = [
+    ("client_name", "Client"),
+    ("trigger_date", "Trigger date"),
+    ("type", "Type"),
+    ("priority", "Priority"),
+    ("status", "Status"),
+    ("title", "Title"),
+    ("description", "Description"),
+]
+
+
+def _fetch_export_rows(export_type: str) -> list[dict]:
+    """Return plain dict rows for the requested export type (clients or alerts)."""
+    with get_cursor() as cur:
+        if export_type == "clients":
+            cur.execute(
+                """
+                SELECT c.full_name, c.last_review_date, c.total_assets, c.cash_savings,
+                       c.risk_score, c.retirement_target_age,
+                       (SELECT COUNT(*) FROM alerts a
+                        WHERE a.client_id = c.id AND a.status = 'PENDING') AS open_alert_count
+                FROM clients c
+                ORDER BY c.full_name
+                """
+            )
+        else:
+            cur.execute(
+                f"""
+                {ALERTS_WITH_CLIENT_SQL}
+                ORDER BY a.trigger_date DESC, c.full_name
+                """
+            )
+        rows = cur.fetchall()
+    out: list[dict] = []
+    for r in rows:
+        row = dict(r)
+        # Dates serialise as ISO strings; everything else is already CSV-safe.
+        for k, v in list(row.items()):
+            if hasattr(v, "isoformat"):
+                row[k] = v.isoformat()
+        out.append(row)
+    return out
+
+
+@router.get("/export")
+@limiter.limit("30/minute")
+def export_csv(
+    request: Request,
+    type: str = Query("clients", description="What to export: clients or alerts"),
+):
+    """Export the client book or alert list as a downloadable CSV file."""
+    export_type = (type or "clients").strip().lower()
+    if export_type not in ("clients", "alerts"):
+        raise HTTPException(status_code=400, detail="type must be 'clients' or 'alerts'.")
+
+    spec = _CLIENT_EXPORT_COLUMNS if export_type == "clients" else _ALERT_EXPORT_COLUMNS
+    columns = [c for c, _ in spec]
+    headers = [h for _, h in spec]
+    rows = _fetch_export_rows(export_type)
+    csv_text = rows_to_csv(rows, columns, headers)
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="kritifin-{export_type}.csv"'},
+    )
+
+
+class PlaybookOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    task_count: int
+
+
+class PlaybooksResponse(BaseModel):
+    playbooks: list[PlaybookOut]
+
+
+@router.get("/playbooks", response_model=PlaybooksResponse)
+def get_playbooks():
+    """List available task-template playbooks."""
+    return PlaybooksResponse(playbooks=[PlaybookOut(**p) for p in list_playbooks()])
+
+
+class ApplyPlaybookRequest(BaseModel):
+    playbook_id: str
+
+
+class ApplyPlaybookResponse(BaseModel):
+    applied: int
+
+
+@router.post("/clients/{client_id}/apply-playbook", response_model=ApplyPlaybookResponse)
+@limiter.limit("30/minute")
+def apply_playbook(request: Request, client_id: str, body: ApplyPlaybookRequest):
+    """Apply a playbook to a client, creating its task templates as alerts."""
+    with get_cursor() as cur:
+        cur.execute("SELECT id FROM clients WHERE id = %s", (client_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Client not found")
+    try:
+        alerts = build_playbook_alerts(body.playbook_id, datetime.now().date())
+    except KeyError:
+        raise HTTPException(status_code=400, detail="Unknown playbook.") from None
+
+    rows = [
+        (client_id, a["trigger_date"], a["type"], a["priority"], a["title"], a["description"])
+        for a in alerts
+    ]
+    with get_cursor(commit=True) as cur:
+        cur.executemany(
+            """
+            INSERT INTO alerts (client_id, trigger_date, type, priority, title, description)
+            VALUES (%s, %s::date, %s, %s, %s, %s)
+            """,
+            rows,
+        )
+    invalidate_client_ai_caches(client_id)
+    invalidate_pulse_caches()
+    return ApplyPlaybookResponse(applied=len(rows))
 
 
 def _generate_client_summary(client_name: str, profile_bits: str, alert_lines: str, model: str) -> str:
@@ -208,6 +410,11 @@ def get_client_detail(request: Request, client_id: str):
         f"{a.title or a.type} (due {a.trigger_date})" for a in pending_alerts[:5]
     )
 
+    # Separate cursor block: an UndefinedColumn would abort the transaction, so
+    # isolate it from the reads above.
+    with get_cursor() as cur:
+        document_count = _document_count_for_client(cur, client_id)
+
     cache_key = f"summary:{PROMPT_VERSION}:{client_id}"
     summary = cache_get(cache_key)
     if summary is None:
@@ -217,6 +424,38 @@ def get_client_detail(request: Request, client_id: str):
             cache_set(cache_key, summary, BRIEF_TTL)
         except Exception:
             summary = f"{client_name}: {profile_bits}. {len(pending_alerts)} open item(s)."
+
+    overdue_follow_ups = [_alert_from_row(r) for r in overdue_rows]
+
+    # Deterministic client-intelligence scores from the data already loaded.
+    review_overdue = last_review is None or last_review < review_cutoff
+    completeness = planning_completeness(
+        {
+            "total_assets": row.get("total_assets"),
+            "cash_savings": row.get("cash_savings"),
+            "risk_score": row.get("risk_score"),
+            "retirement_target_age": row.get("retirement_target_age"),
+            "last_review_date": last_review,
+        }
+    )
+    high_priority = sum(1 for a in pending_alerts if a.priority == "HIGH")
+    at_risk = at_risk_score(
+        last_review=last_review,
+        today=today,
+        overdue_follow_ups=len(overdue_follow_ups),
+        high_priority_alerts=high_priority,
+    )
+    top_pending_title = next(
+        (a.title for a in pending_alerts if a.type != "REVIEW_OVERDUE" and a.title),
+        None,
+    )
+    actions = next_best_actions(
+        completeness=completeness,
+        at_risk=at_risk,
+        review_overdue=review_overdue,
+        overdue_follow_up_titles=[a.title or "Follow-up" for a in overdue_follow_ups],
+        top_pending_title=top_pending_title,
+    )
 
     return ClientDetailOut(
         id=str(row["id"]),
@@ -228,10 +467,176 @@ def get_client_detail(request: Request, client_id: str):
         cash_savings=float(row["cash_savings"]) if row.get("cash_savings") is not None else None,
         raw_profile_json=raw_json if isinstance(raw_json, dict) else None,
         pending_alerts=pending_alerts,
-        overdue_follow_ups=[_alert_from_row(r) for r in overdue_rows],
-        document_count=0,
+        overdue_follow_ups=overdue_follow_ups,
+        document_count=document_count,
         summary=summary,
+        planning_completeness=PlanningCompleteness(**completeness),
+        at_risk=AtRiskScore(**at_risk),
+        next_best_actions=[NextBestAction(**a) for a in actions],
     )
+
+
+class ClientUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    retirement_target_age: Optional[int] = None
+    risk_score: Optional[int] = None
+    total_assets: Optional[float] = None
+    cash_savings: Optional[float] = None
+    last_review_date: Optional[str] = None
+
+
+class ClientUpdateResponse(BaseModel):
+    id: str
+    full_name: str
+    last_review_date: Optional[str] = None
+    retirement_target_age: Optional[int] = None
+    risk_score: Optional[float] = None
+    total_assets: Optional[float] = None
+    cash_savings: Optional[float] = None
+
+
+@router.patch("/clients/{client_id}", response_model=ClientUpdateResponse)
+@limiter.limit("60/minute")
+def update_client(request: Request, client_id: str, body: ClientUpdateRequest):
+    """Edit a client's extracted profile fields (fixes mis-extractions). Partial update."""
+    try:
+        # Only fields the caller explicitly set are considered, so omitted fields
+        # are left untouched while an explicit null clears an optional field.
+        updates = validate_client_update(body.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+
+    set_clauses = []
+    params: list = []
+    for col, value in updates.items():
+        if col == "last_review_date":
+            set_clauses.append("last_review_date = %s::date")
+        else:
+            set_clauses.append(f"{col} = %s")
+        params.append(value)
+    params.append(client_id)
+
+    with get_cursor(commit=True) as cur:
+        cur.execute(
+            f"""
+            UPDATE clients
+            SET {', '.join(set_clauses)}, updated_at = NOW()
+            WHERE id = %s
+            RETURNING id, full_name, last_review_date, retirement_target_age,
+                      risk_score, total_assets, cash_savings
+            """,
+            tuple(params),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    invalidate_client_ai_caches(client_id)
+
+    return ClientUpdateResponse(
+        id=str(row["id"]),
+        full_name=(row.get("full_name") or "Unknown").strip(),
+        last_review_date=row["last_review_date"].isoformat() if row.get("last_review_date") else None,
+        retirement_target_age=row.get("retirement_target_age"),
+        risk_score=float(row["risk_score"]) if row.get("risk_score") is not None else None,
+        total_assets=float(row["total_assets"]) if row.get("total_assets") is not None else None,
+        cash_savings=float(row["cash_savings"]) if row.get("cash_savings") is not None else None,
+    )
+
+
+class ReviewNoteResponse(BaseModel):
+    note: str
+    generated_at: str
+    ai_generated: bool
+
+
+@router.post("/clients/{client_id}/review-note", response_model=ReviewNoteResponse)
+@limiter.limit("30/minute")
+def client_review_note(request: Request, client_id: str):
+    """Generate a Consumer-Duty client review note (LLM, with deterministic fallback)."""
+    today = datetime.now().date()
+    review_cutoff = today - timedelta(days=365)
+    end_90 = today + timedelta(days=90)
+
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT id, full_name, last_review_date, total_assets, risk_score FROM clients WHERE id = %s",
+            (client_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Client not found")
+        cur.execute(
+            f"""
+            {ALERTS_WITH_CLIENT_SQL}
+            WHERE a.client_id = %s AND a.status = 'PENDING'
+              AND a.trigger_date >= %s AND a.trigger_date <= %s
+            ORDER BY a.trigger_date, a.priority DESC
+            """,
+            (client_id, today, end_90),
+        )
+        pending = cur.fetchall()
+
+    client_name = (row.get("full_name") or "Unknown").strip()
+    last_review = row.get("last_review_date")
+    profile_bits = ", ".join(
+        bit
+        for bit in [
+            f"last review {last_review}" if last_review else "no review on file",
+            f"assets {row.get('total_assets')}" if row.get("total_assets") is not None else None,
+            f"risk {row.get('risk_score')}" if row.get("risk_score") is not None else None,
+        ]
+        if bit
+    )
+    open_items = [
+        f"{(a.get('title') or a.get('type'))} (due {a['trigger_date'].isoformat() if a.get('trigger_date') else '—'})"
+        for a in pending
+    ]
+    if last_review is None or last_review < review_cutoff:
+        open_items.insert(0, "Annual review overdue")
+
+    cache_key = f"review-note:{PROMPT_VERSION}:{client_id}"
+    cached = cache_get(cache_key)
+    if isinstance(cached, dict) and cached.get("note"):
+        return ReviewNoteResponse(**cached)
+
+    model = resolve_model("brief")
+    try:
+        note = complete_with_system(
+            system=REVIEW_NOTE_SYSTEM,
+            user=review_note_user_message(
+                client_name=client_name,
+                profile=profile_bits,
+                open_items="; ".join(open_items) or "None",
+            ),
+            max_tokens=420,
+            model=model,
+            purpose="brief",
+        )
+        ai_generated = True
+    except Exception:
+        # Deterministic fallback keeps the feature working without an LLM.
+        note = fallback_review_note(
+            client_name=client_name,
+            profile_bits=profile_bits,
+            open_items=open_items,
+            today_iso=today.isoformat(),
+        )
+        ai_generated = False
+
+    generated_at = datetime.now().isoformat()
+    payload = {"note": note, "generated_at": generated_at, "ai_generated": ai_generated}
+    cache_set(cache_key, payload, BRIEF_TTL)
+    audit.record(
+        kind="review_note",
+        timestamp=generated_at,
+        client_id=client_id,
+        client_name=client_name,
+        model=model,
+        output=note,
+        ai_generated=ai_generated,
+    )
+    return ReviewNoteResponse(**payload)
 
 
 class PulseResponse(BaseModel):
@@ -389,9 +794,11 @@ def get_digest(
             )
 
     model = resolve_model("brief")
+    ai_generated = True
     try:
         digest_text = _generate_morning_digest(pulse, simulated_date, model)
     except Exception:
+        ai_generated = False
         if pulse.total == 0:
             digest_text = "Your book looks clear today — a good moment for proactive client outreach or reviewing uploaded documents."
         else:
@@ -403,6 +810,8 @@ def get_digest(
 
     generated_at = datetime.now().isoformat()
     cache_set(cache_key, {"digest": digest_text, "generated_at": generated_at}, BRIEF_TTL)
+    audit.record(kind="digest", timestamp=generated_at, model=model, output=digest_text,
+                 ai_generated=ai_generated)
     return DigestResponse(digest=digest_text, generated_at=generated_at)
 
 
@@ -613,6 +1022,8 @@ def draft_email(request: Request, body: DraftEmailRequest):
             raise HTTPException(status_code=404, detail="Client not found") from None
         draft = _call_llm_brief_followup(client_name, context, body.talking_points, model)
         cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
+        audit.record(kind="draft_email", timestamp=datetime.now().isoformat(),
+                     client_id=client_id, client_name=client_name, model=model, output=draft)
         return DraftEmailResponse(draft=draft, subject=f"Follow-up: {client_name}")
 
     alert_id = (body.alert_id or "").strip()
@@ -637,6 +1048,8 @@ def draft_email(request: Request, body: DraftEmailRequest):
         description = "No review in 12+ months. Consumer Duty requires demonstrating ongoing value."
         draft = _call_llm_draft(client_name, title, description, None, model)
         cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
+        audit.record(kind="draft_email", timestamp=datetime.now().isoformat(),
+                     client_id=client_id, client_name=client_name, model=model, output=draft)
         return DraftEmailResponse(draft=draft)
 
     with get_cursor() as cur:
@@ -663,4 +1076,7 @@ def draft_email(request: Request, body: DraftEmailRequest):
             action_payload = None
     draft = _call_llm_draft(client_name, title, description, action_payload, model)
     cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
+    audit.record(kind="draft_email", timestamp=datetime.now().isoformat(),
+                 client_id=str(row["client_id"]) if row.get("client_id") else None,
+                 client_name=client_name, model=model, output=draft)
     return DraftEmailResponse(draft=draft)

@@ -1,9 +1,17 @@
 import Head from "next/head";
 import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Download, History, ShieldCheck, Trash2 } from "lucide-react";
 import { Card, CardHeader, Button, Modal, useToast, PageIntro, PageShell } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useClearData } from "../hooks/useApi";
+import { useApproveAuditEntry, useAuditLog, useClearData, useCompliancePosture, useExportData } from "../hooks/useApi";
+import type { ExportType } from "../lib/export";
+import { formatDateTime } from "../lib/format";
+
+const AUDIT_KIND_LABELS: Record<string, string> = {
+  review_note: "Review note",
+  draft_email: "Draft email",
+  digest: "Morning digest",
+};
 
 function SettingRow({
   icon,
@@ -37,8 +45,29 @@ export default function SettingsPage() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const clearData = useClearData();
+  const exportData = useExportData();
+  const auditLog = useAuditLog();
+  const auditEntries = auditLog.data?.entries ?? [];
+  const approveEntry = useApproveAuditEntry();
+  const posture = useCompliancePosture().data;
 
   usePageSetup("Settings");
+
+  const handleApprove = (id: number) => {
+    approveEntry.mutate(id, {
+      onSuccess: () => notify("Marked as reviewed.", "success"),
+      onError: (e: unknown) =>
+        notify(e instanceof Error ? e.message : "Couldn't approve", "error"),
+    });
+  };
+
+  const handleExport = (type: ExportType) => {
+    exportData.mutate(type, {
+      onSuccess: () => notify(`Exported ${type} as CSV.`, "success"),
+      onError: (e: unknown) =>
+        notify(e instanceof Error ? e.message : "Export failed", "error"),
+    });
+  };
 
   const handleClearData = () => {
     clearData.mutate(undefined, {
@@ -65,6 +94,119 @@ export default function SettingsPage() {
 
       <div className="max-w-3xl space-y-6" data-testid="settings-page">
         <Card>
+          <CardHeader title="Data export" />
+          <div className="divide-y divide-slate-100">
+            <SettingRow
+              icon={<Download className="h-4 w-4" aria-hidden />}
+              title="Export your data"
+              description="Download your client book or alert list as a CSV file for spreadsheets, reporting, or backup."
+            >
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleExport("clients")}
+                  loading={exportData.isPending && exportData.variables === "clients"}
+                  data-testid="export-clients-button"
+                >
+                  Export clients
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleExport("alerts")}
+                  loading={exportData.isPending && exportData.variables === "alerts"}
+                  data-testid="export-alerts-button"
+                >
+                  Export alerts
+                </Button>
+              </div>
+            </SettingRow>
+          </div>
+        </Card>
+
+        {posture && (
+          <Card data-testid="posture-card">
+            <CardHeader
+              title="Data handling & AI posture"
+              description="How this workspace handles data and AI — for due diligence."
+            />
+            <dl className="grid grid-cols-1 gap-px bg-slate-100 sm:grid-cols-2">
+              {[
+                { label: "Trains on client data", value: posture.trains_on_client_data ? "Yes" : "No" },
+                { label: "Data residency", value: posture.data_residency },
+                { label: "LLM provider", value: posture.llm_provider },
+                {
+                  label: "Data retention",
+                  value: posture.data_retention_days != null ? `${posture.data_retention_days} days` : "Not configured",
+                },
+                { label: "Encryption in transit", value: posture.encryption_in_transit ? "Enabled" : "Not configured" },
+                { label: "Encryption at rest", value: posture.encryption_at_rest ? "Enabled" : "Not configured" },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-center gap-3 bg-white px-6 py-4">
+                  <ShieldCheck className="h-4 w-4 flex-shrink-0 text-brand-600" aria-hidden />
+                  <div>
+                    <dt className="text-xs font-medium text-slate-500">{label}</dt>
+                    <dd className="text-sm font-semibold capitalize text-slate-900">{value}</dd>
+                  </div>
+                </div>
+              ))}
+            </dl>
+          </Card>
+        )}
+
+        <Card data-testid="audit-log-card">
+          <CardHeader
+            title="AI audit log"
+            description="Recent AI-generated outputs, for accountability. Held in memory on the server."
+          />
+          <div className="px-6 py-5">
+            {auditEntries.length === 0 ? (
+              <p className="flex items-center gap-2 text-sm text-slate-500">
+                <History className="h-4 w-4" aria-hidden />
+                No AI activity recorded yet.
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {auditEntries.map((entry) => (
+                  <li key={entry.id} className="flex flex-wrap items-start gap-3 py-3">
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+                      {AUDIT_KIND_LABELS[entry.kind] ?? entry.kind}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-slate-700">{entry.preview}</p>
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        {entry.client_name ? `${entry.client_name} · ` : ""}
+                        {formatDateTime(entry.timestamp)}
+                        {entry.ai_generated ? "" : " · fallback"}
+                      </p>
+                    </div>
+                    {entry.reviewed ? (
+                      <span
+                        className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700"
+                        data-testid={`audit-reviewed-${entry.id}`}
+                      >
+                        Reviewed
+                      </span>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleApprove(entry.id)}
+                        loading={approveEntry.isPending && approveEntry.variables === entry.id}
+                        data-testid={`audit-approve-${entry.id}`}
+                      >
+                        Mark reviewed
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Card>
+
+        <Card>
           <CardHeader title="Data & privacy" />
           <div className="divide-y divide-slate-100">
             <SettingRow
@@ -80,7 +222,7 @@ export default function SettingsPage() {
         </Card>
 
         <p className="text-sm text-slate-500">
-          Profile, workspace, and data export settings are available in the production release.
+          Profile and workspace settings are available in the production release.
         </p>
       </div>
       </PageShell>

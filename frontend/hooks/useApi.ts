@@ -8,17 +8,27 @@ import {
 } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { api, ApiError } from "@/lib/api";
-import { uploadDocument } from "@/lib/ingest";
+import { downloadExport, type ExportType } from "@/lib/export";
+import { ingestTranscript, uploadDocument } from "@/lib/ingest";
 import type {
   Alert,
+  BookAnalytics,
   BriefResponse,
   ChatResponse,
   Client,
   ClientDetail,
+  ClientUpdateInput,
+  ComplianceScanResponse,
+  CompliancePosture,
+  AuditLogResponse,
   DigestResponse,
   DraftEmailResponse,
   DraftEmailSource,
+  NoteTemplate,
+  Playbook,
   PulseData,
+  RenderedTemplate,
+  ReviewNoteResponse,
   StoredDocument,
 } from "@/lib/types";
 
@@ -27,6 +37,7 @@ export const queryKeys = {
   digest: (date: string) => ["digest", date] as const,
   completed: () => ["completed"] as const,
   clients: () => ["clients"] as const,
+  analytics: () => ["analytics"] as const,
   clientDetail: (id: string) => ["client", id] as const,
   alerts: (params: Record<string, string>) => ["alerts", params] as const,
   documents: () => ["documents"] as const,
@@ -64,6 +75,15 @@ export function useClients() {
   return useQuery({
     queryKey: queryKeys.clients(),
     queryFn: () => api.get<{ clients: Client[] }>("/api/monitor/clients"),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+  });
+}
+
+export function useBookAnalytics() {
+  return useQuery({
+    queryKey: queryKeys.analytics(),
+    queryFn: () => api.get<BookAnalytics>("/api/monitor/analytics"),
     staleTime: 60_000,
     gcTime: 10 * 60_000,
   });
@@ -196,6 +216,58 @@ export function useClientDetail(clientId: string | undefined) {
   });
 }
 
+export function useUpdateClient(clientId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<Client, ApiError, ClientUpdateInput>({
+    mutationFn: (input) =>
+      api.patch<Client>(
+        `/api/monitor/clients/${encodeURIComponent(clientId!)}`,
+        input
+      ),
+    // Editing profile facts can change the AI summary, list rows and pulse, so
+    // invalidate the dependent queries to refetch fresh data.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.clientDetail(clientId ?? "") });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["pulse"] });
+      qc.invalidateQueries({ queryKey: ["digest"] });
+    },
+  });
+}
+
+export function usePlaybooks() {
+  return useQuery({
+    queryKey: ["playbooks"],
+    queryFn: () => api.get<{ playbooks: Playbook[] }>("/api/monitor/playbooks"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useApplyPlaybook(clientId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<{ applied: number }, ApiError, string>({
+    mutationFn: (playbookId) =>
+      api.post<{ applied: number }>(
+        `/api/monitor/clients/${encodeURIComponent(clientId!)}/apply-playbook`,
+        { playbook_id: playbookId }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.clientDetail(clientId ?? "") });
+      qc.invalidateQueries({ queryKey: ["pulse"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+    },
+  });
+}
+
+export function useClientReviewNote(clientId: string | undefined) {
+  return useMutation<ReviewNoteResponse, ApiError, void>({
+    mutationFn: () =>
+      api.post<ReviewNoteResponse>(
+        `/api/monitor/clients/${encodeURIComponent(clientId!)}/review-note`
+      ),
+  });
+}
+
 export function useDigest(simulatedDate: string, enabled = true) {
   const qc = useQueryClient();
   const query = useQuery({
@@ -225,12 +297,13 @@ export function useChat() {
   return useMutation<
     ChatResponse,
     ApiError,
-    { query: string; clientId?: string }
+    { query: string; clientId?: string; conversationId?: string }
   >({
-    mutationFn: ({ query, clientId }) =>
+    mutationFn: ({ query, clientId, conversationId }) =>
       api.post<ChatResponse>("/api/chat", {
         query,
         ...(clientId ? { client_id: clientId } : {}),
+        ...(conversationId ? { conversation_id: conversationId } : {}),
       }),
   });
 }
@@ -242,6 +315,70 @@ export function useBrief() {
   });
 }
 
+export function useNoteTemplates() {
+  return useQuery({
+    queryKey: ["note-templates"],
+    queryFn: () => api.get<{ templates: NoteTemplate[] }>("/api/ingest/note-templates"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useNoteTemplate(templateId: string) {
+  return useQuery({
+    queryKey: ["note-template", templateId],
+    queryFn: () =>
+      api.get<RenderedTemplate>(
+        `/api/ingest/note-templates/${encodeURIComponent(templateId)}`
+      ),
+    enabled: !!templateId,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useIngestTranscript() {
+  const qc = useQueryClient();
+  return useMutation<StoredDocument, ApiError, { text: string; title?: string }>({
+    mutationFn: ({ text, title }) => ingestTranscript(text, title),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["pulse"] });
+    },
+  });
+}
+
+export function useAuditLog() {
+  return useQuery({
+    queryKey: ["audit"],
+    queryFn: () => api.get<AuditLogResponse>("/api/compliance/audit?limit=50"),
+    staleTime: 30_000,
+  });
+}
+
+export function useCompliancePosture() {
+  return useQuery({
+    queryKey: ["posture"],
+    queryFn: () => api.get<CompliancePosture>("/api/compliance/posture"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useApproveAuditEntry() {
+  const qc = useQueryClient();
+  return useMutation<unknown, ApiError, number>({
+    mutationFn: (entryId) =>
+      api.post(`/api/compliance/audit/${entryId}/approve`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["audit"] }),
+  });
+}
+
+export function useComplianceScan() {
+  return useMutation<ComplianceScanResponse, ApiError, string>({
+    mutationFn: (text: string) =>
+      api.post<ComplianceScanResponse>("/api/compliance/scan", { text }),
+  });
+}
+
 export function useUpload() {
   const qc = useQueryClient();
   return useMutation<StoredDocument, ApiError, File>({
@@ -250,10 +387,32 @@ export function useUpload() {
   });
 }
 
+export function useExportData() {
+  return useMutation<void, ApiError, ExportType>({
+    mutationFn: (type) => downloadExport(type),
+  });
+}
+
 export function useClearData() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.post<{ ok: boolean }>("/api/settings/clear-data"),
+    onSuccess: () => qc.invalidateQueries(),
+  });
+}
+
+interface LoadSampleDataResult {
+  loaded: boolean;
+  message: string;
+  clients: number;
+  alerts: number;
+}
+
+export function useLoadSampleData() {
+  const qc = useQueryClient();
+  return useMutation<LoadSampleDataResult, ApiError, void>({
+    mutationFn: () =>
+      api.post<LoadSampleDataResult>("/api/settings/load-sample-data"),
     onSuccess: () => qc.invalidateQueries(),
   });
 }

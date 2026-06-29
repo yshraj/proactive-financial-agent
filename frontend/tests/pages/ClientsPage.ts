@@ -28,6 +28,12 @@ export class ClientsPage {
     await expect(this.page.getByTestId("client-ai-summary")).toBeVisible();
   }
 
+  /** Open the review-note modal and wait for the generated note to render. */
+  async openReviewNote() {
+    await this.page.getByTestId("client-review-note-button").click();
+    await expect(this.page.getByTestId("review-note-content")).toBeVisible();
+  }
+
   /** Open the edit modal, change the name, and save. */
   async editClientName(newName: string) {
     await this.page.getByTestId("client-edit-button").click();

@@ -2,6 +2,7 @@ import Head from "next/head";
 import { useRouter } from "next/router";
 import { useState } from "react";
 import {
+  ClipboardList,
   FileText,
   Gauge,
   ListChecks,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import AlertCard from "../../components/AlertCard";
 import EditClientModal from "../../components/EditClientModal";
+import ReviewNoteModal from "../../components/ReviewNoteModal";
 import LazyDraftEmailModal from "../../components/LazyDraftEmailModal";
 import {
   Card,
@@ -26,7 +28,7 @@ import {
 } from "../../components/ui";
 import { useDraftEmailModalState } from "../../hooks/useDraftEmailModalState";
 import { usePageSetup } from "../../hooks/usePageSetup";
-import { useClientDetail } from "../../hooks/useApi";
+import { useClientDetail, useClientReviewNote } from "../../hooks/useApi";
 import { errorMessage } from "../../lib/api";
 import { formatCurrency, formatDate, formatRiskScore } from "../../lib/format";
 import { briefForClient, chatForClient, ROUTES } from "../../lib/routes";
@@ -37,8 +39,15 @@ export default function ClientDetailPage() {
   const clientId = typeof router.query.id === "string" ? router.query.id : undefined;
   const { source: draftEmailSource, openAlertDraft, closeDraft } = useDraftEmailModalState();
   const [isEditing, setIsEditing] = useState(false);
+  const [showReviewNote, setShowReviewNote] = useState(false);
   const detailQuery = useClientDetail(clientId);
+  const reviewNote = useClientReviewNote(clientId);
   const client = detailQuery.data;
+
+  const openReviewNote = () => {
+    setShowReviewNote(true);
+    reviewNote.mutate();
+  };
 
   usePageSetup(client?.full_name ?? "Client", null, [client?.full_name]);
 
@@ -89,6 +98,14 @@ export default function ClientDetailPage() {
                 data-testid="client-edit-button"
               >
                 Edit details
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={openReviewNote}
+                leftIcon={<ClipboardList className="h-4 w-4" aria-hidden />}
+                data-testid="client-review-note-button"
+              >
+                Review note
               </Button>
               <ButtonLink
                 href={briefForClient(client.id)}
@@ -316,6 +333,13 @@ export default function ClientDetailPage() {
       )}
       {client && isEditing && (
         <EditClientModal client={client} onClose={() => setIsEditing(false)} />
+      )}
+      {showReviewNote && (
+        <ReviewNoteModal
+          data={reviewNote.data}
+          loading={reviewNote.isPending}
+          onClose={() => setShowReviewNote(false)}
+        />
       )}
       </PageShell>
     </>

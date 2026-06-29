@@ -213,6 +213,13 @@ const server = createServer((req, res) => {
       // Alert status update: PATCH /api/monitor/alerts/{id}/status
       return send(res, 200, { ...ALERTS[0], status: "COMPLETED" });
     }
+    if (/^\/api\/monitor\/clients\/[^/]+\/review-note$/.test(path))
+      return send(res, 200, {
+        note:
+          "# Client review note — Alan & Lynne Partridge\n\n## Summary\nReview overdue; £895k assets.\n\n## Open items\n- Annual review overdue\n\n## Consumer Duty\n- Ongoing value to confirm.\n\nDraft for adviser review — confirm before filing.",
+        generated_at: new Date().toISOString(),
+        ai_generated: false,
+      });
     if (path === "/api/chat") return send(res, 200, { answer: CHAT_ANSWER, sources: CHAT_SOURCES });
     if (path === "/api/chat/brief") return send(res, 200, { brief: BRIEF, talking_points: TALKING_POINTS });
     if (path === "/api/monitor/draft-email")

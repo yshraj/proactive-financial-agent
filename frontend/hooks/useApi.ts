@@ -23,6 +23,7 @@ import type {
   DraftEmailResponse,
   DraftEmailSource,
   PulseData,
+  ReviewNoteResponse,
   StoredDocument,
 } from "@/lib/types";
 
@@ -226,6 +227,15 @@ export function useUpdateClient(clientId: string | undefined) {
       qc.invalidateQueries({ queryKey: ["pulse"] });
       qc.invalidateQueries({ queryKey: ["digest"] });
     },
+  });
+}
+
+export function useClientReviewNote(clientId: string | undefined) {
+  return useMutation<ReviewNoteResponse, ApiError, void>({
+    mutationFn: () =>
+      api.post<ReviewNoteResponse>(
+        `/api/monitor/clients/${encodeURIComponent(clientId!)}/review-note`
+      ),
   });
 }
 

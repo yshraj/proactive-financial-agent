@@ -50,11 +50,14 @@ from app.services.prompts import (
     DRAFT_ALERT_EMAIL_SYSTEM,
     DRAFT_BRIEF_FOLLOWUP_SYSTEM,
     PROMPT_VERSION,
+    REVIEW_NOTE_SYSTEM,
     client_summary_user_message,
     digest_user_message,
     draft_alert_user_message,
     draft_brief_followup_user_message,
+    review_note_user_message,
 )
+from app.services.review_note import fallback_review_note
 
 router = APIRouter()
 
@@ -482,6 +485,91 @@ def update_client(request: Request, client_id: str, body: ClientUpdateRequest):
         total_assets=float(row["total_assets"]) if row.get("total_assets") is not None else None,
         cash_savings=float(row["cash_savings"]) if row.get("cash_savings") is not None else None,
     )
+
+
+class ReviewNoteResponse(BaseModel):
+    note: str
+    generated_at: str
+    ai_generated: bool
+
+
+@router.post("/clients/{client_id}/review-note", response_model=ReviewNoteResponse)
+@limiter.limit("30/minute")
+def client_review_note(request: Request, client_id: str):
+    """Generate a Consumer-Duty client review note (LLM, with deterministic fallback)."""
+    today = datetime.now().date()
+    review_cutoff = today - timedelta(days=365)
+    end_90 = today + timedelta(days=90)
+
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT id, full_name, last_review_date, total_assets, risk_score FROM clients WHERE id = %s",
+            (client_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Client not found")
+        cur.execute(
+            f"""
+            {ALERTS_WITH_CLIENT_SQL}
+            WHERE a.client_id = %s AND a.status = 'PENDING'
+              AND a.trigger_date >= %s AND a.trigger_date <= %s
+            ORDER BY a.trigger_date, a.priority DESC
+            """,
+            (client_id, today, end_90),
+        )
+        pending = cur.fetchall()
+
+    client_name = (row.get("full_name") or "Unknown").strip()
+    last_review = row.get("last_review_date")
+    profile_bits = ", ".join(
+        bit
+        for bit in [
+            f"last review {last_review}" if last_review else "no review on file",
+            f"assets {row.get('total_assets')}" if row.get("total_assets") is not None else None,
+            f"risk {row.get('risk_score')}" if row.get("risk_score") is not None else None,
+        ]
+        if bit
+    )
+    open_items = [
+        f"{(a.get('title') or a.get('type'))} (due {a['trigger_date'].isoformat() if a.get('trigger_date') else '—'})"
+        for a in pending
+    ]
+    if last_review is None or last_review < review_cutoff:
+        open_items.insert(0, "Annual review overdue")
+
+    cache_key = f"review-note:{PROMPT_VERSION}:{client_id}"
+    cached = cache_get(cache_key)
+    if isinstance(cached, dict) and cached.get("note"):
+        return ReviewNoteResponse(**cached)
+
+    model = resolve_model("brief")
+    try:
+        note = complete_with_system(
+            system=REVIEW_NOTE_SYSTEM,
+            user=review_note_user_message(
+                client_name=client_name,
+                profile=profile_bits,
+                open_items="; ".join(open_items) or "None",
+            ),
+            max_tokens=420,
+            model=model,
+            purpose="brief",
+        )
+        ai_generated = True
+    except Exception:
+        # Deterministic fallback keeps the feature working without an LLM.
+        note = fallback_review_note(
+            client_name=client_name,
+            profile_bits=profile_bits,
+            open_items=open_items,
+            today_iso=today.isoformat(),
+        )
+        ai_generated = False
+
+    payload = {"note": note, "generated_at": datetime.now().isoformat(), "ai_generated": ai_generated}
+    cache_set(cache_key, payload, BRIEF_TTL)
+    return ReviewNoteResponse(**payload)
 
 
 class PulseResponse(BaseModel):

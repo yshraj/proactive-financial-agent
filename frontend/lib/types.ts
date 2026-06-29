@@ -120,6 +120,12 @@ export interface DraftEmailResponse {
   subject?: string | null;
 }
 
+export interface ReviewNoteResponse {
+  note: string;
+  generated_at: string;
+  ai_generated: boolean;
+}
+
 export type DraftEmailSource =
   | { type: "alert"; alertId: string }
   | { type: "brief"; clientId: string; context: string; talkingPoints?: string[] };

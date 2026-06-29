@@ -97,6 +97,23 @@ Reference the talking points and open items from the meeting brief context.
 UK English, 2–3 paragraphs, professional and warm. Plain text only — no subject or signature."""
 
 # ---------------------------------------------------------------------------
+# Client review note (Consumer Duty ongoing-service record)
+# ---------------------------------------------------------------------------
+
+REVIEW_NOTE_SYSTEM = f"""{JARVIS_PERSONA}
+
+Write a concise client review note the adviser can file as evidence of ongoing service (Consumer Duty).
+Use only the supplied client data and open items.
+
+Structure (markdown headings):
+## Summary — review status and one or two key facts
+## Open items — outstanding actions or deadlines (or 'None outstanding')
+## Consumer Duty — one line on whether ongoing value was delivered and any vulnerability considerations
+
+End with a line exactly: "Draft for adviser review — confirm before filing."
+Keep it under 180 words. Do not invent facts not in the context."""
+
+# ---------------------------------------------------------------------------
 # Document extraction (Path A ingest)
 # ---------------------------------------------------------------------------
 
@@ -132,6 +149,7 @@ _ALL_PROMPTS = "|".join([
     DIGEST_SYSTEM,
     DRAFT_ALERT_EMAIL_SYSTEM,
     DRAFT_BRIEF_FOLLOWUP_SYSTEM,
+    REVIEW_NOTE_SYSTEM,
     EXTRACTION_SYSTEM,
 ])
 
@@ -180,6 +198,14 @@ def draft_alert_user_message(
         f"Alert: {title or 'Follow-up'}\n"
         f"Description: {description or 'No description.'}\n"
         f"Action context (if relevant): {action_payload}"
+    )
+
+
+def review_note_user_message(*, client_name: str, profile: str, open_items: str) -> str:
+    return (
+        f"Client: {client_name}\n"
+        f"Profile: {profile or 'No profile data on file.'}\n"
+        f"Open items: {open_items or 'None'}"
     )
 
 

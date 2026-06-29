@@ -68,6 +68,13 @@ test.describe("adviser QA journey", () => {
     await expect(page.getByTestId("client-edit-button")).toBeVisible();
   });
 
+  test("generate client review note", async ({ app, page }) => {
+    await page.goto("/clients/c1");
+    await app.clients.expectDetailLoaded();
+    await app.clients.openReviewNote();
+    await expect(page.getByTestId("review-note-content")).toContainText("Consumer Duty");
+  });
+
   test("client-scoped AI copilot via deep link", async ({ app, page }, testInfo) => {
     await page.goto("/chat?clientId=c1");
     await app.aiCopilot.expectLoaded();

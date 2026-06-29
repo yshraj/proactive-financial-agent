@@ -64,13 +64,14 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 
 ### What we implemented
 
-- **Client list** — Table with last review, assets, risk score, open alert count.
+- **Client list** — Table with last review, assets, risk score, open alert count, plus a book-analytics strip (clients, AUM, average risk, reviews overdue).
 - **Client detail** — Profile snapshot (incl. linked document count), open alerts, links to brief and Copilot.
 - **Edit details** — Correct mis-extracted profile fields (name, assets, cash, risk, retirement age, last review) via a modal, validated server-side.
+- **Client intelligence** — Deterministic engagement-risk and profile-completeness scores plus a ranked next-best-action list, computed from existing data (no LLM).
 
 ### How we achieved it
 
-- **Backend:** `GET /api/monitor/clients`, `GET /api/monitor/clients/{id}`, `PATCH /api/monitor/clients/{id}` — `monitor.py`; validation in `services/client_updates.py`.
+- **Backend:** `GET /api/monitor/clients`, `GET /api/monitor/clients/{id}`, `PATCH /api/monitor/clients/{id}`, `GET /api/monitor/analytics` — `monitor.py`; validation in `services/client_updates.py`; pure scoring in `services/scores.py`; aggregation in `services/analytics.py`.
 - **Frontend:** `frontend/pages/clients/index.tsx`, `frontend/pages/clients/[id].tsx`, `frontend/components/EditClientModal.tsx`.
 
 ---

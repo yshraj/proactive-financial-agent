@@ -738,9 +738,11 @@ def get_digest(
             )
 
     model = resolve_model("brief")
+    ai_generated = True
     try:
         digest_text = _generate_morning_digest(pulse, simulated_date, model)
     except Exception:
+        ai_generated = False
         if pulse.total == 0:
             digest_text = "Your book looks clear today — a good moment for proactive client outreach or reviewing uploaded documents."
         else:
@@ -752,6 +754,8 @@ def get_digest(
 
     generated_at = datetime.now().isoformat()
     cache_set(cache_key, {"digest": digest_text, "generated_at": generated_at}, BRIEF_TTL)
+    audit.record(kind="digest", timestamp=generated_at, model=model, output=digest_text,
+                 ai_generated=ai_generated)
     return DigestResponse(digest=digest_text, generated_at=generated_at)
 
 
@@ -962,6 +966,8 @@ def draft_email(request: Request, body: DraftEmailRequest):
             raise HTTPException(status_code=404, detail="Client not found") from None
         draft = _call_llm_brief_followup(client_name, context, body.talking_points, model)
         cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
+        audit.record(kind="draft_email", timestamp=datetime.now().isoformat(),
+                     client_id=client_id, client_name=client_name, model=model, output=draft)
         return DraftEmailResponse(draft=draft, subject=f"Follow-up: {client_name}")
 
     alert_id = (body.alert_id or "").strip()
@@ -986,6 +992,8 @@ def draft_email(request: Request, body: DraftEmailRequest):
         description = "No review in 12+ months. Consumer Duty requires demonstrating ongoing value."
         draft = _call_llm_draft(client_name, title, description, None, model)
         cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
+        audit.record(kind="draft_email", timestamp=datetime.now().isoformat(),
+                     client_id=client_id, client_name=client_name, model=model, output=draft)
         return DraftEmailResponse(draft=draft)
 
     with get_cursor() as cur:
@@ -1012,4 +1020,7 @@ def draft_email(request: Request, body: DraftEmailRequest):
             action_payload = None
     draft = _call_llm_draft(client_name, title, description, action_payload, model)
     cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
+    audit.record(kind="draft_email", timestamp=datetime.now().isoformat(),
+                 client_id=str(row["client_id"]) if row.get("client_id") else None,
+                 client_name=client_name, model=model, output=draft)
     return DraftEmailResponse(draft=draft)

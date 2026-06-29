@@ -92,8 +92,17 @@ def extract_structured(file_path: Path) -> dict[str, Any]:
     Raises on missing env or parse/LLM errors.
     """
     text = extract_text_from_file(file_path)
-    if not text or len(text) < 50:
-        logger.warning("[ingest] Document too short (<50 chars), skipping LLM; using placeholder client")
+    return extract_structured_from_text(text)
+
+
+def extract_structured_from_text(text: str) -> dict[str, Any]:
+    """
+    Run structured extraction over already-extracted text (e.g. a pasted meeting
+    transcript). Same contract and caching as :func:`extract_structured`.
+    """
+    text = text or ""
+    if len(text) < 50:
+        logger.warning("[ingest] Text too short (<50 chars), skipping LLM; using placeholder client")
         return {"client": {"full_name": "Unknown Client", "raw_profile_json": {}}, "alerts": [], "raw_text": text}
 
     content_for_hash = text[:100000]

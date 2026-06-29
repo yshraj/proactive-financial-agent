@@ -7,3 +7,11 @@ export async function uploadDocument(file: File): Promise<StoredDocument> {
   form.append("file", file);
   return api.postForm<StoredDocument>("/api/ingest/upload", form);
 }
+
+/** Ingest a pasted meeting transcript. Throws ApiError on failure (incl. 409 duplicate). */
+export async function ingestTranscript(
+  text: string,
+  title?: string
+): Promise<StoredDocument> {
+  return api.post<StoredDocument>("/api/ingest/transcript", { text, title });
+}

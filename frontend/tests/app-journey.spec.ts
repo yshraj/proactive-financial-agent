@@ -58,6 +58,16 @@ test.describe("complete adviser journey", () => {
     await waitForSuccessfulApiResponse(page, "/api/ingest/upload", () => app.ingestion.uploadSampleDocument());
   });
 
+  test("paste transcript ingestion", async ({ app, page }) => {
+    await app.ingestion.goto();
+    await app.ingestion.expectLoaded();
+    await waitForSuccessfulApiResponse(page, "/api/ingest/transcript", () =>
+      app.ingestion.ingestTranscript(
+        "Met with the client today. They confirmed their pension contribution increase and we agreed to review protection cover before the next annual review."
+      )
+    );
+  });
+
   test("compliance scan flags vulnerability and consumer duty signals", async ({ app, page }) => {
     await app.ingestion.goto();
     await app.ingestion.expectLoaded();

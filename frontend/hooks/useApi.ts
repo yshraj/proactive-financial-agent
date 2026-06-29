@@ -9,7 +9,7 @@ import {
 import { useCallback } from "react";
 import { api, ApiError } from "@/lib/api";
 import { downloadExport, type ExportType } from "@/lib/export";
-import { uploadDocument } from "@/lib/ingest";
+import { ingestTranscript, uploadDocument } from "@/lib/ingest";
 import type {
   Alert,
   BookAnalytics,
@@ -282,6 +282,18 @@ export function useBrief() {
   return useMutation<BriefResponse, ApiError, string>({
     mutationFn: (clientId: string) =>
       api.post<BriefResponse>("/api/chat/brief", { client_id: clientId }),
+  });
+}
+
+export function useIngestTranscript() {
+  const qc = useQueryClient();
+  return useMutation<StoredDocument, ApiError, { text: string; title?: string }>({
+    mutationFn: ({ text, title }) => ingestTranscript(text, title),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["documents"] });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["pulse"] });
+    },
   });
 }
 

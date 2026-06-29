@@ -230,6 +230,8 @@ const server = createServer((req, res) => {
       });
     if (path === "/api/ingest/upload")
       return send(res, 200, { id: "uploaded-doc", filename: "sample-client-note.pdf", content_hash: "upload", file_size_bytes: 620, uploaded_at: new Date().toISOString(), processing_error: null });
+    if (path === "/api/ingest/transcript")
+      return send(res, 201, { id: "transcript-doc", filename: "transcript-abc123.txt", content_hash: "transcript", file_size_bytes: 1200, uploaded_at: new Date().toISOString(), processing_error: null });
     if (path === "/api/compliance/scan") {
       let body = {};
       try {

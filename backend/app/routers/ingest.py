@@ -102,6 +102,17 @@ def _find_by_hash(content_hash: str) -> Optional[dict]:
         raise
 
 
+def doc_type_for_ext(ext: str) -> tuple[str, str]:
+    """Map a file extension to (display doc_type, qdrant source_type)."""
+    if ext == ".pdf":
+        return "PDF", "pdf"
+    if ext == ".docx":
+        return "Word", "docx"
+    if ext == ".txt":
+        return "Transcript", "transcript"
+    return "Document", "document"
+
+
 def _run_dual_path_ingestion(
     file_path: Path,
     display_filename: str,
@@ -114,13 +125,27 @@ def _run_dual_path_ingestion(
     Path B: Chunk text -> embed -> upsert Qdrant client_memory with full metadata for filtered search.
     Returns None on success, or an error message string on failure.
     """
-    logger.info("[ingest] -------- ingestion start: document_id=%s, filename=%s --------", document_id, display_filename)
     try:
         extracted = llm_extractor.extract_structured(file_path)
     except Exception as e:
         logger.exception("[ingest] Extraction failed: %s", e)
         return public_error_message("ingest_extraction", e)
+    return _persist_extraction(extracted, display_filename, ext, document_id, ingested_at)
 
+
+def _persist_extraction(
+    extracted: dict,
+    display_filename: str,
+    ext: str,
+    document_id: str,
+    ingested_at: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Write an extracted {client, alerts, raw_text} payload to Postgres + Qdrant.
+    Shared by file upload and transcript ingestion. Returns None on success or an
+    error message string on failure.
+    """
+    logger.info("[ingest] -------- ingestion start: document_id=%s, filename=%s --------", document_id, display_filename)
     client_data = extracted.get("client") or {}
     alerts_data = extracted.get("alerts") or []
     raw_text = extracted.get("raw_text") or ""
@@ -228,8 +253,7 @@ def _run_dual_path_ingestion(
                     logger.warning("[ingest] Alert insert skipped (bad row): %s", row_err)
 
     try:
-        doc_type = "PDF" if ext == ".pdf" else "Word"
-        source_type = "pdf" if ext == ".pdf" else "docx"
+        doc_type, source_type = doc_type_for_ext(ext)
         vector_store.index_document_text(
             raw_text=raw_text,
             client_id=client_id,
@@ -381,5 +405,93 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
         content_hash=row["content_hash"],
         file_size_bytes=row["file_size_bytes"],
         uploaded_at=row["uploaded_at"].isoformat() if row["uploaded_at"] else "",
+        processing_error=processing_error,
+    )
+
+
+class TranscriptRequest(BaseModel):
+    text: str
+    title: Optional[str] = None
+
+
+# Transcripts can be long; cap to keep extraction bounded (matches extractor limit).
+MAX_TRANSCRIPT_CHARS = 100_000
+MIN_TRANSCRIPT_CHARS = 50
+
+
+@router.post("/transcript", response_model=DocumentOut, status_code=201)
+@limiter.limit("30/minute")
+def ingest_transcript(request: Request, body: TranscriptRequest):
+    """
+    Ingest a pasted meeting transcript: run the same dual-path pipeline as file
+    upload (LLM extraction -> Postgres clients/alerts; chunk+embed -> Qdrant),
+    without requiring a file. Duplicate transcripts are detected by content hash.
+    """
+    text = (body.text or "").strip()
+    if len(text) < MIN_TRANSCRIPT_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Transcript is too short to process (minimum {MIN_TRANSCRIPT_CHARS} characters).",
+        )
+    text = text[:MAX_TRANSCRIPT_CHARS]
+
+    content_hash = _compute_content_hash(text.encode("utf-8"))
+    existing = _find_by_hash(content_hash)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DUPLICATE",
+                "message": "This transcript has the same content as one already in the system.",
+                "existing_id": str(existing["id"]),
+                "existing_filename": existing["filename"],
+            },
+        )
+
+    file_id = str(uuid.uuid4())
+    title = (body.title or "").strip()
+    safe_title = re.sub(r"[^\w\-]", "_", title)[:80] if title else f"transcript-{file_id[:8]}"
+    display_filename = f"{safe_title}.txt"
+    size_bytes = len(text.encode("utf-8"))
+
+    try:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                """
+                INSERT INTO ingested_documents (id, filename, content_hash, file_path, file_size_bytes)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id, filename, content_hash, file_size_bytes, uploaded_at
+                """,
+                (file_id, display_filename, content_hash, f"transcript:{file_id}", size_bytes),
+            )
+            row = cur.fetchone()
+    except psycopg2.Error as e:
+        if _is_table_missing(e):
+            raise HTTPException(status_code=503, detail=TABLE_MISSING_MSG)
+        raise
+
+    uploaded_at_iso = row["uploaded_at"].isoformat() if row.get("uploaded_at") else None
+    try:
+        extracted = llm_extractor.extract_structured_from_text(text)
+    except Exception as e:
+        logger.exception("[ingest] Transcript extraction failed: %s", e)
+        return DocumentOut(
+            id=str(row["id"]),
+            filename=row["filename"],
+            content_hash=row["content_hash"],
+            file_size_bytes=row["file_size_bytes"],
+            uploaded_at=uploaded_at_iso or "",
+            processing_error=public_error_message("ingest_extraction", e),
+        )
+
+    processing_error = _persist_extraction(
+        extracted, display_filename, ".txt", document_id=file_id, ingested_at=uploaded_at_iso
+    )
+    return DocumentOut(
+        id=str(row["id"]),
+        filename=row["filename"],
+        content_hash=row["content_hash"],
+        file_size_bytes=row["file_size_bytes"],
+        uploaded_at=uploaded_at_iso or "",
         processing_error=processing_error,
     )

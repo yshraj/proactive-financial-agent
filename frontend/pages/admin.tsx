@@ -1,9 +1,9 @@
 import Head from "next/head";
 import { useCallback, useRef, useState } from "react";
-import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Copy, Loader2, ShieldCheck } from "lucide-react";
+import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Copy, Loader2, ShieldCheck, MessagesSquare } from "lucide-react";
 import { Card, CardHeader, Button, EmptyState, ErrorState, TableSkeleton, PageIntro, PageShell, Badge, useToast } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useComplianceScan, useDocuments } from "../hooks/useApi";
+import { useComplianceScan, useDocuments, useIngestTranscript } from "../hooks/useApi";
 import { ApiError, errorMessage } from "../lib/api";
 import { uploadDocument } from "../lib/ingest";
 import { isAllowedUploadMime, validateUploadMagic } from "../lib/sanitize";
@@ -18,6 +18,71 @@ interface UploadItem {
 }
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB client-side guard
+
+/** Paste a meeting transcript to run it through the same extraction pipeline as uploads. */
+function TranscriptCard() {
+  const { notify } = useToast();
+  const [text, setText] = useState("");
+  const [title, setTitle] = useState("");
+  const ingest = useIngestTranscript();
+
+  const submit = () => {
+    ingest.mutate(
+      { text, title: title.trim() || undefined },
+      {
+        onSuccess: () => {
+          notify("Transcript ingested — extracting client and alerts.", "success");
+          setText("");
+          setTitle("");
+        },
+        onError: (e) =>
+          notify(
+            e instanceof ApiError && e.status === 409
+              ? "This transcript has already been ingested."
+              : errorMessage(e, "Transcript ingestion failed."),
+            "error"
+          ),
+      }
+    );
+  };
+
+  return (
+    <Card className="mt-10 p-6" data-testid="transcript-card">
+      <div className="mb-3 flex items-center gap-2">
+        <MessagesSquare className="h-4 w-4 text-brand-600" aria-hidden />
+        <h2 className="text-sm font-semibold text-slate-950">Paste a meeting transcript</h2>
+      </div>
+      <p className="mb-4 text-sm text-slate-500">
+        Paste notes or a transcript and KritiFin extracts the client profile and alerts,
+        and indexes it for AI Copilot — the same pipeline as document upload.
+      </p>
+      <input
+        className="input mb-3 w-full"
+        placeholder="Optional title (e.g. Partridge annual review)"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        data-testid="transcript-title"
+      />
+      <textarea
+        className="input min-h-[140px] w-full"
+        placeholder="Paste the meeting transcript here (minimum 50 characters)…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        data-testid="transcript-input"
+      />
+      <div className="mt-3">
+        <Button
+          onClick={submit}
+          loading={ingest.isPending}
+          disabled={text.trim().length < 50}
+          data-testid="transcript-submit"
+        >
+          Ingest transcript
+        </Button>
+      </div>
+    </Card>
+  );
+}
 
 /** Paste adviser notes and flag vulnerability / Consumer Duty signals (deterministic). */
 function ComplianceScanCard() {
@@ -303,6 +368,8 @@ export default function IngestionPage() {
           </ul>
         )}
       </Card>
+
+      <TranscriptCard />
 
       <ComplianceScanCard />
       </PageShell>

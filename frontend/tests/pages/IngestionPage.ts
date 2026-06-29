@@ -25,6 +25,11 @@ export class IngestionPage {
     await expect(row).toContainText(/Uploading|Done|Stored/);
   }
 
+  async ingestTranscript(text: string) {
+    await this.page.getByTestId("transcript-input").fill(text);
+    await this.page.getByTestId("transcript-submit").click();
+  }
+
   async runComplianceScan(notes: string) {
     await this.page.getByTestId("compliance-scan-input").fill(notes);
     await this.page.getByTestId("compliance-scan-button").click();

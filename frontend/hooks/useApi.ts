@@ -269,12 +269,13 @@ export function useChat() {
   return useMutation<
     ChatResponse,
     ApiError,
-    { query: string; clientId?: string }
+    { query: string; clientId?: string; conversationId?: string }
   >({
-    mutationFn: ({ query, clientId }) =>
+    mutationFn: ({ query, clientId, conversationId }) =>
       api.post<ChatResponse>("/api/chat", {
         query,
         ...(clientId ? { client_id: clientId } : {}),
+        ...(conversationId ? { conversation_id: conversationId } : {}),
       }),
   });
 }

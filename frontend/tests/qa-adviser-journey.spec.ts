@@ -75,6 +75,15 @@ test.describe("adviser QA journey", () => {
     await expect(page.getByTestId("review-note-content")).toContainText("Consumer Duty");
   });
 
+  test("multi-turn copilot conversation keeps a thread", async ({ app }) => {
+    await app.aiCopilot.goto();
+    await app.aiCopilot.expectLoaded();
+    await app.aiCopilot.ask("Which clients have unused ISA allowance?");
+    await app.aiCopilot.ask("And which of those have the most cash?");
+    // Both turns remain on screen — the conversation thread is preserved.
+    expect(await app.aiCopilot.answerCount()).toBe(2);
+  });
+
   test("client-scoped AI copilot via deep link", async ({ app, page }, testInfo) => {
     await page.goto("/chat?clientId=c1");
     await app.aiCopilot.expectLoaded();

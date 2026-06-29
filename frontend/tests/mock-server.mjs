@@ -235,7 +235,19 @@ const server = createServer((req, res) => {
         generated_at: new Date().toISOString(),
         ai_generated: false,
       });
-    if (path === "/api/chat") return send(res, 200, { answer: CHAT_ANSWER, sources: CHAT_SOURCES });
+    if (path === "/api/chat") {
+      let body = {};
+      try {
+        body = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        body = {};
+      }
+      return send(res, 200, {
+        answer: CHAT_ANSWER,
+        sources: CHAT_SOURCES,
+        conversation_id: body.conversation_id || "conv-mock-1",
+      });
+    }
     if (path === "/api/chat/brief") return send(res, 200, { brief: BRIEF, talking_points: TALKING_POINTS });
     if (path === "/api/monitor/draft-email")
       return send(res, 200, {

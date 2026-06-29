@@ -27,4 +27,16 @@ export class AiCopilotPage {
     await this.page.getByTestId("ai-copilot-submit").click();
     await expect(this.page.getByTestId("ai-copilot-answer")).toBeVisible();
   }
+
+  /** Ask a free-text question and wait for the answer. */
+  async ask(question: string) {
+    await this.page.getByTestId("ai-copilot-input").fill(question);
+    await this.page.getByTestId("ai-copilot-submit").click();
+    await expect(this.page.getByTestId("ai-copilot-answer")).toBeVisible();
+  }
+
+  /** Count the rendered Q&A turns (each answer card carries an AI badge). */
+  async answerCount(): Promise<number> {
+    return this.page.getByText("Copilot answer").count();
+  }
 }

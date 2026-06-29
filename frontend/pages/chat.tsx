@@ -55,6 +55,7 @@ export default function AICopilotPage() {
   const [query, setQuery] = useState("");
   const [selectedClientId, setSelectedClientId] = useState("");
   const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const [lastFailedQuery, setLastFailedQuery] = useState<string | null>(null);
   const [followUps, setFollowUps] = useState<string[]>([]);
@@ -102,9 +103,10 @@ export default function AICopilotPage() {
       setLastFailedQuery(null);
       setFollowUps([]);
       chat.mutate(
-        { query: text, clientId: selectedClientId || undefined },
+        { query: text, clientId: selectedClientId || undefined, conversationId },
         {
           onSuccess: (data) => {
+            if (data.conversation_id) setConversationId(data.conversation_id);
             setTurns((prev) => [
               ...prev,
               {
@@ -137,7 +139,7 @@ export default function AICopilotPage() {
         }
       );
     },
-    [chat, selectedClientId, scrollToBottom]
+    [chat, selectedClientId, conversationId, scrollToBottom]
   );
 
   useEffect(() => {
@@ -188,6 +190,7 @@ export default function AICopilotPage() {
                     onChange={(id) => {
                       setSelectedClientId(id);
                       setTurns([]);
+                      setConversationId(undefined);
                       setFollowUps([]);
                       autoAskRef.current = null;
                     }}

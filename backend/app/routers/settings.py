@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.db import get_cursor
 from app.security import data_reset_enabled, limiter
-from app.services import audit
+from app.services import audit, conversations
 from app.services.cache import invalidate_all_ai_caches
 from app.services.config import QDRANT_COLLECTION
 from app.services.safety import public_error_message
@@ -45,6 +45,7 @@ def clear_all_data(request: Request):
         # Clear in-memory caches (brief, draft, chat, extract) and the audit log
         invalidate_all_ai_caches()
         audit.clear()
+        conversations.clear()
     except Exception as e:
         raise HTTPException(
             status_code=500,

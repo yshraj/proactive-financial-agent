@@ -160,10 +160,12 @@ PROMPT_VERSION: str = hashlib.sha256(_ALL_PROMPTS.encode("utf-8")).hexdigest()[:
 # ---------------------------------------------------------------------------
 
 
-def chat_user_message(*, structured: str, documents: str, query: str) -> str:
+def chat_user_message(*, structured: str, documents: str, query: str, history: str = "") -> str:
     from app.services.safety import sanitize_user_query
 
     parts = []
+    if history.strip():
+        parts.append("=== Conversation so far (for context) ===\n" + history.strip())
     if structured.strip():
         parts.append("=== Structured records (trusted) ===\n" + structured.strip())
     if documents.strip():

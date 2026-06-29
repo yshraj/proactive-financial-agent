@@ -71,8 +71,10 @@ CREATE TABLE IF NOT EXISTS ingested_documents (
     content_hash VARCHAR(64) NOT NULL,
     file_path TEXT NOT NULL,
     file_size_bytes BIGINT,
+    client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
     uploaded_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(content_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_ingested_documents_content_hash ON ingested_documents(content_hash);
 CREATE INDEX IF NOT EXISTS idx_ingested_documents_uploaded_at ON ingested_documents(uploaded_at);
+CREATE INDEX IF NOT EXISTS idx_ingested_documents_client_id ON ingested_documents(client_id);

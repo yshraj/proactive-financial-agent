@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timedelta, date
 from typing import Optional
 
+import psycopg2
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -94,6 +95,24 @@ class ClientDetailOut(BaseModel):
 
 def _alert_from_row(r: dict) -> AlertOut:
     return AlertOut(**_alert_row_dict(r))
+
+
+def _document_count_for_client(cur, client_id: str) -> int:
+    """
+    Count documents linked to a client.
+
+    Returns 0 if the ``client_id`` link column does not exist yet (migration 002
+    not applied), so Client 360 degrades gracefully instead of erroring.
+    """
+    try:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM ingested_documents WHERE client_id = %s",
+            (client_id,),
+        )
+        row = cur.fetchone()
+        return int((row or {}).get("n") or 0)
+    except psycopg2.errors.UndefinedColumn:
+        return 0
 
 
 @router.get("/clients", response_model=ClientsListResponse)
@@ -289,6 +308,11 @@ def get_client_detail(request: Request, client_id: str):
         f"{a.title or a.type} (due {a.trigger_date})" for a in pending_alerts[:5]
     )
 
+    # Separate cursor block: an UndefinedColumn would abort the transaction, so
+    # isolate it from the reads above.
+    with get_cursor() as cur:
+        document_count = _document_count_for_client(cur, client_id)
+
     cache_key = f"summary:{PROMPT_VERSION}:{client_id}"
     summary = cache_get(cache_key)
     if summary is None:
@@ -310,7 +334,7 @@ def get_client_detail(request: Request, client_id: str):
         raw_profile_json=raw_json if isinstance(raw_json, dict) else None,
         pending_alerts=pending_alerts,
         overdue_follow_ups=[_alert_from_row(r) for r in overdue_rows],
-        document_count=0,
+        document_count=document_count,
         summary=summary,
     )
 

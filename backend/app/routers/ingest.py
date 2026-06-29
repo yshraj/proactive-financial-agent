@@ -167,6 +167,21 @@ def _run_dual_path_ingestion(
         logger.exception("[ingest] Failed to insert client: %s", e)
         return f"Failed to insert client: {e!s}"
 
+    # Link this document to the client it produced so Client 360 can count it.
+    # Degrade gracefully if migration 002 hasn't been applied yet.
+    try:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "UPDATE ingested_documents SET client_id = %s WHERE id = %s",
+                (client_id, document_id),
+            )
+    except psycopg2.errors.UndefinedColumn:
+        logger.info(
+            "[ingest] ingested_documents.client_id missing; skipping link (run migration 002)"
+        )
+    except psycopg2.Error as e:
+        logger.warning("[ingest] Failed to link document to client: %s", e)
+
     alert_rows: list[tuple] = []
     for a in alerts_data:
         trigger_date = a.get("trigger_date")

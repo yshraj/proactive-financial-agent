@@ -144,6 +144,10 @@ export default function ClientDetailPage() {
                   label: "Retirement target",
                   value: client.retirement_target_age != null ? `Age ${client.retirement_target_age}` : "—",
                 },
+                {
+                  label: "Documents",
+                  value: String(client.document_count ?? 0),
+                },
               ].map(({ label, value }) => (
                 <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
                   <dt className="text-xs font-medium text-slate-500">{label}</dt>

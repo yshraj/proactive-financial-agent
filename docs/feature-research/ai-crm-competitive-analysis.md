@@ -273,6 +273,7 @@ Longer-term enhancements once the client-relationship loop is complete:
 
 ## Related documentation
 
+- [high-impact-features-2026.md](./high-impact-features-2026.md) — **2026 competitive refresh**: 40+ prioritised high-impact features after the original Top 5 shipped  
 - [implementation-roadmap.md](./implementation-roadmap.md) — Prioritised build plan and acceptance criteria  
 - [FEATURES_AND_IMPLEMENTATION.md](../../FEATURES_AND_IMPLEMENTATION.md) — Current feature inventory  
 - [README.md](../../README.md) — Product overview and setup  

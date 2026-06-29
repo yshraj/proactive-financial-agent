@@ -10,5 +10,6 @@
 | [AI interaction UX](ai-interaction-ux.md) | Copilot, brief, and digest UI patterns |
 | [Performance improvements](performance-improvements.md) | Backend pooling, caching, frontend lazy loading |
 | [Security audit](security-audit.md) | Input validation, auth gates, safe redirects |
-| [Feature research](feature-research/) | Competitive analysis and roadmap |
+| [Feature research](feature-research/) | Competitive analysis and roadmaps |
+| [High-impact features 2026](feature-research/high-impact-features-2026.md) | 2026 competitive refresh — 40+ prioritised high-impact features |
 | [Planning archive](planning/) | Implementation plan, project review, release notes |

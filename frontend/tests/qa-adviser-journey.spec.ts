@@ -57,6 +57,14 @@ test.describe("adviser QA journey", () => {
     await captureScreenshot(page, "08-client-detail", testInfo);
   });
 
+  test("edit client details", async ({ app, page }) => {
+    await page.goto("/clients/c1");
+    await app.clients.expectDetailLoaded();
+    await app.clients.editClientName("Alan & Lynne Partridge (updated)");
+    // Modal closes on a successful save (asserted inside editClientName).
+    await expect(page.getByTestId("client-edit-button")).toBeVisible();
+  });
+
   test("client-scoped AI copilot via deep link", async ({ app, page }, testInfo) => {
     await page.goto("/chat?clientId=c1");
     await app.aiCopilot.expectLoaded();

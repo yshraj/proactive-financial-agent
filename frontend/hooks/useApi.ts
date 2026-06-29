@@ -16,6 +16,7 @@ import type {
   ChatResponse,
   Client,
   ClientDetail,
+  ClientUpdateInput,
   DigestResponse,
   DraftEmailResponse,
   DraftEmailSource,
@@ -194,6 +195,25 @@ export function useClientDetail(clientId: string | undefined) {
     queryFn: () =>
       api.get<ClientDetail>(`/api/monitor/clients/${encodeURIComponent(clientId!)}`),
     enabled: !!clientId,
+  });
+}
+
+export function useUpdateClient(clientId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<Client, ApiError, ClientUpdateInput>({
+    mutationFn: (input) =>
+      api.patch<Client>(
+        `/api/monitor/clients/${encodeURIComponent(clientId!)}`,
+        input
+      ),
+    // Editing profile facts can change the AI summary, list rows and pulse, so
+    // invalidate the dependent queries to refetch fresh data.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.clientDetail(clientId ?? "") });
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      qc.invalidateQueries({ queryKey: ["pulse"] });
+      qc.invalidateQueries({ queryKey: ["digest"] });
+    },
   });
 }
 

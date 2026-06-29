@@ -34,6 +34,7 @@ from app.services.cache import (
     invalidate_pulse_caches,
     set_ as cache_set,
 )
+from app.services.client_updates import validate_client_update
 from app.services.export import rows_to_csv
 from app.services.llm import complete_with_system, resolve_model
 from app.services.prompts import (
@@ -311,6 +312,74 @@ def get_client_detail(request: Request, client_id: str):
         overdue_follow_ups=[_alert_from_row(r) for r in overdue_rows],
         document_count=0,
         summary=summary,
+    )
+
+
+class ClientUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    retirement_target_age: Optional[int] = None
+    risk_score: Optional[int] = None
+    total_assets: Optional[float] = None
+    cash_savings: Optional[float] = None
+    last_review_date: Optional[str] = None
+
+
+class ClientUpdateResponse(BaseModel):
+    id: str
+    full_name: str
+    last_review_date: Optional[str] = None
+    retirement_target_age: Optional[int] = None
+    risk_score: Optional[float] = None
+    total_assets: Optional[float] = None
+    cash_savings: Optional[float] = None
+
+
+@router.patch("/clients/{client_id}", response_model=ClientUpdateResponse)
+@limiter.limit("60/minute")
+def update_client(request: Request, client_id: str, body: ClientUpdateRequest):
+    """Edit a client's extracted profile fields (fixes mis-extractions). Partial update."""
+    try:
+        # Only fields the caller explicitly set are considered, so omitted fields
+        # are left untouched while an explicit null clears an optional field.
+        updates = validate_client_update(body.model_dump(exclude_unset=True))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+
+    set_clauses = []
+    params: list = []
+    for col, value in updates.items():
+        if col == "last_review_date":
+            set_clauses.append("last_review_date = %s::date")
+        else:
+            set_clauses.append(f"{col} = %s")
+        params.append(value)
+    params.append(client_id)
+
+    with get_cursor(commit=True) as cur:
+        cur.execute(
+            f"""
+            UPDATE clients
+            SET {', '.join(set_clauses)}, updated_at = NOW()
+            WHERE id = %s
+            RETURNING id, full_name, last_review_date, retirement_target_age,
+                      risk_score, total_assets, cash_savings
+            """,
+            tuple(params),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    invalidate_client_ai_caches(client_id)
+
+    return ClientUpdateResponse(
+        id=str(row["id"]),
+        full_name=(row.get("full_name") or "Unknown").strip(),
+        last_review_date=row["last_review_date"].isoformat() if row.get("last_review_date") else None,
+        retirement_target_age=row.get("retirement_target_age"),
+        risk_score=float(row["risk_score"]) if row.get("risk_score") is not None else None,
+        total_assets=float(row["total_assets"]) if row.get("total_assets") is not None else None,
+        cash_savings=float(row["cash_savings"]) if row.get("cash_savings") is not None else None,
     )
 
 

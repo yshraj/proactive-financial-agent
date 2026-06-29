@@ -23,4 +23,14 @@ export class ClientsPage {
     await expect(this.page.getByTestId("client-detail-page")).toBeVisible();
     await expect(this.page.getByTestId("client-ai-summary")).toBeVisible();
   }
+
+  /** Open the edit modal, change the name, and save. */
+  async editClientName(newName: string) {
+    await this.page.getByTestId("client-edit-button").click();
+    await expect(this.page.getByTestId("edit-client-form")).toBeVisible();
+    const nameInput = this.page.getByTestId("edit-full-name");
+    await nameInput.fill(newName);
+    await this.page.getByTestId("save-client-button").click();
+    await expect(this.page.getByTestId("edit-client-form")).toHaveCount(0);
+  }
 }

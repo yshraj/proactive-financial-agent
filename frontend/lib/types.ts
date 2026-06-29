@@ -57,6 +57,17 @@ export interface DigestResponse {
   generated_at: string;
 }
 
+// Partial edit of a client's extracted profile fields. Omitted fields are left
+// untouched by the backend; an explicit null clears an optional field.
+export interface ClientUpdateInput {
+  full_name?: string;
+  retirement_target_age?: number | null;
+  risk_score?: number | null;
+  total_assets?: number | null;
+  cash_savings?: number | null;
+  last_review_date?: string | null;
+}
+
 export interface ChatSource {
   ref?: number;
   content: string;

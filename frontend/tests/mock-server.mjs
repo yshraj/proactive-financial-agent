@@ -169,9 +169,37 @@ const server = createServer((req, res) => {
     return send(res, 404, { detail: "not found" });
   }
 
-  req.resume();
+  let rawBody = "";
+  req.on("data", (chunk) => {
+    rawBody += chunk;
+  });
   req.on("end", () => {
-    if (req.method === "PATCH") return send(res, 200, { ...ALERTS[0], status: "COMPLETED" });
+    if (req.method === "PATCH") {
+      // Client profile edit: PATCH /api/monitor/clients/{id}
+      const clientMatch = path.match(/^\/api\/monitor\/clients\/([^/]+)$/);
+      if (clientMatch) {
+        let body = {};
+        try {
+          body = rawBody ? JSON.parse(rawBody) : {};
+        } catch {
+          body = {};
+        }
+        const id = clientMatch[1];
+        const base = CLIENT_DETAILS[id] ?? { id, full_name: "Client" };
+        return send(res, 200, {
+          id,
+          full_name: body.full_name ?? base.full_name,
+          last_review_date: body.last_review_date ?? base.last_review_date ?? null,
+          retirement_target_age:
+            body.retirement_target_age ?? base.retirement_target_age ?? null,
+          risk_score: body.risk_score ?? base.risk_score ?? null,
+          total_assets: body.total_assets ?? base.total_assets ?? null,
+          cash_savings: body.cash_savings ?? base.cash_savings ?? null,
+        });
+      }
+      // Alert status update: PATCH /api/monitor/alerts/{id}/status
+      return send(res, 200, { ...ALERTS[0], status: "COMPLETED" });
+    }
     if (path === "/api/chat") return send(res, 200, { answer: CHAT_ANSWER, sources: CHAT_SOURCES });
     if (path === "/api/chat/brief") return send(res, 200, { brief: BRIEF, talking_points: TALKING_POINTS });
     if (path === "/api/monitor/draft-email")

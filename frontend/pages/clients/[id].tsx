@@ -1,14 +1,18 @@
 import Head from "next/head";
 import { useRouter } from "next/router";
+import { useState } from "react";
 import {
   FileText,
   MessageSquareText,
+  Pencil,
   Sparkles,
 } from "lucide-react";
 import AlertCard from "../../components/AlertCard";
+import EditClientModal from "../../components/EditClientModal";
 import LazyDraftEmailModal from "../../components/LazyDraftEmailModal";
 import {
   Card,
+  Button,
   ButtonLink,
   Badge,
   EmptyState,
@@ -29,6 +33,7 @@ export default function ClientDetailPage() {
   const router = useRouter();
   const clientId = typeof router.query.id === "string" ? router.query.id : undefined;
   const { source: draftEmailSource, openAlertDraft, closeDraft } = useDraftEmailModalState();
+  const [isEditing, setIsEditing] = useState(false);
   const detailQuery = useClientDetail(clientId);
   const client = detailQuery.data;
 
@@ -74,6 +79,14 @@ export default function ClientDetailPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setIsEditing(true)}
+                leftIcon={<Pencil className="h-4 w-4" aria-hidden />}
+                data-testid="client-edit-button"
+              >
+                Edit details
+              </Button>
               <ButtonLink
                 href={briefForClient(client.id)}
                 leftIcon={<FileText className="h-4 w-4" aria-hidden />}
@@ -215,6 +228,9 @@ export default function ClientDetailPage() {
 
       {draftEmailSource && (
         <LazyDraftEmailModal source={draftEmailSource} onClose={closeDraft} onMarkDone={closeDraft} />
+      )}
+      {client && isEditing && (
+        <EditClientModal client={client} onClose={() => setIsEditing(false)} />
       )}
       </PageShell>
     </>

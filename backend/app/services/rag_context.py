@@ -1,6 +1,8 @@
 """
 RAG retrieval, score filtering, and citation-ready context formatting.
 """
+from __future__ import annotations
+
 import os
 from typing import Any, Optional
 

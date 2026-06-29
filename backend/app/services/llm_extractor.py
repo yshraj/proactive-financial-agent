@@ -3,6 +3,8 @@ Path A: Extract text from PDF/DOCX, call LLM to get structured client profile + 
 for writing to Postgres (clients + alerts tables).
 Extraction results are cached by content hash to avoid repeated LLM calls for same document text.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 import logging

@@ -4,6 +4,8 @@ Payload includes content + metadata for filtered vector search:
   - content, client_id, client_name, doc_type, date, topics (architecture)
   - document_id, filename, source_type, ingested_at (for metadata filters)
 """
+from __future__ import annotations
+
 import logging
 import os
 import uuid

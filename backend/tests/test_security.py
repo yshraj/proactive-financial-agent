@@ -1,4 +1,6 @@
 """Unit tests for the M0 security layer (auth gate + data-reset flag)."""
+from __future__ import annotations
+
 import asyncio
 
 import pytest

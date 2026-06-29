@@ -1,4 +1,5 @@
 """Shared alert query helpers and synthetic alert builders."""
+from __future__ import annotations
 
 from datetime import date
 from typing import Any, Optional

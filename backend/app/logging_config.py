@@ -4,6 +4,8 @@ Centralized logging configuration.
 Emits structured-ish single-line logs with level, logger name, and a request id
 where available. Keeps the existing "jarvis.ingest" channel working.
 """
+from __future__ import annotations
+
 import logging
 import os
 

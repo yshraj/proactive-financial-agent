@@ -3,6 +3,8 @@ Monitor / Pulse API: alerts by simulated date for the dashboard (time-travel).
 GET /api/monitor/pulse?simulated_date=YYYY-MM-DD returns alerts in the next 30 days + KPI counts.
 POST /api/monitor/draft-email: generate personalised email draft for an alert or meeting brief (LLM).
 """
+from __future__ import annotations
+
 import hashlib
 import json
 from datetime import datetime, timedelta, date

@@ -4,6 +4,8 @@ Lazy singleton external clients.
 Previously OpenAI and Qdrant clients were constructed on every request, adding
 latency and connection churn. These helpers create them once per process.
 """
+from __future__ import annotations
+
 import os
 import threading
 

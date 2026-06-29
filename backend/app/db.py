@@ -3,6 +3,8 @@ PostgreSQL connection for the backend.
 Uses DATABASE_URL from environment (e.g. Supabase connection string).
 Connections are pooled to avoid per-query TLS handshake overhead.
 """
+from __future__ import annotations
+
 import os
 from contextlib import contextmanager
 

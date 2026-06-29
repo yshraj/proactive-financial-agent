@@ -1,4 +1,6 @@
 """Tests for input sanitization and file validation helpers."""
+from __future__ import annotations
+
 from app.services.safety import (
     sanitize_rag_content,
     sanitize_user_query,

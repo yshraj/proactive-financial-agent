@@ -1,6 +1,8 @@
 """
 Settings API: clear all data (Postgres + Qdrant) for demo reset.
 """
+from __future__ import annotations
+
 import logging
 
 from fastapi import APIRouter, HTTPException, Request

@@ -12,7 +12,8 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
-    "mock": "node tests/mock-server.mjs"
+    "mock": "node tests/mock-server.mjs",
+    "sync-env": "node scripts/sync-env.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

@@ -2,6 +2,8 @@
 In-memory TTL cache for LLM responses to reduce API calls and latency.
 Used for: pre-meeting briefs (by client_id), draft emails (by alert_id), optional chat (by query hash).
 """
+from __future__ import annotations
+
 import hashlib
 import threading
 import time

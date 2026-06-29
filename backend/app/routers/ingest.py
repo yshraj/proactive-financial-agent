@@ -2,6 +2,8 @@
 Ingestion API: upload PDFs and Word (DOCX), duplicate check, then dual-path ingestion:
 Path A = LLM extraction -> clients + alerts (Postgres); Path B = chunk + embed -> Qdrant client_memory.
 """
+from __future__ import annotations
+
 import hashlib
 import json
 import logging

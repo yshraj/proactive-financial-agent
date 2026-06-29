@@ -3,6 +3,8 @@ Centralised prompt templates for all LLM features.
 
 Bump PROMPT_VERSION when changing any template so caches invalidate automatically.
 """
+from __future__ import annotations
+
 import hashlib
 
 # ---------------------------------------------------------------------------

@@ -2,6 +2,8 @@
 Ingestion config: chunk sizes, Qdrant collection, and LLM extraction schema.
 Aligns with System Architecture: dual-path ingestion (Postgres + Qdrant).
 """
+from __future__ import annotations
+
 import os
 
 # ---- Path B: Semantic index (Qdrant) ----

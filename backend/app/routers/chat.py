@@ -3,6 +3,8 @@ Ask Jarvis: Hybrid chat. Combines structured data (Postgres: clients, alerts) wi
 Query → embed + structured context (parallel when needed) → search Qdrant → LLM synthesize.
 Structured context is cached briefly to avoid DB on every query; embedding and DB run in parallel on cache miss.
 """
+from __future__ import annotations
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional

@@ -126,7 +126,7 @@ See [Setting up Supabase](#setting-up-supabase-database) and [Setting up Qdrant]
 
 ### Prerequisites
 
-- Python 3.10+ (3.12 recommended)
+- Python 3.9+ (3.12 recommended)
 - Node.js 18+ and npm
 - Supabase, Qdrant, and OpenAI (or Gemini) accounts
 
@@ -158,8 +158,11 @@ cp .env.example .env
 Optional frontend config:
 
 ```bash
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > frontend/.env.local
+cd frontend
+npm run sync-env   # copies API + Supabase URL from root .env
 ```
+
+Then add `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `frontend/.env.local` (Supabase Dashboard → API → anon public key) if not already in root `.env`.
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for Vercel + Render production config.
 

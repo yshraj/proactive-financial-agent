@@ -186,6 +186,19 @@ const server = createServer((req, res) => {
     if (path === "/api/monitor/alerts")
       return send(res, 200, { alerts: [...ALERTS, ...REVIEW_OVERDUE, ...OVERDUE_FOLLOW_UPS] });
     if (path === "/api/ingest/documents") return send(res, 200, DOCUMENTS);
+    if (/^\/api\/ingest\/jobs\/[^/]+$/.test(path)) {
+      const jobId = path.split("/").pop();
+      return send(res, 200, {
+        id: jobId,
+        kind: "upload",
+        filename: "sample.pdf",
+        status: "DONE",
+        progress: 100,
+        message: "Done",
+        document_id: jobId,
+        error: null,
+      });
+    }
     if (path === "/api/compliance/audit")
       return send(res, 200, {
         entries: [
@@ -268,6 +281,8 @@ const server = createServer((req, res) => {
       return send(res, 200, { id: "uploaded-doc", filename: "sample-client-note.pdf", content_hash: "upload", file_size_bytes: 620, uploaded_at: new Date().toISOString(), processing_error: null });
     if (path === "/api/ingest/transcript")
       return send(res, 201, { id: "transcript-doc", filename: "transcript-abc123.txt", content_hash: "transcript", file_size_bytes: 1200, uploaded_at: new Date().toISOString(), processing_error: null });
+    if (path === "/api/ingest/upload-async")
+      return send(res, 202, { job_id: "job-async-1", document_id: "job-async-1", status: "PENDING" });
     if (path === "/api/compliance/scan") {
       let body = {};
       try {

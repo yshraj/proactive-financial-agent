@@ -14,13 +14,14 @@ from pathlib import Path
 from typing import Optional
 
 import psycopg2
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from app.db import get_cursor
 from app.security import limiter
 from app.services.config import ADVISER_ID
 from app.services.cache import invalidate_client_ai_caches
+from app.services import jobs
 from app.services import llm_extractor
 from app.services import vector_store
 from app.services.safety import public_error_message, validate_file_magic
@@ -407,6 +408,128 @@ async def upload_document(request: Request, file: UploadFile = File(...)):
         uploaded_at=row["uploaded_at"].isoformat() if row["uploaded_at"] else "",
         processing_error=processing_error,
     )
+
+
+class UploadJobResponse(BaseModel):
+    job_id: str
+    document_id: str
+    status: str
+
+
+class JobStatusResponse(BaseModel):
+    id: str
+    kind: str
+    filename: Optional[str] = None
+    status: str
+    progress: int
+    message: str
+    document_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+def _process_upload_job(
+    job_id: str, file_path: Path, display_filename: str, ext: str, document_id: str, ingested_at: Optional[str]
+) -> None:
+    """Background worker: run dual-path ingestion and record progress on the job."""
+    jobs.update(job_id, status=jobs.PROCESSING, progress=40, message="Extracting and indexing…")
+    try:
+        err = _run_dual_path_ingestion(file_path, display_filename, ext, document_id, ingested_at)
+    except Exception as e:  # defensive: never let a background error escape silently
+        logger.exception("[ingest] Async job %s failed: %s", job_id, e)
+        jobs.update(job_id, status=jobs.ERROR, progress=100, message="Failed", error=str(e))
+        return
+    if err:
+        jobs.update(job_id, status=jobs.ERROR, progress=100, message="Completed with issues",
+                    error=err, document_id=document_id)
+    else:
+        jobs.update(job_id, status=jobs.DONE, progress=100, message="Done", document_id=document_id)
+
+
+@router.post("/upload-async", response_model=UploadJobResponse, status_code=202)
+@limiter.limit("30/minute")
+async def upload_document_async(
+    request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)
+):
+    """
+    Upload a PDF/DOCX and process it in the background (FastAPI BackgroundTasks,
+    in-process — no external worker). Returns a job id immediately; poll
+    GET /api/ingest/jobs/{job_id} for status. The synchronous /upload is unchanged.
+    """
+    if not file.filename or not _allowed_file(file.filename):
+        raise HTTPException(status_code=400, detail="Only PDF and Word (.docx) files are accepted.")
+
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.")
+
+    buffer = bytearray()
+    while True:
+        chunk = await file.read(_READ_CHUNK)
+        if not chunk:
+            break
+        buffer.extend(chunk)
+        if len(buffer) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.")
+    content = bytes(buffer)
+    if not content:
+        raise HTTPException(status_code=400, detail="File is empty.")
+
+    ext = _get_extension(file.filename)
+    if not validate_file_magic(content, ext):
+        raise HTTPException(status_code=400, detail="File content does not match its extension. Only valid PDF and DOCX files are accepted.")
+
+    content_hash = _compute_content_hash(content)
+    existing = _find_by_hash(content_hash)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DUPLICATE",
+                "message": "This file has the same content as one already in the system.",
+                "existing_id": str(existing["id"]),
+                "existing_filename": existing["filename"],
+            },
+        )
+
+    _ensure_uploads_dir()
+    file_id = str(uuid.uuid4())
+    stored_name = f"{file_id}{ext}"
+    file_path = UPLOADS_DIR / stored_name
+    with open(file_path, "wb") as f:
+        f.write(content)
+    display_filename = _sanitize_filename(file.filename)
+
+    try:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                """
+                INSERT INTO ingested_documents (id, filename, content_hash, file_path, file_size_bytes)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id, uploaded_at
+                """,
+                (file_id, display_filename, content_hash, f"uploads/{stored_name}", len(content)),
+            )
+            row = cur.fetchone()
+    except psycopg2.Error as e:
+        if _is_table_missing(e):
+            raise HTTPException(status_code=503, detail=TABLE_MISSING_MSG)
+        raise
+
+    job = jobs.create(file_id, kind="upload", filename=display_filename)
+    ingested_at = row["uploaded_at"].isoformat() if row.get("uploaded_at") else None
+    background_tasks.add_task(
+        _process_upload_job, file_id, file_path, display_filename, ext, file_id, ingested_at
+    )
+    return UploadJobResponse(job_id=job["id"], document_id=file_id, status=job["status"])
+
+
+@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+def get_job(job_id: str):
+    """Status of a background ingestion job."""
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JobStatusResponse(**job)
 
 
 class TranscriptRequest(BaseModel):

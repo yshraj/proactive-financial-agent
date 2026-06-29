@@ -35,10 +35,11 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 - **Auto-ask deep link** — `?q=` query parameter triggers Copilot on page load.
 - **Citation UX** — Markdown answers, source list, trust footer, thinking states, follow-up chips.
 - **Caching** — Response cache (5 min); structured context cache (90 s); parallel DB + embedding on miss.
+- **Conversation memory** — Multi-turn threads via an in-memory conversation store; `conversation_id` flows through requests so follow-ups are context-aware (`services/conversations.py`).
 
 ### How we achieved it
 
-- **Backend:** `POST /api/chat` — `backend/app/routers/chat.py`, `backend/app/services/rag_context.py`, `backend/app/services/prompts.py`, `backend/app/services/llm.py`.
+- **Backend:** `POST /api/chat` — `backend/app/routers/chat.py`, `backend/app/services/rag_context.py`, `backend/app/services/prompts.py`, `backend/app/services/llm.py`, `backend/app/services/conversations.py`.
 - **Frontend:** `frontend/pages/chat.tsx`, `frontend/components/ai/`, `frontend/lib/ai.ts`.
 
 ---
@@ -69,10 +70,11 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 - **Edit details** — Correct mis-extracted profile fields (name, assets, cash, risk, retirement age, last review) via a modal, validated server-side.
 - **Client intelligence** — Deterministic engagement-risk and profile-completeness scores plus a ranked next-best-action list, computed from existing data (no LLM).
 - **Review note** — One-click Consumer-Duty review note (LLM with a deterministic fallback so it works without an LLM), with copy-to-clipboard.
+- **Playbooks** — Apply a task template (annual review, onboarding, protection review) to a client to create a standard set of alerts.
 
 ### How we achieved it
 
-- **Backend:** `GET /api/monitor/clients`, `GET /api/monitor/clients/{id}`, `PATCH /api/monitor/clients/{id}`, `GET /api/monitor/analytics`, `POST /api/monitor/clients/{id}/review-note` — `monitor.py`; validation in `services/client_updates.py`; pure scoring in `services/scores.py`; aggregation in `services/analytics.py`; review-note fallback in `services/review_note.py`.
+- **Backend:** `GET /api/monitor/clients`, `GET /api/monitor/clients/{id}`, `PATCH /api/monitor/clients/{id}`, `GET /api/monitor/analytics`, `POST /api/monitor/clients/{id}/review-note`, `GET /api/monitor/playbooks`, `POST /api/monitor/clients/{id}/apply-playbook` — `monitor.py`; validation in `services/client_updates.py`; pure scoring in `services/scores.py`; aggregation in `services/analytics.py`; review-note fallback in `services/review_note.py`; playbook catalog in `services/playbooks.py`.
 - **Frontend:** `frontend/pages/clients/index.tsx`, `frontend/pages/clients/[id].tsx`, `frontend/components/EditClientModal.tsx`, `frontend/components/ReviewNoteModal.tsx`.
 
 ---

@@ -58,6 +58,13 @@ test.describe("complete adviser journey", () => {
     await waitForSuccessfulApiResponse(page, "/api/ingest/upload", () => app.ingestion.uploadSampleDocument());
   });
 
+  test("note templates render a skeleton", async ({ app, page }) => {
+    await app.ingestion.goto();
+    await app.ingestion.expectLoaded();
+    await app.ingestion.selectNoteTemplate("annual_review");
+    await expect(page.getByTestId("note-template-preview")).toContainText("Annual review");
+  });
+
   test("paste transcript ingestion", async ({ app, page }) => {
     await app.ingestion.goto();
     await app.ingestion.expectLoaded();

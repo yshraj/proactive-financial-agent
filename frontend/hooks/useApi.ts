@@ -23,8 +23,10 @@ import type {
   DigestResponse,
   DraftEmailResponse,
   DraftEmailSource,
+  NoteTemplate,
   Playbook,
   PulseData,
+  RenderedTemplate,
   ReviewNoteResponse,
   StoredDocument,
 } from "@/lib/types";
@@ -309,6 +311,26 @@ export function useBrief() {
   return useMutation<BriefResponse, ApiError, string>({
     mutationFn: (clientId: string) =>
       api.post<BriefResponse>("/api/chat/brief", { client_id: clientId }),
+  });
+}
+
+export function useNoteTemplates() {
+  return useQuery({
+    queryKey: ["note-templates"],
+    queryFn: () => api.get<{ templates: NoteTemplate[] }>("/api/ingest/note-templates"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useNoteTemplate(templateId: string) {
+  return useQuery({
+    queryKey: ["note-template", templateId],
+    queryFn: () =>
+      api.get<RenderedTemplate>(
+        `/api/ingest/note-templates/${encodeURIComponent(templateId)}`
+      ),
+    enabled: !!templateId,
+    staleTime: 5 * 60_000,
   });
 }
 

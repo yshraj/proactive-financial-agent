@@ -171,6 +171,18 @@ export interface AuditLogResponse {
   entries: AuditEntry[];
 }
 
+export interface NoteTemplate {
+  id: string;
+  name: string;
+  section_count: number;
+}
+
+export interface RenderedTemplate {
+  id: string;
+  name: string;
+  markdown: string;
+}
+
 export interface StoredDocument {
   id: string;
   filename: string;

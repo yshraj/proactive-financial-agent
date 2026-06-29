@@ -25,6 +25,11 @@ export class IngestionPage {
     await expect(row).toContainText(/Uploading|Done|Stored/);
   }
 
+  async selectNoteTemplate(templateId: string) {
+    await this.page.getByTestId("note-template-select").selectOption(templateId);
+    await expect(this.page.getByTestId("note-template-preview")).toBeVisible();
+  }
+
   async ingestTranscript(text: string) {
     await this.page.getByTestId("transcript-input").fill(text);
     await this.page.getByTestId("transcript-submit").click();

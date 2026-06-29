@@ -23,6 +23,7 @@ from app.services.config import ADVISER_ID
 from app.services.cache import invalidate_client_ai_caches
 from app.services import jobs
 from app.services import llm_extractor
+from app.services import note_templates
 from app.services import vector_store
 from app.services.safety import public_error_message, validate_file_magic
 
@@ -530,6 +531,42 @@ def get_job(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return JobStatusResponse(**job)
+
+
+class NoteTemplateOut(BaseModel):
+    id: str
+    name: str
+    section_count: int
+
+
+class NoteTemplatesResponse(BaseModel):
+    templates: list[NoteTemplateOut]
+
+
+class RenderedTemplate(BaseModel):
+    id: str
+    name: str
+    markdown: str
+
+
+@router.get("/note-templates", response_model=NoteTemplatesResponse)
+def get_note_templates():
+    """List available adviser note templates."""
+    return NoteTemplatesResponse(templates=[NoteTemplateOut(**t) for t in note_templates.list_templates()])
+
+
+@router.get("/note-templates/{template_id}", response_model=RenderedTemplate)
+def get_note_template(template_id: str):
+    """Render a note template as a markdown skeleton."""
+    try:
+        markdown = note_templates.render_template(template_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Template not found.") from None
+    return RenderedTemplate(
+        id=template_id,
+        name=note_templates.NOTE_TEMPLATES[template_id]["name"],
+        markdown=markdown,
+    )
 
 
 class TranscriptRequest(BaseModel):

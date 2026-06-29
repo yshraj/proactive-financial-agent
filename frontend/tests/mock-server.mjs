@@ -186,6 +186,21 @@ const server = createServer((req, res) => {
     if (path === "/api/monitor/alerts")
       return send(res, 200, { alerts: [...ALERTS, ...REVIEW_OVERDUE, ...OVERDUE_FOLLOW_UPS] });
     if (path === "/api/ingest/documents") return send(res, 200, DOCUMENTS);
+    if (path === "/api/ingest/note-templates")
+      return send(res, 200, {
+        templates: [
+          { id: "discovery", name: "Discovery meeting", section_count: 5 },
+          { id: "annual_review", name: "Annual review", section_count: 6 },
+        ],
+      });
+    if (/^\/api\/ingest\/note-templates\/[^/]+$/.test(path)) {
+      const id = path.split("/").pop();
+      return send(res, 200, {
+        id,
+        name: "Annual review",
+        markdown: "# Annual review\n\n## Changes since last review\n\n- \n",
+      });
+    }
     if (/^\/api\/ingest\/jobs\/[^/]+$/.test(path)) {
       const jobId = path.split("/").pop();
       return send(res, 200, {

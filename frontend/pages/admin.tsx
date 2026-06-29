@@ -1,9 +1,10 @@
 import Head from "next/head";
 import { useCallback, useRef, useState } from "react";
-import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Copy, Loader2, ShieldCheck, MessagesSquare } from "lucide-react";
+import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Copy, Loader2, ShieldCheck, MessagesSquare, NotebookPen } from "lucide-react";
 import { Card, CardHeader, Button, EmptyState, ErrorState, TableSkeleton, PageIntro, PageShell, Badge, useToast } from "../components/ui";
+import { AiMarkdown } from "../components/ai";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useComplianceScan, useDocuments, useIngestTranscript } from "../hooks/useApi";
+import { useComplianceScan, useDocuments, useIngestTranscript, useNoteTemplate, useNoteTemplates } from "../hooks/useApi";
 import { ApiError, errorMessage } from "../lib/api";
 import { uploadDocument } from "../lib/ingest";
 import { isAllowedUploadMime, validateUploadMagic } from "../lib/sanitize";
@@ -18,6 +19,65 @@ interface UploadItem {
 }
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB client-side guard
+
+/** Browse and copy structured adviser note templates. */
+function NoteTemplatesCard() {
+  const { notify } = useToast();
+  const [selected, setSelected] = useState("");
+  const templatesQuery = useNoteTemplates();
+  const rendered = useNoteTemplate(selected);
+  const templates = templatesQuery.data?.templates ?? [];
+
+  const copy = async () => {
+    if (!rendered.data?.markdown) return;
+    try {
+      await navigator.clipboard.writeText(rendered.data.markdown);
+      notify("Template copied to clipboard", "success");
+    } catch {
+      notify("Couldn't copy to clipboard", "error");
+    }
+  };
+
+  if (templates.length === 0) return null;
+
+  return (
+    <Card className="mt-10 p-6" data-testid="note-templates-card">
+      <div className="mb-3 flex items-center gap-2">
+        <NotebookPen className="h-4 w-4 text-brand-600" aria-hidden />
+        <h2 className="text-sm font-semibold text-slate-950">Note templates</h2>
+      </div>
+      <p className="mb-4 text-sm text-slate-500">
+        Structured meeting-note skeletons for discovery, annual review, prospect and suitability discussions.
+      </p>
+      <select
+        className="input max-w-xs"
+        value={selected}
+        onChange={(e) => setSelected(e.target.value)}
+        aria-label="Select a note template"
+        data-testid="note-template-select"
+      >
+        <option value="">Choose a template…</option>
+        {templates.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name} ({t.section_count} sections)
+          </option>
+        ))}
+      </select>
+      {selected && rendered.data && (
+        <div className="mt-4" data-testid="note-template-preview">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+            <AiMarkdown linkCitations={false}>{rendered.data.markdown}</AiMarkdown>
+          </div>
+          <div className="mt-3">
+            <Button variant="secondary" size="sm" onClick={copy} data-testid="copy-note-template">
+              Copy template
+            </Button>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 /** Paste a meeting transcript to run it through the same extraction pipeline as uploads. */
 function TranscriptCard() {
@@ -370,6 +430,8 @@ export default function IngestionPage() {
       </Card>
 
       <TranscriptCard />
+
+      <NoteTemplatesCard />
 
       <ComplianceScanCard />
       </PageShell>

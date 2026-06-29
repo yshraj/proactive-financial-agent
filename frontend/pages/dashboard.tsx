@@ -2,7 +2,7 @@ import Head from "next/head";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
-import { Bell, CheckCircle2, Clock, FileText, Mail, Sparkles, Upload } from "lucide-react";
+import { Bell, CheckCircle2, Clock, Database, FileText, Mail, Sparkles, Upload } from "lucide-react";
 import AlertCard from "../components/AlertCard";
 import DateSimulator from "../components/DateSimulator";
 import { DemoSpotlight } from "../components/DemoSpotlight";
@@ -18,10 +18,16 @@ import {
   DashboardSkeleton,
   PageIntro,
   PageShell,
+  useToast,
 } from "../components/ui";
 import { useDraftEmailModalState } from "../hooks/useDraftEmailModalState";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { usePulse, useCompleted, useUpdateAlertStatus } from "../hooks/useApi";
+import {
+  usePulse,
+  useCompleted,
+  useLoadSampleData,
+  useUpdateAlertStatus,
+} from "../hooks/useApi";
 import { errorMessage } from "../lib/api";
 import { formatDate, todayISO } from "../lib/format";
 import { alertTypeLabel, isReviewOverdue } from "../lib/labels";
@@ -115,6 +121,20 @@ const SETUP_STEPS = [
 
 /** Premium first-run experience shown when the workspace has no data yet. */
 function FirstRun() {
+  const { notify } = useToast();
+  const loadSample = useLoadSampleData();
+
+  const handleLoadDemo = () => {
+    loadSample.mutate(undefined, {
+      onSuccess: (res) =>
+        notify(
+          res.loaded ? res.message : res.message || "Demo data already loaded.",
+          res.loaded ? "success" : "info"
+        ),
+      onError: (e) => notify(errorMessage(e, "Couldn't load demo data."), "error"),
+    });
+  };
+
   return (
     <Card className="overflow-hidden animate-fade-in" data-testid="first-run-card">
       <div className="grid gap-px bg-slate-100 md:grid-cols-[1.1fr_1fr]">
@@ -131,12 +151,23 @@ function FirstRun() {
           <p className="mt-3 max-w-md text-sm leading-relaxed text-slate-500">
             Upload client fact-finds or meeting notes and KritiFin will extract
             priorities, generate pre-meeting briefs, and draft follow-up emails — automatically.
+            New here? Load a demo book to explore the product instantly.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <ButtonLink href="/admin" size="lg" leftIcon={<Upload className="h-4 w-4" aria-hidden />}>
               Upload your first document
             </ButtonLink>
-            <ButtonLink href="/chat" variant="secondary" leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}>
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={handleLoadDemo}
+              loading={loadSample.isPending}
+              leftIcon={<Database className="h-4 w-4" aria-hidden />}
+              data-testid="load-demo-data-button"
+            >
+              Load demo data
+            </Button>
+            <ButtonLink href="/chat" variant="ghost" leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}>
               Explore AI Copilot
             </ButtonLink>
           </div>

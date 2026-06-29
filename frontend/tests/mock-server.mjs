@@ -211,6 +211,13 @@ const server = createServer((req, res) => {
     if (path === "/api/ingest/upload")
       return send(res, 200, { id: "uploaded-doc", filename: "sample-client-note.pdf", content_hash: "upload", file_size_bytes: 620, uploaded_at: new Date().toISOString(), processing_error: null });
     if (path === "/api/settings/clear-data") return send(res, 200, { ok: true, message: "All data cleared." });
+    if (path === "/api/settings/load-sample-data")
+      return send(res, 200, {
+        loaded: true,
+        message: "Loaded 4 demo clients and 6 alerts.",
+        clients: 4,
+        alerts: 6,
+      });
     return send(res, 404, { detail: "not found" });
   });
 });

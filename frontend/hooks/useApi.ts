@@ -284,3 +284,19 @@ export function useClearData() {
     onSuccess: () => qc.invalidateQueries(),
   });
 }
+
+interface LoadSampleDataResult {
+  loaded: boolean;
+  message: string;
+  clients: number;
+  alerts: number;
+}
+
+export function useLoadSampleData() {
+  const qc = useQueryClient();
+  return useMutation<LoadSampleDataResult, ApiError, void>({
+    mutationFn: () =>
+      api.post<LoadSampleDataResult>("/api/settings/load-sample-data"),
+    onSuccess: () => qc.invalidateQueries(),
+  });
+}

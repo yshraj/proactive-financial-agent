@@ -20,4 +20,29 @@ test.describe("backend API contract smoke tests", () => {
       expect(response.ok(), `${endpoint} returned ${response.status()}`).toBeTruthy();
     }
   });
+
+  test("CSV export returns a downloadable text/csv body", async ({ request }) => {
+    const response = await request.get(`${apiBase}/api/monitor/export?type=clients`);
+    expect(response.ok()).toBeTruthy();
+    expect(response.headers()["content-type"]).toContain("text/csv");
+    const body = await response.text();
+    expect(body.split("\r\n")[0]).toContain("Name");
+  });
+
+  test("load-sample-data reports how many records were created", async ({ request }) => {
+    const response = await request.post(`${apiBase}/api/settings/load-sample-data`);
+    expect(response.ok()).toBeTruthy();
+    const json = await response.json();
+    expect(json.loaded).toBe(true);
+    expect(json.clients).toBeGreaterThan(0);
+  });
+
+  test("client edit accepts a partial profile update", async ({ request }) => {
+    const response = await request.patch(`${apiBase}/api/monitor/clients/c1`, {
+      data: { full_name: "Updated Name", risk_score: 4 },
+    });
+    expect(response.ok()).toBeTruthy();
+    const json = await response.json();
+    expect(json.full_name).toBe("Updated Name");
+  });
 });

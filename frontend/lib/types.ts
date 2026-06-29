@@ -36,13 +36,34 @@ export interface PulseData {
 export interface Client {
   id: string;
   full_name: string;
+  last_review_date?: string | null;
+  total_assets?: number | null;
+  risk_score?: number | null;
+  retirement_target_age?: number | null;
+  cash_savings?: number | null;
+  open_alert_count?: number;
+}
+
+export interface ClientDetail extends Client {
+  raw_profile_json?: Record<string, unknown> | null;
+  pending_alerts: Alert[];
+  overdue_follow_ups: Alert[];
+  document_count: number;
+  summary?: string | null;
+}
+
+export interface DigestResponse {
+  digest: string;
+  generated_at: string;
 }
 
 export interface ChatSource {
+  ref?: number;
   content: string;
   client_name: string;
   doc_type: string;
   date: string;
+  relevance?: number;
 }
 
 export interface ChatResponse {
@@ -53,7 +74,17 @@ export interface ChatResponse {
 export interface BriefResponse {
   brief: string;
   talking_points: string[];
+  sources?: ChatSource[];
 }
+
+export interface DraftEmailResponse {
+  draft: string;
+  subject?: string | null;
+}
+
+export type DraftEmailSource =
+  | { type: "alert"; alertId: string }
+  | { type: "brief"; clientId: string; context: string; talkingPoints?: string[] };
 
 export interface StoredDocument {
   id: string;

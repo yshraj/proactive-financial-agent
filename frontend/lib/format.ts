@@ -40,3 +40,25 @@ export function formatFileSize(bytes: number | null): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/** Format a Date as YYYY-MM-DD in local time (avoids UTC off-by-one). */
+export function dateToISO(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate()
+  ).padStart(2, "0")}`;
+}
+
+/** Format GBP currency for client profile displays. */
+export function formatCurrency(value?: number | null): string {
+  if (value == null) return "—";
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+/** Format risk score as "N/10" or em dash when missing. */
+export function formatRiskScore(value?: number | null): string {
+  return value != null ? `${value}/10` : "—";
+}

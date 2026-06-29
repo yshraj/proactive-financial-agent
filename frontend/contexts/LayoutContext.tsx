@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useMemo, useState } from "react";
 
 type LayoutContextValue = {
   pageTitle: string;
@@ -12,10 +12,12 @@ const LayoutContext = createContext<LayoutContextValue | null>(null);
 export function LayoutProvider({ children }: { children: React.ReactNode }) {
   const [pageTitle, setPageTitle] = useState("Dashboard");
   const [headerExtra, setHeaderExtra] = useState<React.ReactNode>(null);
+  const value = useMemo(
+    () => ({ pageTitle, setPageTitle, headerExtra, setHeaderExtra }),
+    [pageTitle, headerExtra]
+  );
   return (
-    <LayoutContext.Provider value={{ pageTitle, setPageTitle, headerExtra, setHeaderExtra }}>
-      {children}
-    </LayoutContext.Provider>
+    <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>
   );
 }
 

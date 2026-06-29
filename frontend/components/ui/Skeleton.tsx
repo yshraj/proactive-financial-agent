@@ -7,16 +7,21 @@ export function Skeleton({ className = "" }: { className?: string }) {
 /** Skeleton that mirrors the dashboard layout (KPIs + list). */
 export function DashboardSkeleton() {
   return (
-    <div className="space-y-8" aria-busy="true" aria-label="Loading dashboard">
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-gray-200 bg-white p-6">
+    <div className="mx-auto max-w-[88rem] space-y-8" aria-busy="true" aria-label="Loading dashboard">
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-9 w-72 max-w-full" />
+      </div>
+      <Skeleton className="h-28 w-full rounded-2xl" />
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="rounded-2xl border border-slate-200 bg-white p-5">
             <Skeleton className="mb-3 h-3 w-20" />
             <Skeleton className="h-9 w-12" />
           </div>
         ))}
       </div>
-      <div className="rounded-xl border border-gray-200 bg-white p-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6">
         <Skeleton className="mb-4 h-4 w-32" />
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (

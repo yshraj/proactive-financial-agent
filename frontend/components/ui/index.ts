@@ -5,6 +5,7 @@ export { Card, CardHeader } from "./Card";
 export { Skeleton, DashboardSkeleton, TableSkeleton } from "./Skeleton";
 export { EmptyState } from "./EmptyState";
 export { PageIntro } from "./PageIntro";
+export { PageShell } from "./PageShell";
 export { Modal } from "./Modal";
 export { ErrorState } from "./ErrorState";
 export { ErrorBoundary } from "./ErrorBoundary";

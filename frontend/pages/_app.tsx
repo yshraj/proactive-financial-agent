@@ -22,6 +22,7 @@ export default function App({ Component, pageProps }: AppProps) {
             retry: 1,
             refetchOnWindowFocus: false,
             staleTime: 30_000,
+            gcTime: 5 * 60_000,
           },
         },
       })

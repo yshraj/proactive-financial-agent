@@ -6,23 +6,40 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useCallback } from "react";
 import { api, ApiError } from "@/lib/api";
+import { uploadDocument } from "@/lib/ingest";
 import type {
   Alert,
   BriefResponse,
   ChatResponse,
   Client,
+  ClientDetail,
+  DigestResponse,
+  DraftEmailResponse,
+  DraftEmailSource,
   PulseData,
   StoredDocument,
 } from "@/lib/types";
 
 export const queryKeys = {
   pulse: (date: string) => ["pulse", date] as const,
+  digest: (date: string) => ["digest", date] as const,
   completed: () => ["completed"] as const,
   clients: () => ["clients"] as const,
+  clientDetail: (id: string) => ["client", id] as const,
   alerts: (params: Record<string, string>) => ["alerts", params] as const,
   documents: () => ["documents"] as const,
 };
+
+/** Prefetch client list on nav hover to warm cache before navigation. */
+export function prefetchClients(qc: ReturnType<typeof useQueryClient>) {
+  return qc.prefetchQuery({
+    queryKey: queryKeys.clients(),
+    queryFn: () => api.get<{ clients: Client[] }>("/api/monitor/clients"),
+    staleTime: 5 * 60_000,
+  });
+}
 
 export function usePulse(simulatedDate: string) {
   return useQuery({
@@ -47,6 +64,8 @@ export function useClients() {
   return useQuery({
     queryKey: queryKeys.clients(),
     queryFn: () => api.get<{ clients: Client[] }>("/api/monitor/clients"),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
   });
 }
 
@@ -70,6 +89,7 @@ export function useAlerts(params: {
   return useQuery({
     queryKey: queryKeys.alerts(key),
     queryFn: () => api.get<{ alerts: Alert[] }>(`/api/monitor/alerts?${search}`),
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -77,6 +97,8 @@ export function useDocuments() {
   return useQuery({
     queryKey: queryKeys.documents(),
     queryFn: () => api.get<StoredDocument[]>("/api/ingest/documents"),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
   });
 }
 
@@ -137,26 +159,79 @@ export function useUpdateAlertStatus() {
       qc.invalidateQueries({ queryKey: ["pulse"] });
       qc.invalidateQueries({ queryKey: ["alerts"] });
       qc.invalidateQueries({ queryKey: ["completed"] });
+      qc.invalidateQueries({ queryKey: ["client"] });
+      qc.invalidateQueries({ queryKey: ["digest"] });
     },
   });
 }
 
-export function useDraftEmail(alertId: string | null) {
+export function useDraftEmail(source: DraftEmailSource | null) {
   return useQuery({
-    queryKey: ["draft", alertId],
-    queryFn: () =>
-      api.post<{ draft: string }>("/api/monitor/draft-email", {
-        alert_id: alertId,
-      }),
-    enabled: !!alertId,
+    queryKey: ["draft", source],
+    queryFn: () => {
+      if (!source) throw new Error("No draft source");
+      if (source.type === "alert") {
+        return api.post<DraftEmailResponse>("/api/monitor/draft-email", {
+          alert_id: source.alertId,
+        });
+      }
+      return api.post<DraftEmailResponse>("/api/monitor/draft-email", {
+        client_id: source.clientId,
+        context: source.context,
+        talking_points: source.talkingPoints,
+      });
+    },
+    enabled: !!source,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
 }
 
+export function useClientDetail(clientId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.clientDetail(clientId ?? ""),
+    queryFn: () =>
+      api.get<ClientDetail>(`/api/monitor/clients/${encodeURIComponent(clientId!)}`),
+    enabled: !!clientId,
+  });
+}
+
+export function useDigest(simulatedDate: string, enabled = true) {
+  const qc = useQueryClient();
+  const query = useQuery({
+    queryKey: queryKeys.digest(simulatedDate),
+    queryFn: () => {
+      const params = new URLSearchParams({ simulated_date: simulatedDate });
+      return api.get<DigestResponse>(`/api/monitor/digest?${params}`);
+    },
+    enabled: enabled && !!simulatedDate,
+    staleTime: 60 * 60 * 1000,
+  });
+
+  const refreshDigest = useCallback(async () => {
+    const params = new URLSearchParams({
+      simulated_date: simulatedDate,
+      refresh: "true",
+    });
+    const data = await api.get<DigestResponse>(`/api/monitor/digest?${params}`);
+    qc.setQueryData(queryKeys.digest(simulatedDate), data);
+    return data;
+  }, [qc, simulatedDate]);
+
+  return { ...query, refreshDigest };
+}
+
 export function useChat() {
-  return useMutation<ChatResponse, ApiError, string>({
-    mutationFn: (query: string) => api.post<ChatResponse>("/api/chat", { query }),
+  return useMutation<
+    ChatResponse,
+    ApiError,
+    { query: string; clientId?: string }
+  >({
+    mutationFn: ({ query, clientId }) =>
+      api.post<ChatResponse>("/api/chat", {
+        query,
+        ...(clientId ? { client_id: clientId } : {}),
+      }),
   });
 }
 
@@ -170,11 +245,7 @@ export function useBrief() {
 export function useUpload() {
   const qc = useQueryClient();
   return useMutation<StoredDocument, ApiError, File>({
-    mutationFn: (file: File) => {
-      const form = new FormData();
-      form.append("file", file);
-      return api.postForm<StoredDocument>("/api/ingest/upload", form);
-    },
+    mutationFn: uploadDocument,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
   });
 }

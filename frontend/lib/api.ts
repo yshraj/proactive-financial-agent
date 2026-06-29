@@ -25,22 +25,52 @@ export class ApiError extends Error {
   }
 }
 
+/** Extract a user-facing message from an unknown caught error. */
+export function errorMessage(error: unknown, fallback = "Something went wrong."): string {
+  if (error instanceof ApiError || error instanceof Error) return error.message;
+  return fallback;
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
   if (API_KEY) headers["X-API-Key"] = API_KEY;
-  // Forward the Supabase access token so the backend can authenticate the user
-  // when SUPABASE_JWT_SECRET is configured. No-op (and no SDK load) otherwise.
   if (isSupabaseConfigured) {
     try {
-      const supabase = await getSupabaseClient();
-      const token = (await supabase?.auth.getSession())?.data.session
-        ?.access_token;
+      const token = await getAccessToken();
       if (token) headers["Authorization"] = `Bearer ${token}`;
     } catch {
       // Proceed unauthenticated; the backend will reject if it requires a token.
     }
   }
   return headers;
+}
+
+let cachedToken: string | null = null;
+let tokenExpiresAt = 0;
+let authListenerReady = false;
+
+/** Cache the Supabase access token to avoid getSession() on every parallel API call. */
+async function getAccessToken(): Promise<string | null> {
+  const supabase = await getSupabaseClient();
+  if (!supabase) return null;
+
+  if (!authListenerReady) {
+    authListenerReady = true;
+    supabase.auth.onAuthStateChange((_event, session) => {
+      cachedToken = session?.access_token ?? null;
+      tokenExpiresAt = session?.expires_at ? session.expires_at * 1000 : 0;
+    });
+  }
+
+  const now = Date.now();
+  if (cachedToken && tokenExpiresAt > now + 30_000) {
+    return cachedToken;
+  }
+
+  const session = (await supabase.auth.getSession()).data.session;
+  cachedToken = session?.access_token ?? null;
+  tokenExpiresAt = session?.expires_at ? session.expires_at * 1000 : 0;
+  return cachedToken;
 }
 
 function extractDetailMessage(detail: unknown, fallback: string): string {
@@ -105,7 +135,9 @@ export async function apiRequest<T>(
         detail,
         res.status === 404
           ? "Not found. Is the backend running?"
-          : `Request failed (${res.status})`
+          : res.status >= 500 && process.env.NODE_ENV === "production"
+            ? "Something went wrong on the server. Please try again."
+            : `Request failed (${res.status})`
       );
       throw new ApiError(message, res.status, detail);
     }

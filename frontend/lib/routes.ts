@@ -8,9 +8,27 @@ export const ROUTES = {
   chat: "/chat",
   brief: "/brief",
   alerts: "/alerts",
+  clients: "/clients",
   ingestion: "/admin",
   settings: "/settings",
 } as const;
+
+/** Deep link to Meeting Brief with a client pre-selected (and optional auto-generate). */
+export function briefForClient(clientId: string, auto = true): string {
+  const params = new URLSearchParams({ clientId });
+  if (auto) params.set("auto", "1");
+  return `${ROUTES.brief}?${params.toString()}`;
+}
+
+/** Deep link to AI Copilot scoped to one client. */
+export function chatForClient(clientId: string): string {
+  return `${ROUTES.chat}?clientId=${encodeURIComponent(clientId)}`;
+}
+
+/** Client 360° detail page. */
+export function clientDetail(clientId: string): string {
+  return `${ROUTES.clients}/${encodeURIComponent(clientId)}`;
+}
 
 /** Where a visitor lands after authenticating (or when auth is not configured). */
 export const APP_ENTRY: string = ROUTES.dashboard;

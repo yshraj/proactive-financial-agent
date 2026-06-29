@@ -246,7 +246,9 @@ export default function SettingsPage() {
               onClick={handleClearData}
               loading={clearData.isPending}
               disabled={confirmText !== "DELETE"}
-              className="bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              // Use ! to win Tailwind precedence over the danger variant's
+              // bg-white/text-red-600, otherwise the label renders white-on-white.
+              className="!bg-red-600 !text-white hover:!bg-red-700 disabled:!opacity-50"
             >
               Clear all data
             </Button>

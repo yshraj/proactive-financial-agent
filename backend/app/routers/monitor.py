@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, date
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.db import get_cursor
@@ -33,6 +34,7 @@ from app.services.cache import (
     invalidate_pulse_caches,
     set_ as cache_set,
 )
+from app.services.export import rows_to_csv
 from app.services.llm import complete_with_system, resolve_model
 from app.services.prompts import (
     CLIENT_SUMMARY_SYSTEM,
@@ -119,6 +121,84 @@ def get_clients():
         for r in rows
     ]
     return ClientsListResponse(clients=clients)
+
+
+# CSV export column specs: (db key, human header). Kept as data so the column
+# set is explicit and the serialiser stays generic.
+_CLIENT_EXPORT_COLUMNS = [
+    ("full_name", "Name"),
+    ("last_review_date", "Last review"),
+    ("total_assets", "Total assets"),
+    ("cash_savings", "Cash savings"),
+    ("risk_score", "Risk score"),
+    ("retirement_target_age", "Retirement target age"),
+    ("open_alert_count", "Open alerts"),
+]
+_ALERT_EXPORT_COLUMNS = [
+    ("client_name", "Client"),
+    ("trigger_date", "Trigger date"),
+    ("type", "Type"),
+    ("priority", "Priority"),
+    ("status", "Status"),
+    ("title", "Title"),
+    ("description", "Description"),
+]
+
+
+def _fetch_export_rows(export_type: str) -> list[dict]:
+    """Return plain dict rows for the requested export type (clients or alerts)."""
+    with get_cursor() as cur:
+        if export_type == "clients":
+            cur.execute(
+                """
+                SELECT c.full_name, c.last_review_date, c.total_assets, c.cash_savings,
+                       c.risk_score, c.retirement_target_age,
+                       (SELECT COUNT(*) FROM alerts a
+                        WHERE a.client_id = c.id AND a.status = 'PENDING') AS open_alert_count
+                FROM clients c
+                ORDER BY c.full_name
+                """
+            )
+        else:
+            cur.execute(
+                f"""
+                {ALERTS_WITH_CLIENT_SQL}
+                ORDER BY a.trigger_date DESC, c.full_name
+                """
+            )
+        rows = cur.fetchall()
+    out: list[dict] = []
+    for r in rows:
+        row = dict(r)
+        # Dates serialise as ISO strings; everything else is already CSV-safe.
+        for k, v in list(row.items()):
+            if hasattr(v, "isoformat"):
+                row[k] = v.isoformat()
+        out.append(row)
+    return out
+
+
+@router.get("/export")
+@limiter.limit("30/minute")
+def export_csv(
+    request: Request,
+    type: str = Query("clients", description="What to export: clients or alerts"),
+):
+    """Export the client book or alert list as a downloadable CSV file."""
+    export_type = (type or "clients").strip().lower()
+    if export_type not in ("clients", "alerts"):
+        raise HTTPException(status_code=400, detail="type must be 'clients' or 'alerts'.")
+
+    spec = _CLIENT_EXPORT_COLUMNS if export_type == "clients" else _ALERT_EXPORT_COLUMNS
+    columns = [c for c, _ in spec]
+    headers = [h for _, h in spec]
+    rows = _fetch_export_rows(export_type)
+    csv_text = rows_to_csv(rows, columns, headers)
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="kritifin-{export_type}.csv"'},
+    )
 
 
 def _generate_client_summary(client_name: str, profile_bits: str, alert_lines: str, model: str) -> str:

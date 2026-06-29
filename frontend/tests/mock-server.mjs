@@ -124,6 +124,23 @@ const server = createServer((req, res) => {
 
   if (req.method === "GET") {
     if (path === "/health") return send(res, 200, { status: "ok" });
+    if (path === "/api/monitor/export") {
+      const type = url.searchParams.get("type") === "alerts" ? "alerts" : "clients";
+      const csv =
+        type === "alerts"
+          ? "Client,Trigger date,Type,Priority,Status,Title,Description\r\nAlan & Lynne Partridge," +
+            plus(3) +
+            ",DEADLINE,HIGH,PENDING,Next review due,Scheduled annual review\r\n"
+          : "Name,Last review,Total assets,Cash savings,Risk score,Retirement target age,Open alerts\r\nAlan & Lynne Partridge," +
+            plus(-400) +
+            ",895000,62000,5,65,1\r\n";
+      res.writeHead(200, {
+        "Content-Type": "text/csv",
+        "Content-Disposition": `attachment; filename="kritifin-${type}.csv"`,
+        "Access-Control-Allow-Origin": "*",
+      });
+      return res.end(csv);
+    }
     if (path === "/api/monitor/pulse") {
       const alerts = [...ALERTS, ...REVIEW_OVERDUE];
       return send(res, 200, {

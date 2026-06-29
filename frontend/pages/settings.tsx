@@ -1,9 +1,10 @@
 import Head from "next/head";
 import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
 import { Card, CardHeader, Button, Modal, useToast, PageIntro, PageShell } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useClearData } from "../hooks/useApi";
+import { useClearData, useExportData } from "../hooks/useApi";
+import type { ExportType } from "../lib/export";
 
 function SettingRow({
   icon,
@@ -37,8 +38,17 @@ export default function SettingsPage() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const clearData = useClearData();
+  const exportData = useExportData();
 
   usePageSetup("Settings");
+
+  const handleExport = (type: ExportType) => {
+    exportData.mutate(type, {
+      onSuccess: () => notify(`Exported ${type} as CSV.`, "success"),
+      onError: (e: unknown) =>
+        notify(e instanceof Error ? e.message : "Export failed", "error"),
+    });
+  };
 
   const handleClearData = () => {
     clearData.mutate(undefined, {
@@ -65,6 +75,38 @@ export default function SettingsPage() {
 
       <div className="max-w-3xl space-y-6" data-testid="settings-page">
         <Card>
+          <CardHeader title="Data export" />
+          <div className="divide-y divide-slate-100">
+            <SettingRow
+              icon={<Download className="h-4 w-4" aria-hidden />}
+              title="Export your data"
+              description="Download your client book or alert list as a CSV file for spreadsheets, reporting, or backup."
+            >
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleExport("clients")}
+                  loading={exportData.isPending && exportData.variables === "clients"}
+                  data-testid="export-clients-button"
+                >
+                  Export clients
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleExport("alerts")}
+                  loading={exportData.isPending && exportData.variables === "alerts"}
+                  data-testid="export-alerts-button"
+                >
+                  Export alerts
+                </Button>
+              </div>
+            </SettingRow>
+          </div>
+        </Card>
+
+        <Card>
           <CardHeader title="Data & privacy" />
           <div className="divide-y divide-slate-100">
             <SettingRow
@@ -80,7 +122,7 @@ export default function SettingsPage() {
         </Card>
 
         <p className="text-sm text-slate-500">
-          Profile, workspace, and data export settings are available in the production release.
+          Profile and workspace settings are available in the production release.
         </p>
       </div>
       </PageShell>

@@ -12,4 +12,14 @@ export class SettingsPage {
     await expect(this.page.getByTestId("settings-page")).toBeVisible();
     await expect(this.page.getByText("Data & privacy")).toBeVisible();
   }
+
+  /** Click an export button and return the resulting download's suggested filename. */
+  async exportData(type: "clients" | "alerts"): Promise<string> {
+    const testId = type === "clients" ? "export-clients-button" : "export-alerts-button";
+    const [download] = await Promise.all([
+      this.page.waitForEvent("download"),
+      this.page.getByTestId(testId).click(),
+    ]);
+    return download.suggestedFilename();
+  }
 }

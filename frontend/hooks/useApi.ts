@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { api, ApiError } from "@/lib/api";
+import { downloadExport, type ExportType } from "@/lib/export";
 import { uploadDocument } from "@/lib/ingest";
 import type {
   Alert,
@@ -247,6 +248,12 @@ export function useUpload() {
   return useMutation<StoredDocument, ApiError, File>({
     mutationFn: uploadDocument,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
+  });
+}
+
+export function useExportData() {
+  return useMutation<void, ApiError, ExportType>({
+    mutationFn: (type) => downloadExport(type),
   });
 }
 

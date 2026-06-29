@@ -124,6 +124,22 @@ export type DraftEmailSource =
   | { type: "alert"; alertId: string }
   | { type: "brief"; clientId: string; context: string; talkingPoints?: string[] };
 
+export interface ComplianceSignal {
+  category?: string | null;
+  outcome?: string | null;
+  phrase: string;
+  excerpt: string;
+}
+
+export interface ComplianceScanResponse {
+  vulnerability_signals: ComplianceSignal[];
+  consumer_duty_flags: ComplianceSignal[];
+  summary: {
+    vulnerability_count: number;
+    consumer_duty_count: number;
+  };
+}
+
 export interface StoredDocument {
   id: string;
   filename: string;

@@ -1,9 +1,9 @@
 import Head from "next/head";
 import { useCallback, useRef, useState } from "react";
-import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Copy, Loader2 } from "lucide-react";
-import { Card, CardHeader, Button, EmptyState, ErrorState, TableSkeleton, PageIntro, PageShell } from "../components/ui";
+import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Copy, Loader2, ShieldCheck } from "lucide-react";
+import { Card, CardHeader, Button, EmptyState, ErrorState, TableSkeleton, PageIntro, PageShell, Badge, useToast } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useDocuments } from "../hooks/useApi";
+import { useComplianceScan, useDocuments } from "../hooks/useApi";
 import { ApiError, errorMessage } from "../lib/api";
 import { uploadDocument } from "../lib/ingest";
 import { isAllowedUploadMime, validateUploadMagic } from "../lib/sanitize";
@@ -18,6 +18,95 @@ interface UploadItem {
 }
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB client-side guard
+
+/** Paste adviser notes and flag vulnerability / Consumer Duty signals (deterministic). */
+function ComplianceScanCard() {
+  const { notify } = useToast();
+  const [text, setText] = useState("");
+  const scan = useComplianceScan();
+  const result = scan.data;
+
+  const runScan = () => {
+    scan.mutate(text, {
+      onError: (e) => notify(errorMessage(e, "Scan failed."), "error"),
+    });
+  };
+
+  const hasResults =
+    !!result &&
+    (result.vulnerability_signals.length > 0 || result.consumer_duty_flags.length > 0);
+
+  return (
+    <Card className="mt-10 p-6" data-testid="compliance-scan-card">
+      <div className="mb-3 flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 text-brand-600" aria-hidden />
+        <h2 className="text-sm font-semibold text-slate-950">Compliance signal scan</h2>
+      </div>
+      <p className="mb-4 text-sm text-slate-500">
+        Paste meeting notes to flag vulnerability drivers (FCA FG21/1) and Consumer Duty
+        signals for review. Flags are indicative — the adviser makes the assessment.
+      </p>
+      <textarea
+        className="input min-h-[120px] w-full"
+        placeholder="Paste client meeting notes here…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        data-testid="compliance-scan-input"
+      />
+      <div className="mt-3">
+        <Button
+          onClick={runScan}
+          loading={scan.isPending}
+          disabled={!text.trim()}
+          data-testid="compliance-scan-button"
+        >
+          Scan notes
+        </Button>
+      </div>
+
+      {result && !hasResults && (
+        <p className="mt-4 text-sm text-emerald-700" data-testid="compliance-scan-clear">
+          No vulnerability or Consumer Duty signals detected.
+        </p>
+      )}
+
+      {hasResults && (
+        <div className="mt-5 space-y-4" data-testid="compliance-scan-results">
+          {result.vulnerability_signals.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Vulnerability signals
+              </h3>
+              <ul className="space-y-2">
+                {result.vulnerability_signals.map((s, i) => (
+                  <li key={i} className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
+                    <Badge className="bg-amber-100 text-amber-800">{s.category}</Badge>
+                    <p className="text-xs text-slate-600">{s.excerpt}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {result.consumer_duty_flags.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Consumer Duty signals
+              </h3>
+              <ul className="space-y-2">
+                {result.consumer_duty_flags.map((s, i) => (
+                  <li key={i} className="flex items-start gap-3 rounded-xl border border-brand-200 bg-brand-50/50 px-4 py-3">
+                    <Badge className="bg-brand-100 text-brand-800">{s.outcome}</Badge>
+                    <p className="text-xs text-slate-600">{s.excerpt}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export default function IngestionPage() {
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -214,6 +303,8 @@ export default function IngestionPage() {
           </ul>
         )}
       </Card>
+
+      <ComplianceScanCard />
       </PageShell>
     </>
   );

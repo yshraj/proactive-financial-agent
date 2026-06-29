@@ -20,7 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.auth import verify_supabase_jwt
 from app.logging_config import configure_logging
-from app.routers import chat, ingest, monitor, settings
+from app.routers import chat, compliance, ingest, monitor, settings
 from app.security import limiter, require_api_key, require_auth_in_production
 
 configure_logging()
@@ -70,6 +70,7 @@ app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"], depende
 app.include_router(monitor.router, prefix="/api/monitor", tags=["monitor"], dependencies=api_guard)
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"], dependencies=api_guard)
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"], dependencies=api_guard)
+app.include_router(compliance.router, prefix="/api/compliance", tags=["compliance"], dependencies=api_guard)
 
 
 @app.get("/health")

@@ -18,6 +18,7 @@ import type {
   Client,
   ClientDetail,
   ClientUpdateInput,
+  ComplianceScanResponse,
   DigestResponse,
   DraftEmailResponse,
   DraftEmailSource,
@@ -271,6 +272,13 @@ export function useBrief() {
   return useMutation<BriefResponse, ApiError, string>({
     mutationFn: (clientId: string) =>
       api.post<BriefResponse>("/api/chat/brief", { client_id: clientId }),
+  });
+}
+
+export function useComplianceScan() {
+  return useMutation<ComplianceScanResponse, ApiError, string>({
+    mutationFn: (text: string) =>
+      api.post<ComplianceScanResponse>("/api/compliance/scan", { text }),
   });
 }
 

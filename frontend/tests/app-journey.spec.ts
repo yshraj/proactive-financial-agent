@@ -58,6 +58,16 @@ test.describe("complete adviser journey", () => {
     await waitForSuccessfulApiResponse(page, "/api/ingest/upload", () => app.ingestion.uploadSampleDocument());
   });
 
+  test("compliance scan flags vulnerability and consumer duty signals", async ({ app, page }) => {
+    await app.ingestion.goto();
+    await app.ingestion.expectLoaded();
+    await app.ingestion.runComplianceScan(
+      "Client disclosed a recent cancer diagnosis and said the fees were unclear."
+    );
+    await expect(page.getByTestId("compliance-scan-results")).toContainText("Health");
+    await expect(page.getByTestId("compliance-scan-results")).toContainText("Consumer understanding");
+  });
+
   test("settings page exports clients and alerts as CSV", async ({ app }) => {
     await app.settings.goto();
     await app.settings.expectLoaded();

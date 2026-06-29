@@ -24,4 +24,10 @@ export class IngestionPage {
     await expect(row).toBeVisible();
     await expect(row).toContainText(/Uploading|Done|Stored/);
   }
+
+  async runComplianceScan(notes: string) {
+    await this.page.getByTestId("compliance-scan-input").fill(notes);
+    await this.page.getByTestId("compliance-scan-button").click();
+    await expect(this.page.getByTestId("compliance-scan-results")).toBeVisible();
+  }
 }

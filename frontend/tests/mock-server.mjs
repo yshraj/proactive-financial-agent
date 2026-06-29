@@ -223,6 +223,31 @@ const server = createServer((req, res) => {
       });
     if (path === "/api/ingest/upload")
       return send(res, 200, { id: "uploaded-doc", filename: "sample-client-note.pdf", content_hash: "upload", file_size_bytes: 620, uploaded_at: new Date().toISOString(), processing_error: null });
+    if (path === "/api/compliance/scan") {
+      let body = {};
+      try {
+        body = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        body = {};
+      }
+      const text = (body.text || "").toLowerCase();
+      const vulnerability_signals = [];
+      const consumer_duty_flags = [];
+      if (text.includes("cancer") || text.includes("diagnosis"))
+        vulnerability_signals.push({ category: "Health", phrase: "diagnosis", excerpt: "…cancer diagnosis…" });
+      if (text.includes("redundancy") || text.includes("divorce"))
+        vulnerability_signals.push({ category: "Life events", phrase: "redundancy", excerpt: "…redundancy…" });
+      if (text.includes("did not understand") || text.includes("unclear"))
+        consumer_duty_flags.push({ outcome: "Consumer understanding", phrase: "unclear", excerpt: "…unclear…" });
+      return send(res, 200, {
+        vulnerability_signals,
+        consumer_duty_flags,
+        summary: {
+          vulnerability_count: vulnerability_signals.length,
+          consumer_duty_count: consumer_duty_flags.length,
+        },
+      });
+    }
     if (path === "/api/settings/clear-data") return send(res, 200, { ok: true, message: "All data cleared." });
     if (path === "/api/settings/load-sample-data")
       return send(res, 200, {

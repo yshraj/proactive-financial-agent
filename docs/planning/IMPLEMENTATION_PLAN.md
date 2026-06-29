@@ -1,8 +1,6 @@
 # Implementation Plan — Proactive Financial Agent (Jarvis)
 
-> Turns [`PROJECT_REVIEW.md`](PROJECT_REVIEW.md) into a prioritized, milestone-based execution roadmap with effort estimates, dependencies, and reviewable checklists.
->
-> Created: 28 Jun 2026 · Source of truth for findings: `PROJECT_REVIEW.md` (§ references throughout).
+> Source of truth for findings: [`PROJECT_REVIEW.md`](PROJECT_REVIEW.md). See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for the changelog.
 > Working assumption: **1 full-time engineer** (adjust calendar time accordingly if more). Estimates are engineering effort, not calendar duration.
 
 ---

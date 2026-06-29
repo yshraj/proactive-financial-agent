@@ -1,48 +1,45 @@
 # Features & Implementation
 
-This document describes **all features** implemented in the Proactive Financial Agent (Jarvis) and **how each was achieved**. For a high-level overview, see the [Solution Overview](README.md#solution-overview) in the main README.
+This document describes **all features** implemented in **KritiFin** (Proactive Financial Agent) and **how each was achieved**. For a high-level overview, see the [Solution overview](README.md#solution-overview) in the main README.
 
 ---
 
-## 1. Dashboard (Pulse & time-travel)
+## 1. Dashboard (Pulse, briefing & time-travel)
 
 ### What we implemented
 
-- **Time-travel date picker** — Choose a simulated “today” to see what would be due on that date.
-- **“Start here” priorities** — Alerts whose trigger date falls in the next 30 days from the simulated date, ordered by date and priority.
-- **Review overdue** — Clients with no review in 12+ months (Consumer Duty); shown as synthetic `REVIEW_OVERDUE` alerts with trigger date = simulated date.
-- **Overdue follow-ups** — PENDING alerts of type `FOLLOW_UP` whose trigger date is **before** the simulated date (“waiting on client”).
-- **Pulse KPIs** — Total alerts, high-risk count, deadlines count, client count.
-- **Draft email** — Per alert: generate a short, professional email draft via LLM; cache by `alert_id` (30 min); invalidate when alert status is updated.
-- **Mark done** — Update alert status to `COMPLETED` (real alerts only; synthetic review-overdue cannot be marked done).
-- **Recently completed** — Last 10 completed alerts for context.
+- **Time-travel date picker** — Choose a simulated "today" to see what would be due on that date.
+- **Morning AI briefing** — LLM-generated digest of open priorities and suggested focus (`DigestCard`).
+- **Demo spotlight** — Top-priority client card with Prepare brief, Ask Copilot, and Draft email actions.
+- **Priority timeline** — Ranked alerts for the next 30 days with inline actions.
+- **Review overdue** — Synthetic `REVIEW_OVERDUE` alerts for clients without a review in 12+ months.
+- **Overdue follow-ups** — PENDING `FOLLOW_UP` alerts before the simulated date.
+- **Pulse KPIs** — Reviews due, follow-ups, high priority, compliance items, documents processed.
+- **Draft email** — LLM-generated email draft per alert; cached 30 min by `alert_id`.
+- **Mark done** — Update alert status to `COMPLETED`.
+- **Recently completed** — Completed alerts (collapsible section).
 
 ### How we achieved it
 
-- **Backend:** `GET /api/monitor/pulse?simulated_date=YYYY-MM-DD` (see `backend/app/routers/monitor.py`). Single date parameter; server computes 30-day window and review cutoff (simulated_date − 365 days). One query for upcoming alerts, one for review-overdue clients (turned into synthetic alerts), one for overdue follow-ups, one for client count. Responses include `alerts`, `overdue_follow_ups`, `total`, `high_risk`, `deadlines`, `client_count`.
-- **Draft email:** `POST /api/monitor/draft-email` with `{ "alert_id": "..." }`. LLM prompt uses client name, alert title, description, and optional `action_payload`. Cached with TTL 30 min; cache key invalidated in `PATCH /api/monitor/alerts/{id}/status` when status is updated.
-- **Status update:** `PATCH /api/monitor/alerts/{alert_id}/status` with `{ "status": "COMPLETED" }`. Rejects `review-overdue-*` synthetic IDs.
-- **Frontend:** `frontend/pages/index.tsx` — `DateSimulator` for the picker; fetches `/api/monitor/pulse` and `/api/monitor/completed`; `AlertCard` with type/priority badges; `DraftEmailModal` for draft generation and “Mark done”.
+- **Backend:** `GET /api/monitor/pulse`, `GET /api/monitor/digest`, `POST /api/monitor/draft-email`, `PATCH /api/monitor/alerts/{id}/status` — `backend/app/routers/monitor.py`, `backend/app/services/alert_helpers.py`.
+- **Frontend:** `frontend/pages/dashboard.tsx`, `frontend/components/DigestCard.tsx`, `frontend/components/DemoSpotlight.tsx`, `frontend/lib/demo.ts`.
 
 ---
 
-## 2. Ask Jarvis (hybrid RAG + structured data)
+## 2. AI Copilot (hybrid RAG + structured data)
 
 ### What we implemented
 
-- **Hybrid context** — Every query is answered using:
-  - **Structured data** from Postgres: client list (name, last_review_date, total_assets, risk_score, retirement_target_age, cash_savings), review-overdue list, upcoming pending alerts (next 30 days), overdue follow-ups, total PENDING count.
-  - **Semantic search** over ingested documents in Qdrant (fact-finds, meeting notes).
-- **Suggestion chips** — Quick prompts for investments, compliance, business, follow-ups (frontend sends these as normal queries).
-- **Caching** — Responses cached by normalised query hash (5 min). Structured context cached separately (90 s) so the DB is not hit on every message; on cache miss, DB fetch and embedding run **in parallel** (ThreadPoolExecutor) for lower latency.
-- **Sources** — Returned chunks include client name, doc type, date; shown in the UI.
+- **Hybrid context** — Structured Postgres data plus semantic Qdrant search over ingested documents.
+- **Client scope** — Book-wide or single-client queries via `ClientSelect` and `?clientId=` deep link.
+- **Auto-ask deep link** — `?q=` query parameter triggers Copilot on page load.
+- **Citation UX** — Markdown answers, source list, trust footer, thinking states, follow-up chips.
+- **Caching** — Response cache (5 min); structured context cache (90 s); parallel DB + embedding on miss.
 
 ### How we achieved it
 
-- **Backend:** `POST /api/chat` with `{ "query": "..." }` (see `backend/app/routers/chat.py`). Flow: (1) Check response cache by `hash_query_for_key(query)`. (2) Get structured context from cache or `_get_structured_context()` (Postgres); cache it for 90 s. (3) Embed query (OpenAI); on cache miss, run structured context and embedding in parallel. (4) Search Qdrant with the query vector (top 6 points). (5) Build combined context (structured + RAG chunks) and call LLM to synthesize answer. (6) Cache response and return answer + sources.
-- **Structured context:** SQL over `clients` and `alerts`: client list (limit 50), review overdue (12+ months), upcoming alerts (next 30 days), overdue follow-ups (PENDING + type FOLLOW_UP + trigger_date before today), PENDING count.
-- **Vector search:** `_search_qdrant(query_vector, limit=6, client_id=None)`. Optional `client_id` filter for client-scoped search (e.g. pre-meeting brief). Payload includes `content`, `client_name`, `doc_type`, `date`.
-- **Frontend:** `frontend/pages/chat.tsx` — suggestion chips, text input, display of answer and sources (client name, doc type, date).
+- **Backend:** `POST /api/chat` — `backend/app/routers/chat.py`, `backend/app/services/rag_context.py`, `backend/app/services/prompts.py`, `backend/app/services/llm.py`.
+- **Frontend:** `frontend/pages/chat.tsx`, `frontend/components/ai/`, `frontend/lib/ai.ts`.
 
 ---
 
@@ -50,72 +47,101 @@ This document describes **all features** implemented in the Proactive Financial 
 
 ### What we implemented
 
-- **Client selector** — Dropdown of all clients (from `GET /api/monitor/clients`).
-- **One-page brief** — Key facts, upcoming items (next 90 days), commitments/follow-ups from documents.
-- **Suggested talking points** — 3–4 short, actionable discussion points generated by the LLM and parsed from the response (delimiter `---TALKING_POINTS---`).
-- **Caching** — Brief (and talking points) cached by `client_id` for 1 hour.
+- **Client selector** — Dropdown with deep-link auto-select (`?clientId=&auto=1`).
+- **One-page brief** — Key facts, upcoming items, commitments with source citations.
+- **Suggested talking points** — Parsed after `---TALKING_POINTS---` delimiter.
+- **Regenerate** — Refresh brief on demand.
+- **Caching** — Brief cached by `client_id` (1 hour).
 
 ### How we achieved it
 
-- **Backend:** `POST /api/chat/brief` with `{ "client_id": "..." }` (see `backend/app/routers/chat.py` → `_generate_brief`). (1) Load client row (name, last_review_date, risk_score, total_assets). (2) Load upcoming alerts for that client (next 90 days). (3) RAG: embed a query like “{client_name} meeting notes fact find”, search Qdrant with `client_id` filter, top 10 chunks. (4) Combine structured + RAG into one prompt; LLM returns a concise one-pager plus a section after `---TALKING_POINTS---` with one point per line. (5) Parse talking points (strip bullets, cap at 5). (6) Cache by `client_id` (BRIEF_TTL = 1 hour).
-- **Model:** Uses `BRIEF_LLM_MODEL` or `LLM_MODEL` (default `gpt-4o-mini` for speed).
-- **Frontend:** `frontend/pages/brief.tsx` — fetch clients, select client, call `/api/chat/brief`, render brief and talking points list.
+- **Backend:** `POST /api/chat/brief` — RAG via `retrieve_for_brief()` in `rag_context.py`.
+- **Frontend:** `frontend/pages/brief.tsx`, `frontend/components/ClientSelect.tsx`.
 
 ---
 
-## 4. Document ingestion (dual-path)
+## 4. Client 360
+
+### What we implemented
+
+- **Client list** — Table with last review, assets, risk score, open alert count.
+- **Client detail** — Profile snapshot, open alerts, ingested documents, links to brief and Copilot.
+
+### How we achieved it
+
+- **Backend:** `GET /api/monitor/clients`, `GET /api/monitor/clients/{id}` — `monitor.py`.
+- **Frontend:** `frontend/pages/clients/index.tsx`, `frontend/pages/clients/[id].tsx`.
+
+---
+
+## 5. Document ingestion (dual-path)
 
 ### What we implemented
 
 - **Upload PDF and DOCX** — Fact-finds, meeting notes.
-- **Duplicate detection** — By content hash (SHA-256); skip re-processing if the same file was already ingested.
-- **Path A – LLM extraction → Postgres:** Extract client profile (full_name, retirement_target_age, risk_score, total_assets, cash_savings, last_review_date, raw_profile_json) and a list of **alerts** (trigger_date, type, priority, title, description, action_type, action_payload). Types: `DEADLINE`, `OPPORTUNITY`, `COMPLIANCE`, `FOLLOW_UP`. UK date formats and phrases (“Last Updated”, “Next Review”, “RECOMMENDATIONS STATUS”, “UPCOMING ACTIONS”, “waiting on client”) are handled in the extraction prompt.
-- **Path B – Chunk → embed → Qdrant:** Same extracted text is chunked (~2000 chars, 200 overlap), prefixed with “Client Name: X | Date: Y”, embedded (OpenAI text-embedding-3-small), and upserted into the `client_memory` collection with payload: content, client_id, client_name, doc_type, date, document_id, filename, source_type, ingested_at.
-- **Extraction cache** — LLM extraction result cached by content hash (24 h) to avoid repeated API calls for the same document.
+- **Duplicate detection** — By content hash (SHA-256).
+- **Path A – LLM extraction → Postgres:** Client profile and alerts (`DEADLINE`, `OPPORTUNITY`, `COMPLIANCE`, `FOLLOW_UP`).
+- **Path B – Chunk → embed → Qdrant:** Text chunked, embedded, upserted to `client_memory`.
+- **Extraction cache** — LLM result cached by content hash (24 h).
+- **Upload validation** — Magic-byte checks and size limits via `safety.py`.
 
 ### How we achieved it
 
-- **Backend:** `POST /api/ingest/upload` (see `backend/app/routers/ingest.py`). (1) Validate extension (.pdf, .docx). (2) Save file to `backend/uploads/`. (3) Compute content hash; if `ingested_documents` has that hash, return “duplicate” and skip. (4) Extract text: PyMuPDF for PDF, python-docx for DOCX. (5) Call `llm_extractor.extract_structured(file_path)` → returns `{ client, alerts, raw_text }`. Extraction uses a detailed system prompt (see `backend/app/services/llm_extractor.py`) tuned for UK fact-find fields and FOLLOW_UP extraction. (6) Insert client into `clients`, then insert each alert into `alerts`. (7) Call `vector_store.index_document_text(raw_text, client_id, ...)` which chunks, embeds, and upserts to Qdrant. (8) Insert row into `ingested_documents` (id, filename, content_hash, file_path, file_size_bytes, uploaded_at).
-- **List documents:** `GET /api/ingest/documents` returns all rows from `ingested_documents` for the UI.
-- **Schema:** `backend/supabase_schema.sql` defines `clients`, `alerts`, `ingested_documents`; `backend/migrations/001_ingested_documents.sql` is an alternative if the table is added separately.
+- **Backend:** `POST /api/ingest/upload` — `backend/app/routers/ingest.py`, `backend/app/services/llm_extractor.py`, `backend/app/services/prompts.py`.
+- **Frontend:** `frontend/pages/admin.tsx`, `frontend/lib/ingest.ts`.
 
 ---
 
-## 5. Alerts list and filters
+## 6. Alerts list and filters
 
 ### What we implemented
 
-- **Alerts page** — List alerts with optional filters: simulated date, window (e.g. 90 days), type, priority, status (PENDING / COMPLETED). Review-overdue clients appear as synthetic alerts when not filtering by COMPLETED.
-- **Consistent with Pulse** — Same date logic and synthetic REVIEW_OVERDUE handling as the dashboard.
+- **Alerts page** — Filters: simulated date, window, type, priority, status.
+- **Consistent with Pulse** — Same date logic and synthetic `REVIEW_OVERDUE` handling.
 
 ### How we achieved it
 
-- **Backend:** `GET /api/monitor/alerts?simulated_date=...&days=...&type=...&priority=...&status=...` (see `backend/app/routers/monitor.py`). Builds date range, queries alerts, injects review-overdue rows when appropriate, sorts by trigger_date and priority.
-- **Frontend:** `frontend/pages/alerts.tsx` — date picker, filters, table of alerts with client name, trigger date, type, priority, title, status.
+- **Backend:** `GET /api/monitor/alerts` — `monitor.py`.
+- **Frontend:** `frontend/pages/alerts.tsx`.
 
 ---
 
-## 6. Settings and clear data
+## 7. Settings and clear data
 
 ### What we implemented
 
-- **Clear data** — One action to remove all clients, alerts, ingested document metadata (Postgres), and all vectors in the Qdrant collection; also clears in-memory caches (brief, draft, chat, extract).
+- **Clear data** — Removes clients, alerts, documents, Qdrant vectors, and in-memory caches.
 
 ### How we achieved it
 
-- **Backend:** `POST /api/settings/clear-data` (see `backend/app/routers/settings.py`). (1) DELETE FROM alerts; DELETE FROM clients; DELETE FROM ingested_documents. (2) `delete_prefix("brief:")`, `delete_prefix("draft:")`, `delete_prefix("chat:")`, `delete_prefix("extract:")`. (3) Delete and recreate the Qdrant collection so the vector store is empty.
-- **Frontend:** `frontend/pages/settings.tsx` — button that calls clear-data and shows confirmation.
+- **Backend:** `POST /api/settings/clear-data` — `backend/app/routers/settings.py`.
+- **Frontend:** `frontend/pages/settings.tsx`.
 
 ---
 
-## 7. Technical summary
+## 8. Authentication
+
+### What we implemented
+
+- **Supabase Auth** — Login and signup pages with JWT forwarded to the API.
+- **Graceful degradation** — When Supabase is unconfigured, **Enter demo workspace** bypasses auth.
+
+### How we achieved it
+
+- **Backend:** JWT verification in `backend/app/security.py` (ES256 via JWKS, HS256 fallback).
+- **Frontend:** `frontend/pages/login.tsx`, `frontend/pages/signup.tsx`, `frontend/lib/supabase/client.ts`.
+
+---
+
+## 9. Technical summary
 
 | Area | Implementation |
 |------|----------------|
-| **Cache TTLs** | Brief 1 h, draft email 30 min, chat 5 min, structured context 90 s, extraction 24 h (`backend/app/services/cache.py`). |
-| **Database** | PostgreSQL (Supabase): `clients`, `alerts`, `ingested_documents`; indexes on trigger_date, status, client_id, last_review_date, content_hash. |
-| **Vector store** | Qdrant: collection `client_memory`, 1536 dimensions (OpenAI text-embedding-3-small), COSINE distance; payload includes client_id for filtered search. |
-| **LLM** | OpenAI GPT-4o (or Gemini via `LLM_PROVIDER`); briefs use `BRIEF_LLM_MODEL` (default gpt-4o-mini). Embeddings: OpenAI (or Cohere/Gemini via `EMBEDDING_PROVIDER`). |
-| **Frontend API** | All pages use `NEXT_PUBLIC_API_URL` or default `http://localhost:8000`; backend CORS allows `http://localhost:3000`. |
+| **Cache TTLs** | Brief 1 h, draft 30 min, chat 5 min, digest 60 s, structured context 90 s, extraction 24 h |
+| **Database** | PostgreSQL (Supabase): `clients`, `alerts`, `ingested_documents`; connection pooling in `db.py` |
+| **Vector store** | Qdrant `client_memory`, 1536 dims, COSINE distance |
+| **LLM** | OpenAI GPT-4o (or Gemini); briefs use `BRIEF_LLM_MODEL` (default gpt-4o-mini) |
+| **Security** | Input clamping, RAG injection stripping, rate limits, safe redirects — `safety.py` |
+| **Frontend** | React Query hooks, lazy-loaded modals, Playwright E2E with POM |
 
 For setup and running locally, see the main [README](README.md#run-the-project-locally).

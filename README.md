@@ -1,161 +1,150 @@
-# Proactive Financial Agent (Jarvis)
+# KritiFin (Proactive Financial Agent)
 
-A proactive assistant for UK financial advisers: dashboard of priorities, Ask Jarvis (hybrid RAG + structured data), pre-meeting briefs with suggested talking points, overdue follow-ups, and draft emails—so advisers spend less time reactive and more time adding value.
+**KritiFin** is a proactive AI workspace for UK financial advisers: a morning dashboard of priorities, AI Copilot over your client book and ingested documents, pre-meeting briefs with citations, overdue follow-ups, and draft emails — so advisers spend less time reactive and more time adding value.
 
-**Live demo:** The frontend is deployed on [Vercel](https://vercel.com) and the backend on [Render](https://render.com). If the backend is slow to respond, Render may be spinning up after inactivity.
+**Live demo:** The frontend deploys on [Vercel](https://vercel.com) and the backend on [Render](https://render.com). If the backend is slow to respond, Render may be spinning up after inactivity.
+
+**Presenter guide:** See [docs/live-demo-script.md](docs/live-demo-script.md) for a 5–10 minute walkthrough.
 
 ---
 
-### Submission checklist
+## Submission checklist
 
 | Requirement | Covered |
 |-------------|---------|
-| Clear repository name | proactive-financial-agent |
-| Clean folder structure | [Repository Layout](#repository-layout) below: `backend/`, `frontend/`, no clutter. |
-| No compiled binaries or credentials | `.gitignore` excludes `.env`, `__pycache__/`, `node_modules/`, `.next/`, `backend/uploads/*`. Only `.env.example` (no secrets) is committed. |
-| **README.md** | |
-| → Project name | **Proactive Financial Agent (Jarvis)** (title above). |
-| → Chosen problem | [Chosen Problem](#chosen-problem). |
-| → Solution overview | [Solution Overview](#solution-overview). |
-| → Tech stack used | [Tech Stack](#tech-stack). |
-| → Setup instructions | [Setting up Supabase](#setting-up-supabase-database), [Setting up Qdrant](#setting-up-qdrant-vector-store), [Setup Instructions](#setup-instructions). |
-| → Environment variables | [Environment Variables](#environment-variables) and [`.env.example`](.env.example). |
-| → Step-by-step run locally | [Run the Project Locally](#run-the-project-locally). |
+| Clear repository name | `proactive-financial-agent` |
+| Clean folder structure | [Repository layout](#repository-layout) — `backend/`, `frontend/`, `docs/` |
+| No compiled binaries or credentials | `.gitignore` excludes `.env`, `node_modules/`, `.next/`, uploads, Playwright artifacts |
+| **README.md** | Project name, problem, solution, stack, setup, env vars, run locally |
+| **LICENSE** | MIT — see [LICENSE](LICENSE) |
+| **Documentation** | [docs/README.md](docs/README.md) index |
 
-**Current setup (as used in this project):** Supabase for PostgreSQL, Qdrant Cloud for the vector store, OpenAI for LLM and embeddings. See `.env.example` for the exact variables; copy to `.env` and fill in your keys.
+**Current setup:** Supabase (PostgreSQL + optional auth), Qdrant Cloud (vectors), OpenAI (LLM + embeddings). Copy [`.env.example`](.env.example) to `.env` and fill in keys.
 
 ---
 
-## Chosen Problem
+## Chosen problem
 
-UK Independent Financial Advisers (IFAs) typically manage 150–250 clients under FCA and Consumer Duty rules. They want to be proactive but end up reactive: emails, calls, and admin consume 60–70% of the day. Critical details (life events, concerns, follow-up commitments) sit in CRM notes and meeting transcripts and are hard to surface at the right moment. The brief asks for a **proactive agent** that acts at the **right moment**, in the **right context**, with the **right intent**—not just a chatbot.
+UK Independent Financial Advisers (IFAs) typically manage 150–250 clients under FCA and Consumer Duty rules. They want to be proactive but end up reactive: emails, calls, and admin consume 60–70% of the day. Critical details sit in CRM notes and meeting transcripts and are hard to surface at the right moment.
 
 This project tackles:
 
-- **Reactive trap** – One place to see what’s due and what to do first.
-- **Memory problem** – Natural-language questions over client data and ingested documents (fact-finds, meeting notes).
-- **Information overload** – Documents are extracted, structured, and indexed so insights surface on the dashboard and in chat.
-- **Compliance burden** – Review-overdue (12+ months) and follow-ups visible; recommendations and rationale searchable in documents.
-- **Follow-up commitments** – “Waiting on client” items extracted from documents and shown as overdue follow-ups on the dashboard.
+- **Reactive trap** — One place to see what's due and what to do first.
+- **Memory problem** — Natural-language questions over client data and ingested documents.
+- **Information overload** — Documents extracted, structured, and indexed for dashboard and AI.
+- **Compliance burden** — Review-overdue (12+ months) and follow-ups visible with rationale.
+- **Follow-up commitments** — "Waiting on client" items extracted and surfaced as overdue follow-ups.
 
 ---
 
-## Solution Overview
+## Solution overview
 
-- **Dashboard** – Time-travel date picker; “Start here” priorities (next 30 days); review overdue; **overdue follow-ups** (waiting on client); Pulse alerts (DEADLINE, OPPORTUNITY, COMPLIANCE, FOLLOW_UP); draft email and mark done; KPIs and recent completed alerts.
-- **Ask Jarvis** – Hybrid chat: structured data (client list, review overdue, upcoming alerts, overdue follow-ups) plus semantic search over ingested documents. Suggestion chips for investments, compliance, business, and follow-up questions. **Caching:** responses cached by query hash (5 min); structured context cached (90 s) so DB isn’t hit on every query; on cache miss, DB and embedding run in parallel for lower latency.
-- **Pre-meeting brief** – Pick a client; one-page brief (facts, upcoming items, commitments from docs) plus **suggested talking points**.
-- **Ingestion** – Upload PDF/DOCX (fact-finds, meeting notes); LLM extracts client profile and alerts (review dates, DOBs, policy end dates, **follow-ups / waiting on client**); same text is chunked and indexed in Qdrant for RAG. Duplicate detection by content hash.
+| Feature | Description |
+|---------|-------------|
+| **Dashboard** | Time-travel date picker, morning AI briefing, priority timeline, spotlight card, KPIs, draft email, mark done |
+| **AI Copilot** | Hybrid RAG + structured data; book-wide or client-scoped queries; citation-linked answers |
+| **Meeting brief** | One-page brief with talking points and source documents; auto-generate via deep link |
+| **Client 360** | Client list and detail pages — profile, alerts, documents, AI actions |
+| **Ingestion** | Upload PDF/DOCX; LLM extracts clients and alerts; text indexed in Qdrant for RAG |
+| **Alerts** | Filterable alert list consistent with dashboard Pulse logic |
+| **Auth** | Supabase sign-in with graceful degradation when unconfigured (demo mode) |
 
-Mock data only (no live CRM/Intelliflo). Schema and prompts are tuned for UK fact-find style (e.g. “Last Updated”, “Next Review”, “RECOMMENDATIONS STATUS”, “UPCOMING ACTIONS”).
+Mock data only (no live CRM). Schema and prompts are tuned for UK fact-find style.
 
-**For a detailed list of all features and how they were implemented, see [Features & Implementation](FEATURES_AND_IMPLEMENTATION.md).**
+**Detailed implementation:** [FEATURES_AND_IMPLEMENTATION.md](FEATURES_AND_IMPLEMENTATION.md)
 
 ---
 
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | Next.js 14 (React), TypeScript, Tailwind CSS |
+| Frontend | Next.js 14, React, TypeScript, Tailwind CSS, TanStack Query |
 | Backend | FastAPI (Python 3.12), Uvicorn |
-| Structured data | PostgreSQL (Supabase) – clients, alerts, ingested_documents |
-| Vector search | Qdrant – semantic index for RAG |
-| LLM | OpenAI GPT-4o (or Gemini via `LLM_PROVIDER`) – extraction and chat synthesis |
-| Embeddings | OpenAI text-embedding-3-small (1536 dims) for Qdrant |
+| Structured data | PostgreSQL (Supabase) — clients, alerts, ingested_documents |
+| Vector search | Qdrant — semantic index for RAG |
+| LLM | OpenAI GPT-4o (or Gemini via `LLM_PROVIDER`) |
+| Embeddings | OpenAI `text-embedding-3-small` (1536 dims) |
+| Auth | Supabase Auth (optional) |
+| E2E tests | Playwright with Page Object Model |
 
 ---
 
-## Environment Variables
+## Environment variables
 
-All variables are listed in `.env.example` with short comments. Copy it to `.env` at the **project root** and fill in values. **Do not commit `.env`.**
+All backend variables are in [`.env.example`](.env.example) at the **project root**. Copy to `.env` — **never commit `.env`**.
 
-| Variable | Required | Where to get it |
-|----------|----------|-----------------|
-| `DATABASE_URL` | Yes | [Setting up Supabase](#setting-up-supabase-database) below |
-| `QDRANT_URL` | Yes | [Setting up Qdrant](#setting-up-qdrant-vector-store) below |
-| `QDRANT_API_KEY` | Yes for Qdrant Cloud | [Setting up Qdrant](#setting-up-qdrant-vector-store) below |
-| `OPENAI_API_KEY` | Yes (if using OpenAI) | [OpenAI API keys](https://platform.openai.com/api-keys) |
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `DATABASE_URL` | Yes | Supabase PostgreSQL connection string |
+| `QDRANT_URL` | Yes | Qdrant cluster URL |
+| `QDRANT_API_KEY` | Yes (Cloud) | Qdrant API key |
+| `OPENAI_API_KEY` | Yes (OpenAI) | LLM and embeddings |
+| `SUPABASE_URL` | No | Enables JWT verification on API |
+| `SUPABASE_JWT_SECRET` | No | Legacy HS256 token verification |
+| `API_KEY` | No | API key gate for production |
 | `LLM_PROVIDER` | No | `openai` (default) or `gemini` |
-| `LLM_MODEL` | No | e.g. `gpt-4o` (default) |
-| `BRIEF_LLM_MODEL` | No | Lighter model for briefs; default `gpt-4o-mini` |
-| `EMBEDDING_PROVIDER` | No | `openai` (default), `cohere`, or `gemini` |
-| `EMBEDDING_MODEL` | No | `text-embedding-3-small` (default; 1536 dims for Qdrant) |
 | `CORS_ORIGINS` | No | Default `http://localhost:3000` |
-| `QDRANT_COLLECTION` | No | Default `client_memory` |
-| `ADVISER_ID` | No | Optional UUID for ingested clients |
 
-If you use **Gemini** for LLM or embeddings, set `GEMINI_API_KEY` or `GOOGLE_API_KEY` and the corresponding provider.
+**Frontend** (`frontend/.env.local`, optional):
 
----
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend API base URL |
+| `NEXT_PUBLIC_SUPABASE_URL` | — | Supabase project URL (auth) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | — | Supabase anon key (auth) |
 
-## Setting up Supabase (Database)
-
-1. **Create an account and project** at [supabase.com](https://supabase.com). Create a new project (choose region, set a database password and store it safely).
-2. **Get the connection string**
-   - In the dashboard: **Project Settings** (gear) → **Database**.
-   - Under **Connection string**, select **URI**.
-   - Choose **Connection pooling** (Transaction mode) and copy the URI. It looks like:
-     `postgresql://postgres.PROJECT_REF:YOUR-PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres`
-   - Replace `[YOUR-PASSWORD]` with the database password you set when creating the project. Use this as `DATABASE_URL` in `.env`.
-3. **Create the schema**
-   - In the dashboard: **SQL Editor** → **New query**.
-   - Paste and run the contents of `backend/supabase_schema.sql` (creates `clients`, `alerts`, `ingested_documents`, indexes, triggers).
-   - If the migrations table is used, also run `backend/migrations/001_ingested_documents.sql` if needed (the main schema file may already include that table).
+See [Setting up Supabase](#setting-up-supabase-database) and [Setting up Qdrant](#setting-up-qdrant-vector-store) below.
 
 ---
 
-## Setting up Qdrant (Vector store)
+## Setting up Supabase (database)
 
-**Option A – Qdrant Cloud (recommended for quick setup)**
+1. Create a project at [supabase.com](https://supabase.com).
+2. **Connection string:** Project Settings → Database → URI → Connection pooling (Transaction mode). Set as `DATABASE_URL`.
+3. **Schema:** SQL Editor → run `backend/supabase_schema.sql`.
+4. **Auth (optional):** Project Settings → API → copy URL and anon key to `frontend/.env.local`.
 
-1. **Create an account** at [cloud.qdrant.io](https://cloud.qdrant.io).
-2. **Create a cluster** (e.g. free tier): choose region and create. Wait until it is running.
-3. **Get URL and API key**
-   - Open your cluster → **Overview** or **Details**. Copy the **Cluster URL** (e.g. `https://xxxxx.aws.cloud.qdrant.io`). Set as `QDRANT_URL` in `.env`.
-   - Go to **API Keys** → create a key. Set it as `QDRANT_API_KEY` in `.env`.
-4. **Create the collection** (one-off, after `.env` is set):
+---
+
+## Setting up Qdrant (vector store)
+
+**Qdrant Cloud (recommended)**
+
+1. Create a cluster at [cloud.qdrant.io](https://cloud.qdrant.io).
+2. Set `QDRANT_URL` and `QDRANT_API_KEY` in `.env`.
+3. Create the collection:
    ```bash
-   cd backend
-   python scripts/create_qdrant_collection.py
+   cd backend && python scripts/create_qdrant_collection.py
    ```
-   This creates the `client_memory` collection with 1536-dimensional vectors (OpenAI `text-embedding-3-small`).
 
-**Option B – Local Qdrant (Docker)**
-
-```bash
-docker run -p 6333:6333 qdrant/qdrant
-```
-
-Set in `.env`: `QDRANT_URL=http://localhost:6333`. Leave `QDRANT_API_KEY` empty. Then run `python backend/scripts/create_qdrant_collection.py` from the project root (with venv active and `.env` loaded).
+**Local (Docker):** `docker run -p 6333:6333 qdrant/qdrant` — set `QDRANT_URL=http://localhost:6333`, leave API key empty, then run the script above.
 
 ---
 
-## Setup Instructions
+## Setup instructions
 
 ### Prerequisites
 
-- **Python 3.10+** (3.12 recommended)
-- **Node.js 18+** and npm
-- **Supabase** account (database) and **Qdrant** (Cloud or local) and **OpenAI** (or Gemini) API key
+- Python 3.10+ (3.12 recommended)
+- Node.js 18+ and npm
+- Supabase, Qdrant, and OpenAI (or Gemini) accounts
 
 ### 1. Clone and install backend
 
 ```bash
 git clone <your-repo-url>
-cd "Proactive Financial Agent"
+cd proactive-financial-agent
 
 cd backend
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-# macOS/Linux: source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Set up database and vector store
+### 2. Database and vector store
 
-- Complete [Setting up Supabase (Database)](#setting-up-supabase-database) and run the schema SQL.
-- Complete [Setting up Qdrant (Vector store)](#setting-up-qdrant-vector-store) and run `python scripts/create_qdrant_collection.py` from `backend/`.
+Complete Supabase and Qdrant setup above.
 
 ### 3. Environment file
 
@@ -163,11 +152,16 @@ From the **project root**:
 
 ```bash
 cp .env.example .env
+# Edit .env with your keys
 ```
 
-Edit `.env` and set at least: `DATABASE_URL`, `QDRANT_URL`, `QDRANT_API_KEY` (for Cloud), and `OPENAI_API_KEY`. The backend loads `.env` from the project root.
+Optional frontend config:
 
-Optional for frontend: create `frontend/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:8000` (this is the default if unset). See **[DEPLOYMENT.md](DEPLOYMENT.md)** for free deployment (Vercel + Render) and production env config.
+```bash
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > frontend/.env.local
+```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Vercel + Render production config.
 
 ### 4. Frontend
 
@@ -180,72 +174,93 @@ npm install
 
 ## Run the project locally
 
-After completing [Setup](#setup-instructions), follow these steps. **All paths are from the project root** (the folder that contains `backend/` and `frontend/`). If your folder name has spaces (e.g. `Proactive Financial Agent`), use quotes: `cd "Proactive Financial Agent"`.
-
-### Step 1 – Backend
-
-1. Open a terminal and go to the project root.
-2. Activate the backend virtual environment:
-   - **Windows (PowerShell or CMD):** `backend\.venv\Scripts\activate`
-   - **macOS/Linux:** `source backend/.venv/bin/activate`
-3. Go into the backend and start the API:
+### Step 1 — Backend
 
 ```bash
 cd backend
+source .venv/bin/activate   # if not already active
 uvicorn app.main:app --reload --port 8000
 ```
 
-4. Confirm the backend is up: open [http://localhost:8000/health](http://localhost:8000/health) — it should return `{"status":"ok"}`.
-5. Leave this terminal running. The backend loads `.env` from the **project root**, so ensure `.env` is there (not inside `backend/`).
+Confirm: [http://localhost:8000/health](http://localhost:8000/health) → `{"status":"ok"}`
 
-### Step 2 – Frontend
+### Step 2 — Frontend
 
-1. Open a **second terminal** and go to the project root.
-2. Install dependencies if you haven't already (`npm install` in `frontend/`).
-3. Start the frontend:
-   ```bash
-   cd frontend
-   npm run dev
-   ```
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+In a second terminal:
 
-### Step 3 – Use the app
+```bash
+cd frontend
+npm run dev
+```
 
-- **Ingestion** — Upload PDF or Word fact-finds/meeting notes. The app extracts clients and alerts and indexes text for Ask Jarvis.
-- **Dashboard** — Use the date picker, “Start here”, overdue follow-ups, and Pulse alerts. Draft emails and mark alerts done.
-- **Ask Jarvis** — Use suggestion chips or type questions; answers use structured data plus document search.
-- **Pre-meeting brief** — Select a client to get a one-page brief and suggested talking points.
+Open [http://localhost:3000](http://localhost:3000). If auth is not configured, use **Enter demo workspace** on the login page.
 
-### Step 4 – Optional: clear data
+### Step 3 — Use the app
 
-- **Settings** → Clear data (removes clients, alerts, document metadata, Qdrant vectors, and resets in-memory caches).
+1. **Ingestion** — Upload PDF or Word fact-finds / meeting notes.
+2. **Dashboard** — Morning briefing, priority timeline, draft emails.
+3. **Meeting Brief** — Select a client or use Prepare brief from dashboard.
+4. **AI Copilot** — Ask book-wide or client-scoped questions.
+5. **Clients** — Browse client 360 views.
+6. **Settings** — Clear all data to reset the workspace.
+
+### Step 4 — Run tests (optional)
+
+```bash
+cd frontend
+npm run test:e2e          # starts mock API + dev server automatically
+```
+
+See [frontend/tests/README.md](frontend/tests/README.md) for CI and deployed-environment runs.
 
 ---
 
-## Repository Layout
+## Repository layout
 
 ```
-Proactive Financial Agent/
+proactive-financial-agent/
 ├── README.md
-├── .env.example          # Template; copy to .env (not committed)
-├── .gitignore
+├── LICENSE
+├── .env.example
+├── FEATURES_AND_IMPLEMENTATION.md
+├── DEPLOYMENT.md
+├── docs/                      # Guides, demo script, planning archive
 ├── backend/
 │   ├── app/
-│   │   ├── main.py       # FastAPI app, CORS, routers
-│   │   ├── db.py         # Postgres connection
-│   │   ├── routers/      # ingest, monitor, chat, settings
-│   │   └── services/     # cache, config, llm_extractor, vector_store
-│   ├── migrations/
-│   ├── scripts/          # create_qdrant_collection, test_embeddings, test_llm
-│   ├── uploads/          # Ingested files (gitignored; .gitkeep committed)
-│   ├── requirements.txt
+│   │   ├── main.py
+│   │   ├── routers/           # ingest, monitor, chat, settings
+│   │   └── services/          # llm, prompts, rag_context, safety, cache, …
+│   ├── scripts/
+│   ├── tests/
+│   ├── uploads/               # gitignored; .gitkeep committed
 │   └── supabase_schema.sql
-├── frontend/
-│   ├── pages/            # Dashboard, Ask Jarvis, Brief, Ingestion, Alerts, Settings
-│   ├── components/
-│   ├── package.json
-│   └── ...
-└── (optional) Fact Find Mock Data/  # Sample .docx fact-finds – add locally if desired; not in repo
+└── frontend/
+    ├── pages/                 # dashboard, chat, brief, clients, admin, …
+    ├── components/            # UI library, AI components, layout
+    ├── hooks/                 # React Query API hooks
+    ├── lib/                   # API client, types, routes, demo helpers
+    └── tests/                 # Playwright E2E suite
 ```
 
-No compiled binaries or credentials are committed; `.env` and `backend/uploads/*` are gitignored.
+No credentials or build artifacts are committed. Playwright reports and `.next/` are gitignored.
+
+---
+
+## Documentation
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/README.md](docs/README.md) | Documentation index |
+| [docs/live-demo-script.md](docs/live-demo-script.md) | Live demo walkthrough |
+| [FEATURES_AND_IMPLEMENTATION.md](FEATURES_AND_IMPLEMENTATION.md) | Feature deep-dive |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Production deployment |
+| [docs/planning/](docs/planning/) | Roadmap and release notes |
+
+---
+
+## Contributing
+
+1. Fork and clone the repository.
+2. Follow setup above; use `frontend/.env.test` for E2E defaults.
+3. Run `npm run lint`, `npm run typecheck`, and `npm run build` in `frontend/` before opening a PR.
+4. Keep commits focused — see [docs/planning/IMPLEMENTATION_PLAN.md](docs/planning/IMPLEMENTATION_PLAN.md) for milestone context.

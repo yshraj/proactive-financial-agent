@@ -7,12 +7,11 @@ import { Button, ButtonLink, useToast } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
 import { getSupabaseClient, isSupabaseConfigured } from "../lib/supabase/client";
 import { APP_ENTRY, ROUTES } from "../lib/routes";
+import { safeRedirectPath } from "../lib/safeRedirect";
 
 function useRedirectTarget(): string {
   const router = useRouter();
-  const raw = router.query.redirect;
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  return value && value.startsWith("/") ? value : APP_ENTRY;
+  return safeRedirectPath(router.query.redirect);
 }
 
 export default function SignupPage() {

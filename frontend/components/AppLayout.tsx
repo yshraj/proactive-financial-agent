@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   MessageSquareText,
@@ -11,12 +12,16 @@ import {
   Menu,
   X,
   LogOut,
+  Users,
 } from "lucide-react";
-import { motion } from "framer-motion";
 import { useLayout } from "../contexts/LayoutContext";
 import { useAuth } from "../contexts/AuthContext";
 import { ROUTES } from "../lib/routes";
 import { BrandLogo } from "./BrandLogo";
+import { prefetchClients } from "../hooks/useApi";
+
+/** Routes that benefit from client-list prefetch on hover. */
+const CLIENT_PREFETCH_ROUTES = new Set(["/clients", "/chat", "/brief"]);
 
 const NAV_GROUPS: {
   label: string;
@@ -26,9 +31,10 @@ const NAV_GROUPS: {
     label: "General",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/chat", label: "AI Copilot", icon: MessageSquareText },
       { href: "/brief", label: "Meeting Brief", icon: FileText },
+      { href: "/chat", label: "AI Copilot", icon: MessageSquareText },
       { href: "/alerts", label: "Alerts", icon: Bell },
+      { href: "/clients", label: "Clients", icon: Users },
     ],
   },
   {
@@ -42,6 +48,7 @@ const NAV_GROUPS: {
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const router = useRouter();
+  const qc = useQueryClient();
   return (
     <nav className="flex flex-col gap-6" aria-label="Primary">
       {NAV_GROUPS.map((group) => (
@@ -57,6 +64,9 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
               <Link
                 key={href}
                 href={href}
+                onMouseEnter={() => {
+                  if (CLIENT_PREFETCH_ROUTES.has(href)) prefetchClients(qc);
+                }}
                 onClick={onNavigate}
                 aria-current={isActive ? "page" : undefined}
                 data-testid={`nav-link-${label.toLowerCase().replace(/\s+/g, "-")}`}
@@ -209,20 +219,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </h1>
           </div>
           {headerExtra && (
-            <div className="flex items-center gap-3">{headerExtra}</div>
+            <div className="flex max-w-[min(100%,42rem)] flex-wrap items-center justify-end gap-2 sm:gap-3">
+              {headerExtra}
+            </div>
           )}
         </header>
-        <motion.main
-          key={router.pathname}
+        <main
           id="main-content"
           data-testid="app-main"
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.24, ease: "easeOut" }}
-          className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8"
+          className="flex-1 overflow-auto p-4 animate-fade-in sm:p-6 lg:p-8"
         >
           {children}
-        </motion.main>
+        </main>
       </div>
     </div>
   );

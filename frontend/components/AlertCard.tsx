@@ -1,12 +1,13 @@
-import React from "react";
+import React, { memo, useCallback } from "react";
 import {
   TrendingUp,
   AlertTriangle,
   ClipboardCheck,
   Clock,
   Mail,
+  FileText,
 } from "lucide-react";
-import { Button } from "./ui/Button";
+import { Button, ButtonLink } from "./ui/Button";
 import { Badge } from "./ui/Badge";
 import { alertTypeLabel } from "../lib/labels";
 import type { AlertType } from "../lib/types";
@@ -17,7 +18,11 @@ export interface AlertCardProps {
   title: string;
   description: string;
   clientName?: string;
+  prepareHref?: string;
+  /** @deprecated Prefer draftAlertId + onDraftAlert for stable memoization */
   onDraftEmail?: () => void;
+  draftAlertId?: string;
+  onDraftAlert?: (alertId: string) => void;
 }
 
 const ICONS: Record<string, React.ReactNode> = {
@@ -28,40 +33,70 @@ const ICONS: Record<string, React.ReactNode> = {
   COMPLIANCE: <AlertTriangle className="h-4 w-4 text-indigo-600" aria-hidden />,
 };
 
-export default function AlertCard({
+function AlertCard({
   type,
   priority,
   title,
   description,
   clientName,
+  prepareHref,
   onDraftEmail,
+  draftAlertId,
+  onDraftAlert,
 }: AlertCardProps) {
+  const handleDraft = useCallback(() => {
+    if (draftAlertId && onDraftAlert) {
+      onDraftAlert(draftAlertId);
+    } else {
+      onDraftEmail?.();
+    }
+  }, [draftAlertId, onDraftAlert, onDraftEmail]);
+
+  const showDraft = Boolean(onDraftEmail || (draftAlertId && onDraftAlert));
+
   return (
-    <article className="flex flex-col rounded-xl border border-gray-200 bg-white p-5 shadow-xs transition-shadow hover:shadow-card-hover">
+    <article className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-xs transition-shadow duration-200 hover:shadow-card">
       <div className="mb-3 flex items-center gap-2">
-        {ICONS[type] ?? ICONS.DEADLINE}
+        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-50 ring-1 ring-slate-100">
+          {ICONS[type] ?? ICONS.DEADLINE}
+        </span>
         <span className="ui-label">{alertTypeLabel(type)}</span>
         {priority === "HIGH" && (
           <Badge className="ml-auto bg-red-100 text-red-700">High</Badge>
         )}
       </div>
-      <h3 className="mb-1 text-sm font-semibold text-gray-900">
+      <h3 className="mb-1 text-sm font-semibold text-slate-950">
         {title || "Alert"}
       </h3>
-      {clientName && <p className="mb-2 text-sm text-gray-500">{clientName}</p>}
-      <p className="mb-4 line-clamp-2 text-sm text-gray-600">
+      {clientName && <p className="mb-2 text-sm text-slate-500">{clientName}</p>}
+      <p className="mb-4 line-clamp-2 flex-1 text-sm leading-6 text-slate-600">
         {description || "No description."}
       </p>
-      {onDraftEmail && (
-        <Button
-          size="sm"
-          className="mt-auto self-start"
-          leftIcon={<Mail className="h-4 w-4" aria-hidden />}
-          onClick={onDraftEmail}
-        >
-          Draft email
-        </Button>
+      {(prepareHref || showDraft) && (
+        <div className="mt-auto flex flex-wrap gap-2">
+          {prepareHref && (
+            <ButtonLink
+              href={prepareHref}
+              size="sm"
+              variant="secondary"
+              leftIcon={<FileText className="h-4 w-4" aria-hidden />}
+            >
+              Prepare
+            </ButtonLink>
+          )}
+          {showDraft && (
+            <Button
+              size="sm"
+              leftIcon={<Mail className="h-4 w-4" aria-hidden />}
+              onClick={handleDraft}
+            >
+              Draft email
+            </Button>
+          )}
+        </div>
       )}
     </article>
   );
 }
+
+export default memo(AlertCard);

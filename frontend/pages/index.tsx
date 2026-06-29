@@ -311,7 +311,7 @@ export default function LandingPage() {
                   Start Free
                 </ButtonLink>
                 <Link
-                  href={GET_STARTED_HREF}
+                  href={ROUTES.login}
                   onClick={() => setMenuOpen(false)}
                   className="text-center text-sm font-medium text-slate-600 hover:text-slate-950"
                 >

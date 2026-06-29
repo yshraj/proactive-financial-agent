@@ -1,21 +1,26 @@
 import Head from "next/head";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Bell } from "lucide-react";
 import DateSimulator from "../components/DateSimulator";
-import DraftEmailModal from "../components/DraftEmailModal";
-import { useLayout } from "../contexts/LayoutContext";
+import LazyDraftEmailModal from "../components/LazyDraftEmailModal";
 import {
   Card,
   CardHeader,
   Button,
+  ButtonLink,
   Badge,
   EmptyState,
   ErrorState,
   TableSkeleton,
   PageIntro,
+  PageShell,
 } from "../components/ui";
+import { useDraftEmailModalState } from "../hooks/useDraftEmailModalState";
+import { usePageSetup } from "../hooks/usePageSetup";
 import { useAlerts } from "../hooks/useApi";
+import { errorMessage } from "../lib/api";
 import { formatDate, todayISO } from "../lib/format";
+import { briefForClient } from "../lib/routes";
 import {
   alertTypeBadge,
   alertTypeLabel,
@@ -60,13 +65,12 @@ function Filter({
 }
 
 export default function AlertsPage() {
-  const { setPageTitle, setHeaderExtra } = useLayout();
   const [simulatedDate, setSimulatedDate] = useState(todayISO);
   const [days, setDays] = useState(90);
   const [typeFilter, setTypeFilter] = useState("All");
   const [priorityFilter, setPriorityFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [draftEmailAlertId, setDraftEmailAlertId] = useState<string | null>(null);
+  const { source: draftEmailSource, openAlertDraft, closeDraft } = useDraftEmailModalState();
 
   const { data, isLoading, isError, error, refetch } = useAlerts({
     simulated_date: simulatedDate,
@@ -77,13 +81,11 @@ export default function AlertsPage() {
   });
   const alerts = data?.alerts ?? [];
 
-  useEffect(() => {
-    setPageTitle("Alerts");
-    setHeaderExtra(
-      <DateSimulator value={simulatedDate} onChange={setSimulatedDate} />
-    );
-    return () => setHeaderExtra(null);
-  }, [setPageTitle, setHeaderExtra, simulatedDate]);
+  usePageSetup(
+    "Alerts",
+    <DateSimulator value={simulatedDate} onChange={setSimulatedDate} />,
+    [simulatedDate]
+  );
 
   return (
     <>
@@ -91,11 +93,12 @@ export default function AlertsPage() {
         <title>Alerts - KritiFin</title>
       </Head>
 
+      <PageShell wide>
       <PageIntro>
         Filter every client alert and draft a personalised email in a click.
       </PageIntro>
 
-      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-xs" data-testid="alerts-filters">
+      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs" data-testid="alerts-filters">
         <Filter label="Window" value={days} onChange={(v) => setDays(Number(v))} options={DAYS_OPTIONS} format={(o) => `Next ${o} days`} />
         <Filter label="Type" value={typeFilter} onChange={setTypeFilter} options={TYPE_OPTIONS} format={(o) => (o === "All" ? "All types" : alertTypeLabel(String(o)))} />
         <Filter label="Priority" value={priorityFilter} onChange={setPriorityFilter} options={PRIORITY_OPTIONS} format={(o) => (o === "All" ? "All priorities" : String(o))} />
@@ -103,7 +106,7 @@ export default function AlertsPage() {
       </div>
 
       {isError ? (
-        <ErrorState message={(error as Error)?.message} onRetry={() => refetch()} />
+        <ErrorState message={errorMessage(error)} onRetry={() => refetch()} />
       ) : (
         <Card className="overflow-hidden" data-testid="alerts-table-card">
           <CardHeader
@@ -170,9 +173,19 @@ export default function AlertsPage() {
                           {isCompleted ? (
                             <span className="text-xs text-gray-400">Done</span>
                           ) : (
-                            <Button size="sm" onClick={() => setDraftEmailAlertId(row.id)}>
-                              Draft email
-                            </Button>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <ButtonLink
+                                href={briefForClient(row.client_id)}
+                                size="sm"
+                                variant="secondary"
+                                data-testid={`prep-brief-${row.id}`}
+                              >
+                                Prep brief
+                              </ButtonLink>
+                              <Button size="sm" onClick={() => openAlertDraft(row.id)}>
+                                Draft email
+                              </Button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -185,14 +198,10 @@ export default function AlertsPage() {
         </Card>
       )}
 
-      <DraftEmailModal
-        alertId={draftEmailAlertId}
-        onClose={() => setDraftEmailAlertId(null)}
-        onMarkDone={() => {
-          setDraftEmailAlertId(null);
-          refetch();
-        }}
-      />
+      {draftEmailSource && (
+        <LazyDraftEmailModal source={draftEmailSource} onClose={closeDraft} onMarkDone={closeDraft} />
+      )}
+      </PageShell>
     </>
   );
 }

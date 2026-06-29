@@ -1,8 +1,8 @@
 import Head from "next/head";
-import { useEffect, useState } from "react";
-import { Trash2, User, Building2, ShieldCheck } from "lucide-react";
-import { useLayout } from "../contexts/LayoutContext";
-import { Card, CardHeader, Button, Modal, useToast, PageIntro } from "../components/ui";
+import { useState } from "react";
+import { Trash2 } from "lucide-react";
+import { Card, CardHeader, Button, Modal, useToast, PageIntro, PageShell } from "../components/ui";
+import { usePageSetup } from "../hooks/usePageSetup";
 import { useClearData } from "../hooks/useApi";
 
 function SettingRow({
@@ -19,12 +19,12 @@ function SettingRow({
   return (
     <div className="flex flex-col gap-3 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-600">
+        <span className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600 ring-1 ring-slate-200/80">
           {icon}
         </span>
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-          <p className="mt-0.5 text-sm text-gray-500">{description}</p>
+          <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+          <p className="mt-0.5 text-sm leading-relaxed text-slate-500">{description}</p>
         </div>
       </div>
       {children && <div className="flex-shrink-0">{children}</div>}
@@ -33,17 +33,12 @@ function SettingRow({
 }
 
 export default function SettingsPage() {
-  const { setPageTitle, setHeaderExtra } = useLayout();
   const { notify } = useToast();
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const clearData = useClearData();
 
-  useEffect(() => {
-    setPageTitle("Settings");
-    setHeaderExtra(null);
-    return () => setHeaderExtra(null);
-  }, [setPageTitle, setHeaderExtra]);
+  usePageSetup("Settings");
 
   const handleClearData = () => {
     clearData.mutate(undefined, {
@@ -63,47 +58,15 @@ export default function SettingsPage() {
         <title>Settings - KritiFin</title>
       </Head>
 
+      <PageShell>
       <PageIntro>
         Manage your workspace and data. Provider keys are configured securely on the server.
       </PageIntro>
 
       <div className="max-w-3xl space-y-6" data-testid="settings-page">
         <Card>
-          <CardHeader title="Account" />
-          <div className="divide-y divide-gray-100">
-            <SettingRow
-              icon={<User className="h-4 w-4" aria-hidden />}
-              title="Profile"
-              description="Your name and email. Account management arrives with sign-in."
-            >
-              <Button variant="secondary" size="sm" disabled>
-                Coming soon
-              </Button>
-            </SettingRow>
-            <SettingRow
-              icon={<Building2 className="h-4 w-4" aria-hidden />}
-              title="Workspace"
-              description="Firm details and team members for shared client books."
-            >
-              <Button variant="secondary" size="sm" disabled>
-                Coming soon
-              </Button>
-            </SettingRow>
-          </div>
-        </Card>
-
-        <Card>
           <CardHeader title="Data & privacy" />
-          <div className="divide-y divide-gray-100">
-            <SettingRow
-              icon={<ShieldCheck className="h-4 w-4" aria-hidden />}
-              title="Data export"
-              description="Download your clients, alerts, and documents (portability)."
-            >
-              <Button variant="secondary" size="sm" disabled>
-                Coming soon
-              </Button>
-            </SettingRow>
+          <div className="divide-y divide-slate-100">
             <SettingRow
               icon={<Trash2 className="h-4 w-4" aria-hidden />}
               title="Clear all data"
@@ -115,7 +78,12 @@ export default function SettingsPage() {
             </SettingRow>
           </div>
         </Card>
+
+        <p className="text-sm text-slate-500">
+          Profile, workspace, and data export settings are available in the production release.
+        </p>
       </div>
+      </PageShell>
 
       <Modal
         open={showClearConfirm}
@@ -143,10 +111,10 @@ export default function SettingsPage() {
           </>
         }
       >
-        <p className="mb-4 text-sm text-gray-600">
+        <p className="mb-4 text-sm leading-relaxed text-slate-600">
           This will remove all clients, alerts, ingested documents, and the
           vector index. You cannot undo this. Type{" "}
-          <span className="font-semibold text-gray-900">DELETE</span> to confirm.
+          <span className="font-semibold text-slate-950">DELETE</span> to confirm.
         </p>
         <input
           type="text"

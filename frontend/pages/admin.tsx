@@ -1,12 +1,13 @@
 import Head from "next/head";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Copy, Loader2 } from "lucide-react";
-import { useLayout } from "../contexts/LayoutContext";
-import { Card, CardHeader, Button, EmptyState, ErrorState, TableSkeleton, PageIntro } from "../components/ui";
+import { Card, CardHeader, Button, EmptyState, ErrorState, TableSkeleton, PageIntro, PageShell } from "../components/ui";
+import { usePageSetup } from "../hooks/usePageSetup";
 import { useDocuments } from "../hooks/useApi";
-import { api, ApiError } from "../lib/api";
+import { ApiError, errorMessage } from "../lib/api";
+import { uploadDocument } from "../lib/ingest";
+import { isAllowedUploadMime, validateUploadMagic } from "../lib/sanitize";
 import { formatDateTime, formatFileSize } from "../lib/format";
-import type { StoredDocument } from "../lib/types";
 
 type UploadState = "processing" | "done" | "duplicate" | "error";
 interface UploadItem {
@@ -19,18 +20,13 @@ interface UploadItem {
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB client-side guard
 
 export default function IngestionPage() {
-  const { setPageTitle, setHeaderExtra } = useLayout();
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docsQuery = useDocuments();
   const storedList = docsQuery.data ?? [];
 
-  useEffect(() => {
-    setPageTitle("Ingestion");
-    setHeaderExtra(null);
-    return () => setHeaderExtra(null);
-  }, [setPageTitle, setHeaderExtra]);
+  usePageSetup("Ingestion");
 
   const patch = (id: string, p: Partial<UploadItem>) =>
     setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, ...p } : u)));
@@ -47,12 +43,19 @@ export default function IngestionPage() {
         setUploads((p) => [...p, { id, name: file.name, state: "error", message: "File is larger than 20 MB." }]);
         return;
       }
+      if (file.type && !isAllowedUploadMime(file.type)) {
+        setUploads((p) => [...p, { id, name: file.name, state: "error", message: "Invalid file type. Only PDF and Word (.docx) are accepted." }]);
+        return;
+      }
+      const magicOk = await validateUploadMagic(file);
+      if (!magicOk) {
+        setUploads((p) => [...p, { id, name: file.name, state: "error", message: "File content does not match its extension." }]);
+        return;
+      }
 
       setUploads((p) => [...p, { id, name: file.name, state: "processing", message: "Uploading, extracting & indexing…" }]);
-      const form = new FormData();
-      form.append("file", file);
       try {
-        const doc = await api.postForm<StoredDocument>("/api/ingest/upload", form);
+        const doc = await uploadDocument(file);
         patch(id, {
           state: "done",
           message: doc.processing_error ? `Stored, but processing had issues: ${doc.processing_error}` : "Done — extracted and indexed.",
@@ -64,7 +67,7 @@ export default function IngestionPage() {
           patch(id, { state: "duplicate", message: `Same content as "${detail?.existing_filename ?? "an existing file"}". Not stored again.` });
           return;
         }
-        patch(id, { state: "error", message: e instanceof Error ? e.message : "Upload failed." });
+        patch(id, { state: "error", message: errorMessage(e, "Upload failed.") });
       }
     },
     [docsQuery]
@@ -81,6 +84,7 @@ export default function IngestionPage() {
         <title>Ingestion - KritiFin</title>
       </Head>
 
+      <PageShell wide>
       <PageIntro>
         Upload client documents. KritiFin extracts the data, indexes it for search, and turns processing into adviser-ready intelligence.
         Duplicates are detected automatically.
@@ -99,11 +103,14 @@ export default function IngestionPage() {
         }}
       />
 
+      <Card
+        className={`mb-10 border-dashed transition-colors ${
+          dragging ? "border-brand-400 bg-brand-50/40" : "border-slate-300 hover:border-brand-200 hover:bg-brand-50/20"
+        }`}
+      >
       <div
         data-testid="document-dropzone"
-        className={`mb-10 rounded-xl border border-dashed p-10 text-center transition-colors sm:p-12 ${
-          dragging ? "border-brand-400 bg-brand-50/50" : "border-slate-300 bg-white hover:border-brand-300 hover:bg-brand-50/30"
-        }`}
+        className="p-10 text-center sm:p-12"
         onDragOver={(e) => {
           e.preventDefault();
           setDragging(true);
@@ -127,38 +134,43 @@ export default function IngestionPage() {
         <p className="mb-6 text-sm text-slate-500">
           Supports PDF and .docx, up to 20 MB. Duplicates (same content) are detected and skipped.
         </p>
-        <Button onClick={() => fileInputRef.current?.click()} data-testid="choose-files-button">Choose files</Button>
+        <Button size="lg" onClick={() => fileInputRef.current?.click()} data-testid="choose-files-button">
+          Choose files
+        </Button>
       </div>
+      </Card>
 
       {uploads.length > 0 && (
-        <div className="mb-10" data-testid="upload-status">
-          <h2 className="mb-3 text-sm font-semibold text-gray-900">Upload status</h2>
+        <div className="mb-10 animate-fade-in" data-testid="upload-status">
+          <h2 className="mb-3 text-sm font-semibold text-slate-950">Upload status</h2>
           <ul className="space-y-2">
             {uploads.map((f) => (
               <li
                 key={f.id}
                 data-testid="upload-status-item"
-                className={`flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3 shadow-xs ${
+                className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 shadow-xs transition-colors ${
                   f.state === "duplicate"
-                    ? "border-amber-200 bg-amber-50/50"
+                    ? "border-amber-200 bg-amber-50/60"
                     : f.state === "error"
-                    ? "border-red-200 bg-red-50/40"
-                    : "border-gray-200 bg-white"
+                    ? "border-red-200 bg-red-50/50"
+                    : f.state === "done"
+                    ? "border-emerald-200 bg-emerald-50/40"
+                    : "border-slate-200 bg-white"
                 }`}
               >
                 {f.state === "processing" && <Loader2 className="h-4 w-4 animate-spin text-brand-600" aria-hidden />}
                 {f.state === "done" && <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />}
                 {f.state === "duplicate" && <Copy className="h-4 w-4 text-amber-600" aria-hidden />}
                 {f.state === "error" && <AlertTriangle className="h-4 w-4 text-red-600" aria-hidden />}
-                <span className="flex-1 text-sm font-medium text-gray-900">{f.name}</span>
+                <span className="flex-1 text-sm font-medium text-slate-950">{f.name}</span>
                 <span
-                  className={`text-xs ${
+                  className={`text-xs font-medium ${
                     f.state === "duplicate"
-                      ? "text-amber-700"
+                      ? "text-amber-800"
                       : f.state === "error"
-                      ? "text-red-600"
+                      ? "text-red-700"
                       : f.state === "done"
-                      ? "text-emerald-700"
+                      ? "text-emerald-800"
                       : "text-brand-700"
                   }`}
                 >
@@ -176,27 +188,33 @@ export default function IngestionPage() {
           <TableSkeleton rows={3} />
         ) : docsQuery.isError ? (
           <div className="p-6">
-            <ErrorState message={(docsQuery.error as Error)?.message} onRetry={() => docsQuery.refetch()} />
+            <ErrorState message={errorMessage(docsQuery.error)} onRetry={() => docsQuery.refetch()} />
           </div>
         ) : storedList.length === 0 ? (
           <EmptyState
             icon={<FileText className="h-5 w-5" aria-hidden />}
             title="No documents yet"
             description="Upload a PDF or Word file above to populate your dashboard and power AI Copilot."
+            action={
+              <Button size="lg" onClick={() => fileInputRef.current?.click()}>
+                Upload your first document
+              </Button>
+            }
           />
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-y divide-slate-100">
             {storedList.map((doc) => (
-              <li key={doc.id} className="flex flex-wrap items-center gap-4 px-6 py-4">
-                <FileText className="h-4 w-4 flex-shrink-0 text-gray-400" aria-hidden />
-                <span className="flex-1 text-sm font-medium text-gray-900">{doc.filename}</span>
-                <span className="text-xs text-gray-500">{formatFileSize(doc.file_size_bytes)}</span>
-                <span className="text-xs text-gray-500">{formatDateTime(doc.uploaded_at)}</span>
+              <li key={doc.id} className="flex flex-wrap items-center gap-4 px-6 py-4 transition-colors hover:bg-slate-50/60">
+                <FileText className="h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
+                <span className="flex-1 text-sm font-medium text-slate-950">{doc.filename}</span>
+                <span className="text-xs text-slate-500">{formatFileSize(doc.file_size_bytes)}</span>
+                <span className="text-xs text-slate-500">{formatDateTime(doc.uploaded_at)}</span>
               </li>
             ))}
           </ul>
         )}
       </Card>
+      </PageShell>
     </>
   );
 }

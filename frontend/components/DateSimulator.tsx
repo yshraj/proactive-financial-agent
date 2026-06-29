@@ -2,24 +2,12 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { dateToISO, formatDate, todayISO } from "../lib/format";
 
 type DateSimulatorProps = {
   value: string; // YYYY-MM-DD
   onChange: (date: string) => void;
 };
-
-/** Format date as YYYY-MM-DD in local time (avoids UTC off-by-one when timezone offset pushes calendar day). */
-function toISO(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function formatDisplay(iso: string): string {
-  const d = new Date(iso + "T12:00:00");
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-}
 
 export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
   const [open, setOpen] = useState(false);
@@ -62,7 +50,7 @@ export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
   const monthLabel = viewDate.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 
   const handleSelect = (day: number) => {
-    const iso = toISO(new Date(view.year, view.month, day));
+    const iso = dateToISO(new Date(view.year, view.month, day));
     onChange(iso);
     setOpen(false);
   };
@@ -73,7 +61,7 @@ export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
   };
 
   const handleToday = () => {
-    onChange(toISO(new Date()));
+    onChange(todayISO());
     setOpen(false);
   };
 
@@ -88,7 +76,7 @@ export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
   };
 
   const selectedDate = value ? new Date(value + "T12:00:00") : null;
-  const today = toISO(new Date()); // local date as YYYY-MM-DD
+  const today = todayISO();
 
   return (
     <div className="relative flex items-center gap-2" ref={ref}>
@@ -105,7 +93,7 @@ export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
         aria-expanded={open}
       >
         <Calendar className="h-4 w-4 flex-shrink-0 text-gray-400" aria-hidden />
-        <span className="min-w-0 flex-1 truncate">{value ? formatDisplay(value) : "Select date"}</span>
+        <span className="min-w-0 flex-1 truncate">{value ? formatDate(value) : "Select date"}</span>
       </button>
 
       {open && (
@@ -146,7 +134,7 @@ export default function DateSimulator({ value, onChange }: DateSimulatorProps) {
             <div className="mt-1 grid grid-cols-7 gap-1 text-center text-sm">
               {days.map((day, i) => {
                 if (day === null) return <div key={`e-${i}`} className="aspect-square" />;
-                const iso = toISO(new Date(view.year, view.month, day));
+                const iso = dateToISO(new Date(view.year, view.month, day));
                 const isSelected = selectedDate && value === iso;
                 const isToday = iso === today;
                 return (

@@ -7,14 +7,12 @@ import { Button, ButtonLink, useToast } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
 import { getSupabaseClient, isSupabaseConfigured } from "../lib/supabase/client";
 import { APP_ENTRY, ROUTES } from "../lib/routes";
+import { safeRedirectPath } from "../lib/safeRedirect";
 
 /** Resolve a safe internal redirect target from the query string. */
 function useRedirectTarget(): string {
   const router = useRouter();
-  const raw = router.query.redirect;
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  // Only allow internal paths to avoid open-redirects.
-  return value && value.startsWith("/") ? value : APP_ENTRY;
+  return safeRedirectPath(router.query.redirect);
 }
 
 export default function LoginPage() {
@@ -120,7 +118,9 @@ export default function LoginPage() {
               </label>
               <button
                 type="button"
-                className="text-sm font-medium text-brand-600 hover:text-brand-700"
+                className="cursor-not-allowed text-sm font-medium text-slate-400"
+                title="Password reset is not configured in this demo"
+                disabled
               >
                 Forgot password?
               </button>
@@ -142,13 +142,13 @@ export default function LoginPage() {
             </Button>
           </form>
         ) : (
-          <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-5">
-            <p className="text-sm text-gray-600">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
+            <p className="text-sm leading-relaxed text-slate-600">
               Sign-in isn&apos;t configured in this environment yet. You can
-              continue straight into the app.
+              continue straight into the demo workspace.
             </p>
-            <ButtonLink href={redirectTo} className="mt-4 w-full" data-testid="continue-without-auth">
-              Continue to the app
+            <ButtonLink href={redirectTo} className="mt-4 w-full" size="lg" data-testid="continue-without-auth">
+              Enter demo workspace
             </ButtonLink>
           </div>
         )}

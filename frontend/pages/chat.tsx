@@ -1,18 +1,28 @@
 import Head from "next/head";
-import { useCallback, useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-import { FileText, Send, Sparkles } from "lucide-react";
-import { useLayout } from "../contexts/LayoutContext";
-import { Card, Button, ErrorState, PageIntro } from "../components/ui";
-import { useChat } from "../hooks/useApi";
+import { useRouter } from "next/router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MessageSquare, Send, Sparkles } from "lucide-react";
+import ClientSelect from "../components/ClientSelect";
+import {
+  AiMarkdown,
+  AiSourceList,
+  AiThinkingCard,
+  AiTrustFooter,
+  AiBadge,
+} from "../components/ai";
+import { Card, Button, EmptyState, ErrorState, PageIntro, PageShell } from "../components/ui";
+import { usePageSetup } from "../hooks/usePageSetup";
+import { useChat, useClients } from "../hooks/useApi";
+import {
+  aiErrorMessage,
+  getFollowUpSuggestions,
+  type ChatTurn,
+} from "../lib/ai";
+import { DEMO_COPILOT_QUERY } from "../lib/demo";
 
-// Markdown rendering is only needed once an answer arrives, so load it lazily
-// to keep it out of the page's initial bundle.
-const ReactMarkdown = dynamic(() => import("react-markdown"), { ssr: false });
-
-const SUGGESTIONS_POOL = [
+const BOOK_SUGGESTIONS = [
+  DEMO_COPILOT_QUERY,
   "Which clients haven't had a review in over 12 months?",
-  "Show me everyone with ISA allowance still available this tax year",
   "Which clients have cash excess above 6 months expenditure that we should discuss investing?",
   "Which clients have protection gaps based on their family circumstances?",
   "Which high-net-worth clients don't have estate planning in place?",
@@ -25,52 +35,132 @@ const SUGGESTIONS_POOL = [
   "Which business owner clients haven't discussed exit planning?",
 ];
 
+const CLIENT_SUGGESTIONS = [
+  "What protection gaps does this client have?",
+  "Summarise open action items for this client",
+  "What did we discuss in recent meeting notes?",
+  "Are there any compliance or estate planning gaps?",
+  "What investments or allowances should we revisit?",
+  "Summarise this client's financial profile",
+];
+
 const CHIPS_VISIBLE = 5;
 
+function newTurnId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function AICopilotPage() {
-  const { setPageTitle } = useLayout();
+  const router = useRouter();
   const [query, setQuery] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
+  const [lastFailedQuery, setLastFailedQuery] = useState<string | null>(null);
+  const [followUps, setFollowUps] = useState<string[]>([]);
   const [visibleChips, setVisibleChips] = useState<string[]>(() =>
-    SUGGESTIONS_POOL.slice(0, CHIPS_VISIBLE)
+    BOOK_SUGGESTIONS.slice(0, CHIPS_VISIBLE)
   );
-  const answerRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const autoAskRef = useRef<string | null>(null);
   const chat = useChat();
+  const clientsQuery = useClients();
+  const clients = useMemo(
+    () => clientsQuery.data?.clients ?? [],
+    [clientsQuery.data]
+  );
+
+  usePageSetup("AI Copilot");
+
+  const queryClientId =
+    typeof router.query.clientId === "string" ? router.query.clientId : "";
+  const queryParam = typeof router.query.q === "string" ? router.query.q.trim() : "";
 
   useEffect(() => {
-    setPageTitle("AI Copilot");
-  }, [setPageTitle]);
+    if (queryClientId && clients.some((c) => c.id === queryClientId)) {
+      setSelectedClientId(queryClientId);
+    }
+  }, [queryClientId, clients]);
+
+  useEffect(() => {
+    const pool = selectedClientId ? CLIENT_SUGGESTIONS : BOOK_SUGGESTIONS;
+    setVisibleChips(pool.slice(0, CHIPS_VISIBLE));
+  }, [selectedClientId]);
+
+  const scrollToBottom = useCallback(() => {
+    setTimeout(
+      () => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+      80
+    );
+  }, []);
 
   const ask = useCallback(
     (q: string, usedChip?: string) => {
       const text = q.trim();
       if (!text || chat.isPending) return;
-      chat.mutate(text, {
-        onSuccess: () => {
-          setTimeout(
-            () =>
-              answerRef.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              }),
-            80
-          );
-          if (usedChip) {
-            setVisibleChips((prev) => {
-              const replacement = SUGGESTIONS_POOL.find(
-                (p) => p !== usedChip && !prev.includes(p)
-              );
-              return replacement
-                ? prev.map((s) => (s === usedChip ? replacement : s))
-                : prev;
-            });
-          }
-        },
-      });
+      setPendingQuery(text);
+      setLastFailedQuery(null);
+      setFollowUps([]);
+      chat.mutate(
+        { query: text, clientId: selectedClientId || undefined },
+        {
+          onSuccess: (data) => {
+            setTurns((prev) => [
+              ...prev,
+              {
+                id: newTurnId(),
+                query: text,
+                answer: data.answer,
+                sources: data.sources ?? [],
+              },
+            ]);
+            setPendingQuery(null);
+            setQuery("");
+            setFollowUps(getFollowUpSuggestions(text, !!selectedClientId));
+            scrollToBottom();
+            if (usedChip) {
+              const pool = selectedClientId ? CLIENT_SUGGESTIONS : BOOK_SUGGESTIONS;
+              setVisibleChips((prev) => {
+                const replacement = pool.find(
+                  (p) => p !== usedChip && !prev.includes(p)
+                );
+                return replacement
+                  ? prev.map((s) => (s === usedChip ? replacement : s))
+                  : prev;
+              });
+            }
+          },
+          onError: () => {
+            setLastFailedQuery(text);
+            setPendingQuery(null);
+          },
+        }
+      );
     },
-    [chat]
+    [chat, selectedClientId, scrollToBottom]
   );
 
-  const sources = chat.data?.sources ?? [];
+  useEffect(() => {
+    if (!router.isReady || !queryParam || chat.isPending) return;
+    if (clientsQuery.isLoading) return;
+    if (queryClientId && selectedClientId !== queryClientId) return;
+    const key = `${queryParam}:${selectedClientId || queryClientId}`;
+    if (autoAskRef.current === key) return;
+    autoAskRef.current = key;
+    setQuery(queryParam);
+    ask(queryParam);
+  }, [
+    router.isReady,
+    queryParam,
+    queryClientId,
+    selectedClientId,
+    clientsQuery.isLoading,
+    chat.isPending,
+    ask,
+  ]);
+
+  const selectedClientName = clients.find((c) => c.id === selectedClientId)?.full_name;
+  const hasConversation = turns.length > 0 || pendingQuery != null;
 
   return (
     <>
@@ -78,140 +168,172 @@ export default function AICopilotPage() {
         <title>AI Copilot - KritiFin</title>
       </Head>
 
-      <PageIntro>
-        Ask grounded questions across clients, alerts, and ingested documents with source-aware answers.
-      </PageIntro>
+      <PageShell>
+        <PageIntro>
+          Ask grounded questions across clients, alerts, and ingested documents. Answers cite
+          source documents where available.
+        </PageIntro>
 
-      <div className="mx-auto max-w-4xl" data-testid="ai-copilot-page">
-        <Card className="overflow-hidden">
-          <div className="border-b border-slate-100 bg-gradient-to-br from-ai-50 to-white p-5">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-ai-600 text-white shadow-xs">
-                <Sparkles className="h-5 w-5" aria-hidden />
-              </span>
-              <div>
-                <h2 className="text-base font-semibold text-slate-950">AI Copilot</h2>
-                <p className="text-sm text-slate-500">From question to cited client insight.</p>
+        <div data-testid="ai-copilot-page" className="space-y-6">
+          <Card className="overflow-hidden">
+            <div className="border-b border-slate-100 bg-gradient-to-br from-ai-50 to-white p-5">
+              <div className="mb-4 flex flex-wrap items-end gap-3">
+                <div className="min-w-[200px] flex-1">
+                  <label htmlFor="copilot-client-filter" className="ui-label mb-2 block">
+                    Client scope
+                  </label>
+                  <ClientSelect
+                    id="copilot-client-filter"
+                    value={selectedClientId}
+                    onChange={(id) => {
+                      setSelectedClientId(id);
+                      setTurns([]);
+                      setFollowUps([]);
+                      autoAskRef.current = null;
+                    }}
+                    clients={clients}
+                    isLoading={clientsQuery.isLoading}
+                    disabled={chat.isPending}
+                    allowAll
+                    className="input w-full"
+                    testId="copilot-client-filter"
+                  />
+                </div>
+                {selectedClientName && (
+                  <p className="text-sm text-slate-500">
+                    Scoped to{" "}
+                    <strong className="font-medium text-slate-700">{selectedClientName}</strong>
+                  </p>
+                )}
               </div>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                ask(query);
-              }}
-              className="flex gap-2"
-            >
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="e.g. Which clients are worried about market volatility?"
-                aria-label="Ask AI Copilot a question"
-                className="input flex-1"
-                disabled={chat.isPending}
-                data-testid="ai-copilot-input"
-              />
-              <Button
-                type="submit"
-                loading={chat.isPending}
-                disabled={!query.trim()}
-                data-testid="ai-copilot-submit"
-                leftIcon={!chat.isPending ? <Send className="h-4 w-4" aria-hidden /> : undefined}
-              >
-                {chat.isPending ? "Thinking..." : "Ask"}
-              </Button>
-            </form>
-          </div>
-          <div className="p-5">
-            <p className="ui-label mb-3">Suggestions</p>
-            <div className="flex flex-wrap gap-2">
-              {visibleChips.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => {
-                    setQuery(s);
-                    ask(s, s);
-                  }}
-                  disabled={chat.isPending}
-                  className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs text-slate-600 transition-colors hover:border-ai-100 hover:bg-ai-50 hover:text-ai-700 disabled:opacity-60"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        </Card>
-
-        {chat.isPending && (
-          <Card className="mt-6 animate-fade-in">
-            <div className="flex items-start gap-4 px-6 py-6">
-              <div
-                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-ai-600 text-sm font-bold text-white shadow-xs"
-                aria-hidden
-              >
-                <Sparkles className="h-5 w-5" aria-hidden />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="mb-1 text-sm font-semibold text-gray-900">
-                  AI Copilot is thinking
-                </p>
-                <p className="mb-4 text-xs text-gray-500">
-                  Searching your data and documents to answer your question.
-                </p>
-                <div className="space-y-2">
-                  <div className="skeleton h-3 w-3/4" />
-                  <div className="skeleton h-3 w-full" />
-                  <div className="skeleton h-3 w-5/6" />
+              <div className="mb-4 flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-ai-600 text-white shadow-xs">
+                  <Sparkles className="h-5 w-5" aria-hidden />
+                </span>
+                <div>
+                  <h2 className="text-base font-semibold text-slate-950">AI Copilot</h2>
+                  <p className="text-sm text-slate-500">
+                    Grounded answers from your client book and ingested documents.
+                  </p>
                 </div>
               </div>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  ask(query);
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={
+                    selectedClientId
+                      ? "e.g. What open action items does this client have?"
+                      : "e.g. Which clients are worried about market volatility?"
+                  }
+                  aria-label="Ask AI Copilot a question"
+                  className="input flex-1"
+                  disabled={chat.isPending}
+                  data-testid="ai-copilot-input"
+                />
+                <Button
+                  type="submit"
+                  loading={chat.isPending}
+                  disabled={!query.trim()}
+                  data-testid="ai-copilot-submit"
+                  leftIcon={!chat.isPending ? <Send className="h-4 w-4" aria-hidden /> : undefined}
+                >
+                  {chat.isPending ? "Thinking…" : "Ask"}
+                </Button>
+              </form>
+            </div>
+            <div className="p-5">
+              <p className="ui-label mb-3">
+                {hasConversation ? "Suggested follow-ups" : "Suggested questions"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {(hasConversation && followUps.length > 0 ? followUps : visibleChips).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => {
+                      setQuery(s);
+                      ask(s, hasConversation ? undefined : s);
+                    }}
+                    disabled={chat.isPending}
+                    className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs text-slate-600 transition-colors hover:border-ai-100 hover:bg-ai-50 hover:text-ai-700 disabled:opacity-60"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           </Card>
-        )}
 
-        {chat.isError && (
-          <div className="mt-6">
-            <ErrorState
-              message={(chat.error as Error)?.message}
-              onRetry={() => ask(query || chat.variables || "")}
+          {!hasConversation && !chat.isError && (
+            <EmptyState
+              icon={<MessageSquare className="h-5 w-5" aria-hidden />}
+              title="Ask your first question"
+              description="Query your client book, alerts, and ingested fact-finds or meeting notes. Answers reference source documents with numbered citations where available."
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => ask(visibleChips[0], visibleChips[0])}
+                  leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
+                >
+                  Try: {visibleChips[0]?.slice(0, 48)}…
+                </Button>
+              }
             />
-          </div>
-        )}
+          )}
 
-        {chat.data && !chat.isPending && (
-          <Card
-            className="mt-6 animate-fade-in p-6 text-slate-800"
-            aria-live="polite"
-            data-testid="ai-copilot-answer"
-          >
-            <div ref={answerRef} />
-            <h2 className="ui-label mb-2">Copilot Answer</h2>
-            <div className="prose prose-sm max-w-none text-[13px] leading-relaxed [&_strong]:font-semibold [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:ml-4 [&_ol]:ml-4 [&_li]:my-0.5 [&_p]:my-1.5 [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-3">
-              <ReactMarkdown>{chat.data.answer}</ReactMarkdown>
+          {turns.map((turn) => (
+            <div key={turn.id} className="space-y-3 animate-fade-in">
+              <div className="flex justify-end">
+                <div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-600 px-4 py-3 text-sm text-white shadow-xs">
+                  {turn.query}
+                </div>
+              </div>
+              <Card
+                className="p-6 text-slate-800"
+                aria-live="polite"
+                data-testid={turn === turns[turns.length - 1] ? "ai-copilot-answer" : undefined}
+              >
+                <div className="mb-3 flex items-center gap-2">
+                  <AiBadge label="Copilot answer" />
+                  {turn.sources.length > 0 && (
+                    <span className="text-[11px] text-slate-400">
+                      {turn.sources.length} source{turn.sources.length !== 1 ? "s" : ""} cited
+                    </span>
+                  )}
+                </div>
+                <AiMarkdown compact linkCitations>
+                  {turn.answer}
+                </AiMarkdown>
+                <AiSourceList sources={turn.sources} />
+                <AiTrustFooter sourceCount={turn.sources.length} compact />
+              </Card>
             </div>
-            {sources.length > 0 && (
-              <>
-                <h3 className="ui-label mb-2 mt-6">Expandable Sources</h3>
-                <ul className="space-y-1.5 text-xs text-slate-600">
-                  {sources.map((src, i) => (
-                    <li key={i}>
-                      <details className="group rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                        <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-slate-950">
-                          <FileText className="h-3.5 w-3.5 text-slate-400" aria-hidden />
-                          {src.client_name}
-                          {src.doc_type && <span className="text-slate-500">({src.doc_type})</span>}
-                          {src.date && <span className="ml-auto text-slate-500">{src.date}</span>}
-                        </summary>
-                        <p className="mt-2 text-slate-600">{src.content}</p>
-                      </details>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </Card>
-        )}
-      </div>
+          ))}
+
+          {pendingQuery && (
+            <AiThinkingCard query={pendingQuery} />
+          )}
+
+          {chat.isError && (
+            <ErrorState
+              title="Couldn't get an answer"
+              message={aiErrorMessage(chat.error, "chat")}
+              onRetry={() => ask(lastFailedQuery || query)}
+            />
+          )}
+
+          <div ref={bottomRef} />
+        </div>
+      </PageShell>
     </>
   );
 }

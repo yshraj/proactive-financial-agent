@@ -9,12 +9,18 @@ import re
 logger = logging.getLogger("jarvis.safety")
 
 # Common prompt-injection phrases to strip from untrusted document text before RAG indexing/retrieval.
+# Allows optional filler ("the", "all") between the verb and the target so
+# variants like "disregard the above" / "ignore all the previous rules" match.
 _INJECTION_PATTERNS = re.compile(
-    r"(?i)(ignore (all )?(previous|prior|above) (instructions|rules|prompts)"
-    r"|disregard (all )?(previous|prior|above)"
+    r"(?i)("
+    r"ignore (all |any |the )*(previous|prior|above|preceding)( (instructions|rules|prompts|text|context))?"
+    r"|disregard (all |any |the )*(previous|prior|above|preceding|instructions|rules)"
+    r"|forget (all |any |the |everything )*(previous|prior|above|instructions|rules)"
     r"|you are now"
+    r"|act as (an? )?(unrestricted|jailbroken|dan)"
     r"|system:\s*"
-    r"|<\s*/?\s*(system|instruction|prompt)\s*>)",
+    r"|<\s*/?\s*(system|instruction|prompt)\s*>"
+    r")",
 )
 
 _MAX_USER_QUERY = 2000

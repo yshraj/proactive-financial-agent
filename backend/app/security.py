@@ -1,12 +1,17 @@
 """
-M0 stopgap security layer.
+Authentication mode, API-key verification, and rate limiting.
 
-Until full authentication + multi-tenancy lands (see IMPLEMENTATION_PLAN.md M1),
-this gates the API behind a shared API key and provides a reusable rate limiter,
-so the public demo is not an open door to data exfiltration / cost abuse.
+Auth posture is fail-closed by default:
 
-- If API_KEY is set, every request must send `X-API-Key: <key>`.
-- If API_KEY is unset (e.g. local dev), the gate is open but a warning is logged.
+- ``AUTH_MODE=required`` (the default): the app refuses to start unless
+  Supabase JWT verification is configured (``SUPABASE_URL`` and/or
+  ``SUPABASE_JWT_SECRET``). Browsers authenticate with a Supabase JWT only.
+- ``AUTH_MODE=demo``: anonymous access is allowed (single shared demo
+  workspace). Refused outright when ``ENV``/``ENVIRONMENT`` is production.
+
+``API_KEY`` is an optional *service-to-service* credential (scripts, uptime
+probes). It is never shipped to the browser; see app.auth.authenticate_request
+for how the two schemes combine.
 """
 from __future__ import annotations
 
@@ -15,14 +20,35 @@ import os
 import secrets
 from typing import Optional
 
-from fastapi import Header, HTTPException, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 logger = logging.getLogger("jarvis.security")
 
-# Per-client-IP rate limiter. Global default applied unless overridden per-endpoint.
-limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
+AUTH_MODE_REQUIRED = "required"
+AUTH_MODE_DEMO = "demo"
+
+
+def _rate_limit_key(request) -> str:
+    """Per-tenant rate limiting: org/user when authenticated, else client IP.
+
+    Router-level auth dependencies run before endpoint rate-limit decorators,
+    so ``request.state.tenant`` is populated by the time this is called.
+    """
+    tenant = getattr(getattr(request, "state", None), "tenant", None)
+    if tenant is not None:
+        user_part = tenant.user_id or tenant.role
+        return f"org:{tenant.org_id}:{user_part}"
+    return get_remote_address(request)
+
+
+# Global default applied per-endpoint (decorated routes); key is tenant-aware.
+# RATE_LIMIT_ENABLED=false disables limiting (test suites only).
+limiter = Limiter(
+    key_func=_rate_limit_key,
+    default_limits=["120/minute"],
+    enabled=os.environ.get("RATE_LIMIT_ENABLED", "true").strip().lower() != "false",
+)
 
 
 def _expected_key() -> Optional[str]:
@@ -30,9 +56,16 @@ def _expected_key() -> Optional[str]:
     return key.strip() if key else None
 
 
-def auth_configured() -> bool:
-    """True when at least one auth mechanism is enabled."""
-    return bool(_expected_key()) or _supabase_configured()
+def api_key_configured() -> bool:
+    return bool(_expected_key())
+
+
+def api_key_matches(candidate: Optional[str]) -> bool:
+    """Constant-time comparison against the configured service API key."""
+    expected = _expected_key()
+    if not expected or not candidate:
+        return False
+    return secrets.compare_digest(candidate, expected)
 
 
 def _supabase_configured() -> bool:
@@ -41,37 +74,61 @@ def _supabase_configured() -> bool:
     return bool(url or secret)
 
 
-def require_auth_in_production() -> None:
-    """Fail fast at startup when production runs without auth configured."""
+def auth_configured() -> bool:
+    """True when at least one auth mechanism is enabled."""
+    return api_key_configured() or _supabase_configured()
+
+
+def is_production() -> bool:
     env = os.environ.get("ENV", os.environ.get("ENVIRONMENT", "")).lower()
-    if env not in ("production", "prod"):
-        return
-    if auth_configured():
-        return
-    raise RuntimeError(
-        "Production requires API_KEY and/or Supabase JWT auth (SUPABASE_URL + SUPABASE_JWT_SECRET). "
-        "Set ENV=development for local open mode."
-    )
+    return env in ("production", "prod")
 
 
-async def require_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
-    """FastAPI dependency: enforce the shared API key when configured."""
-    expected = _expected_key()
-    if not expected:
-        # Open in local/dev when no key is configured; warn once per process.
-        if not getattr(require_api_key, "_warned", False):
-            logger.warning(
-                "API_KEY is not set — the API is UNAUTHENTICATED. Set API_KEY in production."
+def auth_mode() -> str:
+    """Resolve AUTH_MODE. Unknown values fail closed to ``required``."""
+    raw = (os.environ.get("AUTH_MODE") or AUTH_MODE_REQUIRED).strip().lower()
+    if raw == AUTH_MODE_DEMO:
+        return AUTH_MODE_DEMO
+    if raw != AUTH_MODE_REQUIRED:
+        logger.warning("Unknown AUTH_MODE=%r — treating as 'required' (fail closed).", raw)
+    return AUTH_MODE_REQUIRED
+
+
+def demo_mode_enabled() -> bool:
+    return auth_mode() == AUTH_MODE_DEMO
+
+
+def enforce_auth_mode() -> None:
+    """Fail fast at startup when the auth configuration is unsafe.
+
+    - demo mode is forbidden in production;
+    - required mode (the default) refuses to boot without Supabase JWT config,
+      in every environment.
+    """
+    mode = auth_mode()
+    if mode == AUTH_MODE_DEMO:
+        if is_production():
+            raise RuntimeError(
+                "AUTH_MODE=demo is not allowed when ENV/ENVIRONMENT is production. "
+                "Configure Supabase auth (SUPABASE_URL) and set AUTH_MODE=required."
             )
-            require_api_key._warned = True  # type: ignore[attr-defined]
+        logger.warning(
+            "AUTH_MODE=demo — the API accepts unauthenticated requests into a shared "
+            "demo workspace. Never use this outside local development or previews."
+        )
         return
-    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid API key.",
+
+    if not _supabase_configured():
+        raise RuntimeError(
+            "AUTH_MODE=required (the default) needs Supabase JWT auth configured: "
+            "set SUPABASE_URL (asymmetric JWKS verification) and/or SUPABASE_JWT_SECRET "
+            "(legacy HS256). For local development without auth, set AUTH_MODE=demo "
+            "explicitly."
         )
 
 
 def data_reset_enabled() -> bool:
-    """Destructive data reset is opt-in via env to avoid accidental wipes."""
-    return os.environ.get("ALLOW_DATA_RESET", "").lower() in ("1", "true", "yes")
+    """Destructive data reset is opt-in via env, and never in production."""
+    if is_production():
+        return os.environ.get("ALLOW_DATA_RESET", "").lower() == "force"
+    return os.environ.get("ALLOW_DATA_RESET", "").lower() in ("1", "true", "yes", "force")

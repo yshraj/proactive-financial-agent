@@ -1,18 +1,19 @@
 """
-Supabase JWT verification (optional).
+Request authentication -> tenant resolution.
 
-When Supabase auth is configured, every API request must carry a valid Supabase
-access token (`Authorization: Bearer <jwt>`); the decoded user is attached to
-request.state.user for downstream handlers / future multi-tenancy.
+Every /api/* route depends on :func:`authenticate_request`, which accepts one of:
 
-Supabase projects sign user access tokens with either:
-  * asymmetric keys (ES256/RS256) exposed via JWKS  — the current default, or
-  * the legacy symmetric secret (HS256).
-Both are supported here. Verification is pinned to the project's issuer/audience.
+1. ``Authorization: Bearer <supabase jwt>`` — browser traffic. Verified against
+   the project JWKS (ES256/RS256) or the legacy HS256 secret, then resolved to
+   a workspace via app.tenancy (JIT-provisioned on first login).
+2. ``X-API-Key`` — optional service-to-service credential (scripts, probes).
+   Acts on the service workspace. Never shipped to the browser.
+3. Nothing — allowed only when ``AUTH_MODE=demo`` (shared demo workspace,
+   refused in production at startup).
 
-When neither SUPABASE_URL nor SUPABASE_JWT_SECRET is set this is a no-op, so the
-app keeps working as before in local dev / CI — consistent with the API-key
-stopgap in app.security.
+The resolved :class:`~app.context.TenantContext` is attached to
+``request.state.tenant`` and bound to the context variables that db.get_cursor
+and the cache/audit layers read.
 """
 from __future__ import annotations
 
@@ -22,6 +23,15 @@ from functools import lru_cache
 from typing import Any, Optional
 
 from fastapi import Header, HTTPException, Request, status
+
+from app import security
+from app.context import (
+    DEFAULT_ORG_ID,
+    ROLE_DEMO,
+    ROLE_SERVICE,
+    TenantContext,
+    set_current_tenant,
+)
 
 logger = logging.getLogger("jarvis.auth")
 
@@ -50,21 +60,8 @@ def _jwk_client(jwks_url: str):
     return jwt.PyJWKClient(jwks_url)
 
 
-async def verify_supabase_jwt(
-    request: Request,
-    authorization: Optional[str] = Header(default=None),
-) -> None:
-    """FastAPI dependency: validate the Supabase JWT when configured."""
-    if not supabase_auth_enabled():
-        return  # Auth not configured — run open (see module docstring).
-
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing bearer token.",
-        )
-
-    token = authorization.split(" ", 1)[1].strip()
+def verify_jwt_token(token: str) -> dict[str, Any]:
+    """Verify a Supabase access token and return its payload. Raises 401."""
     url = _supabase_url()
     secret = _jwt_secret()
 
@@ -106,6 +103,67 @@ async def verify_supabase_jwt(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token.",
+        ) from None
+
+    if not payload.get("sub"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has no subject.",
+        )
+    return payload
+
+
+def _bearer_token(authorization: Optional[str]) -> Optional[str]:
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization.split(" ", 1)[1].strip() or None
+    return None
+
+
+def service_org_id() -> str:
+    """Workspace that service (API-key) callers act on."""
+    return (os.environ.get("SERVICE_ORG_ID") or DEFAULT_ORG_ID).strip()
+
+
+async def authenticate_request(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    x_api_key: Optional[str] = Header(default=None),
+) -> TenantContext:
+    """FastAPI dependency: authenticate the request and bind its tenant."""
+    from app import tenancy  # local import to avoid a cycle via db
+
+    request_id = getattr(getattr(request, "state", None), "request_id", None)
+    token = _bearer_token(authorization)
+
+    ctx: Optional[TenantContext] = None
+    if token and supabase_auth_enabled():
+        payload = verify_jwt_token(token)
+        user = {"id": payload.get("sub"), "email": payload.get("email")}
+        request.state.user = user
+        ctx = tenancy.resolve_tenant(
+            user_id=str(payload["sub"]),
+            email=payload.get("email"),
+            request_id=request_id,
+        )
+    elif x_api_key is not None and security.api_key_configured():
+        if not security.api_key_matches(x_api_key):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing or invalid API key.",
+            )
+        ctx = TenantContext(
+            org_id=service_org_id(), role=ROLE_SERVICE, request_id=request_id
+        )
+    elif security.demo_mode_enabled():
+        ctx = TenantContext(org_id=DEFAULT_ORG_ID, role=ROLE_DEMO, request_id=request_id)
+
+    if ctx is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Send a Supabase bearer token.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    request.state.user = {"id": payload.get("sub"), "email": payload.get("email")}
+    request.state.tenant = ctx
+    set_current_tenant(ctx)
+    return ctx

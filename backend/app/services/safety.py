@@ -58,6 +58,37 @@ def validate_file_magic(content: bytes, ext: str) -> bool:
     return False
 
 
+# DOCX (zip) decompression-bomb guards: a 20MB upload must not expand into
+# gigabytes of XML when python-docx parses it.
+_MAX_ZIP_ENTRIES = 2000
+_MAX_ZIP_UNCOMPRESSED = 200 * 1024 * 1024  # 200 MB total
+_MAX_ZIP_RATIO = 100.0  # per-entry compression ratio
+
+
+def validate_docx_zip(content: bytes) -> tuple[bool, str]:
+    """Reject zip bombs before DOCX parsing. Returns (ok, reason)."""
+    import io
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            infos = zf.infolist()
+            if len(infos) > _MAX_ZIP_ENTRIES:
+                return False, "Archive contains too many entries."
+            total_uncompressed = 0
+            for info in infos:
+                total_uncompressed += info.file_size
+                if total_uncompressed > _MAX_ZIP_UNCOMPRESSED:
+                    return False, "Archive expands beyond the allowed size."
+                if info.compress_size > 0 and info.file_size / info.compress_size > _MAX_ZIP_RATIO:
+                    return False, "Archive compression ratio is suspicious."
+    except zipfile.BadZipFile:
+        return False, "File is not a valid DOCX archive."
+    except Exception:
+        return False, "File could not be inspected."
+    return True, ""
+
+
 def public_error_message(context: str, exc: Exception | None = None) -> str:
     """Return a safe client-facing error string; log full detail server-side."""
     if exc is not None:
@@ -67,5 +98,7 @@ def public_error_message(context: str, exc: Exception | None = None) -> str:
         "qdrant_clear": "Failed to clear vector index. Check server logs.",
         "ingest_extraction": "Document extraction failed. The file was stored but could not be processed.",
         "ingest_vector": "Document indexing failed. The file was stored but search may be incomplete.",
+        "ingest_storage": "Document storage failed. Please try the upload again.",
+        "internal": "An unexpected error occurred. The team has been notified.",
     }
     return messages.get(context, "An internal error occurred. Check server logs.")

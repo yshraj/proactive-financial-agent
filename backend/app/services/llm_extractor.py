@@ -16,32 +16,57 @@ from typing import Any
 import pymupdf
 from docx import Document as DocxDocument
 
-from app.services.cache import EXTRACT_TTL, get as cache_get, set_ as cache_set
+from app.services.cache import EXTRACT_TTL, get_scoped as cache_get, set_scoped as cache_set
 from app.services.prompts import EXTRACTION_SYSTEM, PROMPT_VERSION
 
 logger = logging.getLogger("jarvis.ingest")
 
+# Extraction caps: bound CPU/memory even for pathological documents.
+MAX_PDF_PAGES = 500
+MAX_EXTRACT_CHARS = 500_000
+
+
+def extract_text_from_bytes(content: bytes, ext: str, display_name: str = "document") -> str:
+    """Extract plain text from PDF or DOCX bytes (page/char capped)."""
+    ext = ext.lower()
+    if ext == ".pdf":
+        doc = pymupdf.open(stream=content, filetype="pdf")
+        parts = []
+        try:
+            for index, page in enumerate(doc):
+                if index >= MAX_PDF_PAGES:
+                    logger.warning("[ingest] PDF page cap hit (%d): %s", MAX_PDF_PAGES, display_name)
+                    break
+                parts.append(page.get_text())
+                if sum(len(p) for p in parts) > MAX_EXTRACT_CHARS:
+                    break
+        finally:
+            doc.close()
+        text = "\n\n".join(parts).strip()[:MAX_EXTRACT_CHARS]
+        logger.info("[ingest] PDF extracted: %s → %d chars, %d pages", display_name, len(text), len(parts))
+        return text
+    if ext == ".docx":
+        import io
+
+        from app.services.safety import validate_docx_zip
+
+        ok, reason = validate_docx_zip(content)
+        if not ok:
+            raise ValueError(f"DOCX rejected: {reason}")
+        doc = DocxDocument(io.BytesIO(content))
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        text = "\n\n".join(paragraphs).strip()[:MAX_EXTRACT_CHARS]
+        logger.info("[ingest] DOCX extracted: %s → %d chars, %d paragraphs", display_name, len(text), len(paragraphs))
+        return text
+    if ext == ".txt":
+        return content.decode("utf-8", errors="replace")[:MAX_EXTRACT_CHARS]
+    raise ValueError(f"Unsupported file type: {ext}")
+
 
 def extract_text_from_file(file_path: Path) -> str:
-    """Extract plain text from a PDF or DOCX file."""
+    """Extract plain text from a PDF or DOCX file on disk."""
     path = Path(file_path)
-    suffix = path.suffix.lower()
-    if suffix == ".pdf":
-        doc = pymupdf.open(path)
-        parts = []
-        for page in doc:
-            parts.append(page.get_text())
-        doc.close()
-        text = "\n\n".join(parts).strip()
-        logger.info("[ingest] PDF extracted: %s → %d chars, %d pages", path.name, len(text), len(parts))
-        return text
-    if suffix == ".docx":
-        doc = DocxDocument(path)
-        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-        text = "\n\n".join(paragraphs).strip()
-        logger.info("[ingest] DOCX extracted: %s → %d chars, %d paragraphs", path.name, len(text), len(paragraphs))
-        return text
-    raise ValueError(f"Unsupported file type: {suffix}")
+    return extract_text_from_bytes(path.read_bytes(), path.suffix.lower(), path.name)
 
 
 # EXTRACTION_SYSTEM lives in app.services.prompts (versioned via PROMPT_VERSION)
@@ -92,6 +117,12 @@ def extract_structured(file_path: Path) -> dict[str, Any]:
     Raises on missing env or parse/LLM errors.
     """
     text = extract_text_from_file(file_path)
+    return extract_structured_from_text(text)
+
+
+def extract_structured_from_bytes(content: bytes, ext: str, display_name: str = "document") -> dict[str, Any]:
+    """Extraction over raw document bytes (storage-backed ingestion path)."""
+    text = extract_text_from_bytes(content, ext, display_name)
     return extract_structured_from_text(text)
 
 

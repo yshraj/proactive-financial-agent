@@ -1,16 +1,14 @@
 // Centralized, typed API client.
-// - Single source for the base URL and (optional) API key header.
+// - Single source for the base URL.
 // - Consistent timeout + error shape so callers can render recoverable error UI.
-// - No secrets are embedded; NEXT_PUBLIC_* values are public by design.
+// - Browser auth is the Supabase JWT only. The old NEXT_PUBLIC_API_KEY path was
+//   removed: anything shipped in the JS bundle is public, so a browser-side API
+//   key provides no security. API_KEY remains a server-to-server credential.
 
 import { getSupabaseClient, isSupabaseConfigured } from "./supabase/client";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-// Optional shared API key for the M0 stopgap auth layer (public env; the real
-// secret lives only on the server. This simply forwards a browser-side token if set).
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -33,7 +31,6 @@ export function errorMessage(error: unknown, fallback = "Something went wrong.")
 
 async function authHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
-  if (API_KEY) headers["X-API-Key"] = API_KEY;
   if (isSupabaseConfigured) {
     try {
       const token = await getAccessToken();

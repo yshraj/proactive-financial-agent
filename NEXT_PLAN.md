@@ -1,6 +1,19 @@
 # KritiFin — Project Status & Next-Step Plan
 
-_Last updated: 2 Jul 2026_
+_Last updated: 17 Jul 2026_
+
+> **Status update (17 Jul 2026):** the P0 "Safe for real advisers" sprint has
+> been executed. Multi-tenancy (organizations/users/memberships + `org_id`
+> everywhere) with Postgres RLS via the least-privilege `kritifin_app` role;
+> fail-closed `AUTH_MODE` (demo mode explicit and refused in production);
+> durable append-only `audit_log` + `ai_outputs` review register; Postgres job
+> queue + worker; documents in Supabase Storage; org-scoped caches, rate
+> limits, Qdrant filters and per-org duplicate detection; Sentry + JSON logs +
+> request IDs + `/health/ready`; Alembic migrations; GitHub Actions CI with an
+> RLS isolation suite (177 backend tests). Deployment cutover steps live in
+> [DEPLOYMENT.md](DEPLOYMENT.md); the release gate is
+> [docs/pre-beta-checklist.md](docs/pre-beta-checklist.md). Sections below
+> predate this work and are kept for historical context.
 
 This is the living planning document for **KritiFin (Proactive Financial Agent)** — a proactive AI workspace for UK financial advisers. It captures current status, what's done, what remains, priorities, technical debt, known issues, risks, and the implementation roadmap. Historical milestone context lives in [`docs/planning/`](docs/planning/).
 

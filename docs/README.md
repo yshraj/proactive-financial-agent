@@ -10,6 +10,11 @@
 | [AI interaction UX](ai-interaction-ux.md) | Copilot, brief, and digest UI patterns |
 | [Performance improvements](performance-improvements.md) | Backend pooling, caching, frontend lazy loading |
 | [Security audit](security-audit.md) | Input validation, auth gates, safe redirects |
+| [Threat model](security-threat-model.md) | Data flows, trust boundaries, STRIDE summary, accepted risks |
+| [Runbook: deploy & rollback](runbooks/deploy-and-rollback.md) | Environments, migrations, rollback levers, drills |
+| [Runbook: incident response](runbooks/incident-response.md) | Severity levels, detection, cross-tenant exposure playbook |
+| [Runbook: backups & restore](runbooks/backups-and-restore.md) | RPO/RTO targets, PITR, restore drills, audit retention |
+| [Runbook: secrets rotation](runbooks/secrets-rotation.md) | Secret inventory, rotation cadence, leak response |
 | [Feature research](feature-research/) | Competitive analysis and roadmaps |
 | [High-impact features 2026](feature-research/high-impact-features-2026.md) | 2026 competitive refresh — 40+ prioritised high-impact features |
 | [Planning archive](planning/) | Implementation plan, project review, release notes |

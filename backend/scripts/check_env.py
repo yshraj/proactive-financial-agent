@@ -76,10 +76,12 @@ def check_presence() -> dict:
     ok(f".env found at {ENV_PATH}")
 
     env = {k: (os.environ.get(k) or "").strip() for k in (
-        "DATABASE_URL", "QDRANT_URL", "QDRANT_API_KEY", "OPENAI_API_KEY",
-        "LLM_PROVIDER", "EMBEDDING_PROVIDER", "EMBEDDING_MODEL",
+        "DATABASE_URL", "DATABASE_ADMIN_URL", "QDRANT_URL", "QDRANT_API_KEY",
+        "OPENAI_API_KEY", "LLM_PROVIDER", "EMBEDDING_PROVIDER", "EMBEDDING_MODEL",
         "GEMINI_API_KEY", "GOOGLE_API_KEY", "COHERE_API_KEY",
-        "API_KEY", "ALLOW_DATA_RESET", "QDRANT_COLLECTION", "ADVISER_ID",
+        "API_KEY", "ALLOW_DATA_RESET", "QDRANT_COLLECTION",
+        "AUTH_MODE", "SUPABASE_URL", "SUPABASE_JWT_SECRET",
+        "SUPABASE_SERVICE_ROLE_KEY", "SENTRY_DSN", "ENV", "ENVIRONMENT",
     )}
 
     llm = (env["LLM_PROVIDER"] or "openai").lower()
@@ -142,13 +144,41 @@ def check_presence() -> dict:
     else:
         ok(f"EMBEDDING_MODEL={model}")
 
-    # Optional / security
-    section("Optional & security (M0)")
-    if env["API_KEY"]:
-        ok(f"API_KEY set ({mask(env['API_KEY'])}) — API requires X-API-Key")
+    # Auth posture (fail closed)
+    section("Auth posture")
+    auth_mode = (env["AUTH_MODE"] or "required").lower()
+    supabase_auth = bool(env["SUPABASE_URL"] or env["SUPABASE_JWT_SECRET"])
+    is_prod = (env["ENV"] or env["ENVIRONMENT"] or "").lower() in ("production", "prod")
+    if auth_mode == "demo":
+        if is_prod:
+            fail("AUTH_MODE=demo with ENV=production — the app will refuse to boot.")
+        else:
+            warn("AUTH_MODE=demo — anonymous access into a shared demo workspace (local/dev only).")
     else:
-        warn("API_KEY not set — the backend API is UNAUTHENTICATED (fine for local dev; set in production).")
-    if env["ALLOW_DATA_RESET"].lower() in ("1", "true", "yes"):
+        if supabase_auth:
+            ok("AUTH_MODE=required with Supabase auth configured "
+               f"({'JWKS via SUPABASE_URL' if env['SUPABASE_URL'] else 'HS256 secret'})")
+        else:
+            fail("AUTH_MODE=required (default) but neither SUPABASE_URL nor "
+                 "SUPABASE_JWT_SECRET is set — the app will refuse to boot. "
+                 "Set AUTH_MODE=demo explicitly for local open mode.")
+    if env["API_KEY"]:
+        ok(f"API_KEY set ({mask(env['API_KEY'])}) — service callers may use X-API-Key")
+    if env["SUPABASE_SERVICE_ROLE_KEY"]:
+        ok("SUPABASE_SERVICE_ROLE_KEY set — documents persist to Supabase Storage")
+    else:
+        warn("SUPABASE_SERVICE_ROLE_KEY not set — uploads fall back to local disk "
+             "(EPHEMERAL on Render; originals are lost on deploy).")
+    if env["SENTRY_DSN"]:
+        ok("SENTRY_DSN set — error reporting enabled")
+    else:
+        warn("SENTRY_DSN not set — no error reporting (recommended for staging/production).")
+    if env["DATABASE_ADMIN_URL"]:
+        ok("DATABASE_ADMIN_URL set — migrations run as admin; runtime stays least-privilege")
+    else:
+        warn("DATABASE_ADMIN_URL not set — Alembic will use DATABASE_URL "
+             "(fine while it still points at the postgres role).")
+    if env["ALLOW_DATA_RESET"].lower() in ("1", "true", "yes", "force"):
         warn("ALLOW_DATA_RESET is enabled — the destructive clear-data endpoint is callable.")
     else:
         ok("ALLOW_DATA_RESET disabled (clear-data blocked)")
@@ -171,9 +201,13 @@ def check_connectivity(env: dict) -> None:
         )
         tables = {r[0] for r in cur.fetchall()}
         ok("Postgres: connected")
-        for t in ("clients", "alerts", "ingested_documents"):
+        for t in (
+            "clients", "alerts", "ingested_documents",
+            "organizations", "users", "org_memberships",
+            "audit_log", "ai_outputs", "jobs", "conversations",
+        ):
             (ok if t in tables else fail)(
-                f"Postgres: table '{t}' " + ("exists" if t in tables else "MISSING — run backend/supabase_schema.sql")
+                f"Postgres: table '{t}' " + ("exists" if t in tables else "MISSING — run `cd backend && alembic upgrade head`")
             )
         conn.close()
     except Exception as e:  # noqa: BLE001

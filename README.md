@@ -19,7 +19,7 @@
 | **LICENSE** | MIT — see [LICENSE](LICENSE) |
 | **Documentation** | [docs/README.md](docs/README.md) index |
 
-**Current setup:** Supabase (PostgreSQL + optional auth), Qdrant Cloud (vectors), OpenAI (LLM + embeddings). Copy [`.env.example`](.env.example) to `.env` and fill in keys.
+**Current setup:** Supabase (PostgreSQL with row-level security + auth + storage), Qdrant Cloud (vectors), OpenAI (LLM + embeddings). Copy [`.env.example`](.env.example) to `.env` and fill in keys. Auth is **fail-closed** (`AUTH_MODE=required` by default); set `AUTH_MODE=demo` explicitly for open local development.
 
 ---
 
@@ -76,13 +76,17 @@ All backend variables are in [`.env.example`](.env.example) at the **project roo
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `DATABASE_URL` | Yes | Supabase PostgreSQL connection string |
+| `AUTH_MODE` | Yes | `required` (default; needs Supabase auth config, refuses to boot otherwise) or `demo` (open local mode, refused in production) |
+| `DATABASE_URL` | Yes | Supabase PostgreSQL connection string (production: the RLS-enforced `kritifin_app` role) |
+| `DATABASE_ADMIN_URL` | Prod | Admin (postgres) connection for Alembic migrations only |
 | `QDRANT_URL` | Yes | Qdrant cluster URL |
 | `QDRANT_API_KEY` | Yes (Cloud) | Qdrant API key |
 | `OPENAI_API_KEY` | Yes (OpenAI) | LLM and embeddings |
-| `SUPABASE_URL` | No | Enables JWT verification on API |
+| `SUPABASE_URL` | With `AUTH_MODE=required` | JWT verification via project JWKS |
 | `SUPABASE_JWT_SECRET` | No | Legacy HS256 token verification |
-| `API_KEY` | No | API key gate for production |
+| `SUPABASE_SERVICE_ROLE_KEY` | Prod | Supabase Storage for uploaded documents (server-side only) |
+| `SENTRY_DSN` | No | Backend error reporting |
+| `API_KEY` | No | Optional service-to-service credential (never shipped to the browser) |
 | `LLM_PROVIDER` | No | `openai` (default) or `gemini` |
 | `CORS_ORIGINS` | No | Default `http://localhost:3000` |
 
@@ -102,8 +106,8 @@ See [Setting up Supabase](#setting-up-supabase-database) and [Setting up Qdrant]
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. **Connection string:** Project Settings → Database → URI → Connection pooling (Transaction mode). Set as `DATABASE_URL`.
-3. **Schema:** SQL Editor → run `backend/supabase_schema.sql`.
-4. **Auth (optional):** Project Settings → API → copy URL and anon key to `frontend/.env.local`.
+3. **Schema:** run migrations — `cd backend && alembic upgrade head`. This creates the domain tables, tenancy model (organizations/users/memberships), row-level-security policies, durable audit/jobs/conversations tables, and the least-privilege `kritifin_app` runtime role. (`backend/supabase_schema.sql` is kept only as the legacy pre-tenancy reference.)
+4. **Auth:** Project Settings → API → copy URL and anon key to `frontend/.env.local`; set `SUPABASE_URL` in the root `.env` (or use `AUTH_MODE=demo` for open local dev).
 
 ---
 
@@ -210,11 +214,17 @@ Open [http://localhost:3000](http://localhost:3000). If auth is not configured, 
 ### Step 4 — Run tests (optional)
 
 ```bash
+cd backend
+pytest                    # unit + integration + RLS isolation suite
+                          # (spins up an embedded Postgres via pgserver)
+
 cd frontend
 npm run test:e2e          # starts mock API + dev server automatically
 ```
 
-See [frontend/tests/README.md](frontend/tests/README.md) for CI and deployed-environment runs.
+CI (GitHub Actions) runs lint, typecheck, the full backend suite against a real
+Postgres, migration up/down checks, Playwright, and security scans on every PR.
+See [frontend/tests/README.md](frontend/tests/README.md) for deployed-environment runs.
 
 ---
 
@@ -227,16 +237,21 @@ proactive-financial-agent/
 ├── .env.example
 ├── FEATURES_AND_IMPLEMENTATION.md
 ├── DEPLOYMENT.md
-├── docs/                      # Guides, demo script, planning archive
+├── render.yaml                # Render blueprint: API web service + queue worker
+├── .github/workflows/         # CI (lint, tests, migrations, e2e, security) + nightly staging e2e
+├── load/                      # k6 load-test baseline (staging only)
+├── docs/                      # Guides, threat model, runbooks, planning archive
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
-│   │   ├── routers/           # ingest, monitor, chat, settings
-│   │   └── services/          # llm, prompts, rag_context, safety, cache, …
+│   │   ├── worker.py          # durable job-queue worker (python -m app.worker)
+│   │   ├── auth.py / tenancy.py / context.py   # JWT -> workspace resolution
+│   │   ├── routers/           # ingest, monitor, chat, settings, compliance
+│   │   └── services/          # llm, prompts, rag_context, safety, cache, audit, jobs, storage, …
+│   ├── alembic/               # database migrations (schema, tenancy, RLS)
 │   ├── scripts/
-│   ├── tests/
-│   ├── uploads/               # gitignored; .gitkeep committed
-│   └── supabase_schema.sql
+│   ├── tests/                 # unit + integration + RLS isolation suites
+│   └── supabase_schema.sql    # legacy pre-tenancy reference (see alembic/)
 └── frontend/
     ├── pages/                 # dashboard, chat, brief, clients, admin, …
     ├── components/            # UI library, AI components, layout

@@ -8,10 +8,13 @@ const DISALLOW = [
   "/chat",
   "/brief",
   "/alerts",
+  "/clients",
   "/admin",
   "/settings",
   "/login",
   "/signup",
+  "/forgot-password",
+  "/reset-password",
 ];
 
 function RobotsTxt() {

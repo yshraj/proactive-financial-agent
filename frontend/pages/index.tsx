@@ -34,6 +34,22 @@ const NAV_LINKS = [
   { href: "#faq", label: "FAQ" },
 ];
 
+// JSON-LD for rich results. Kept factual: no ratings/prices we don't have.
+const STRUCTURED_DATA = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: SITE_NAME,
+  url: `${SITE_URL}/`,
+  description: SITE_DESCRIPTION,
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  image: `${SITE_URL}/og-image.png`,
+  audience: {
+    "@type": "BusinessAudience",
+    audienceType: "UK financial advisers",
+  },
+};
+
 const CAPABILITIES = [
   { icon: BarChart3, title: "Client Intelligence", text: "See reviews, risks, opportunities, and relationship context in one calm workspace." },
   { icon: FileText, title: "Meeting Preparation", text: "Generate executive briefs, talking points, action lists, and draft emails before every review." },
@@ -231,9 +247,20 @@ export default function LandingPage() {
         <meta property="og:title" content={SITE_TITLE} />
         <meta property="og:description" content={SITE_DESCRIPTION} />
         <meta property="og:url" content={`${SITE_URL}/`} />
+        <meta property="og:image" content={`${SITE_URL}/og-image.png`} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="KritiFin — the AI operating system for financial advisers" />
+        <meta property="og:locale" content="en_GB" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={SITE_TITLE} />
         <meta name="twitter:description" content={SITE_DESCRIPTION} />
+        <meta name="twitter:image" content={`${SITE_URL}/og-image.png`} />
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }}
+        />
       </Head>
 
       <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-700">
@@ -573,7 +600,7 @@ export default function LandingPage() {
                 Capabilities
               </a>
             </nav>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500">
               (c) {new Date().getFullYear()} KritiFin. All rights reserved.
             </p>
           </div>

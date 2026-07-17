@@ -4,6 +4,8 @@ export const ROUTES = {
   home: "/",
   login: "/login",
   signup: "/signup",
+  forgotPassword: "/forgot-password",
+  resetPassword: "/reset-password",
   dashboard: "/dashboard",
   chat: "/chat",
   brief: "/brief",
@@ -44,4 +46,6 @@ export const BARE_ROUTES: ReadonlySet<string> = new Set([
   ROUTES.home,
   ROUTES.login,
   ROUTES.signup,
+  ROUTES.forgotPassword,
+  ROUTES.resetPassword,
 ]);

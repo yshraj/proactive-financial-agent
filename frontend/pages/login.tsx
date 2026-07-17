@@ -116,14 +116,13 @@ export default function LoginPage() {
                 />
                 Remember me
               </label>
-              <button
-                type="button"
-                className="cursor-not-allowed text-sm font-medium text-slate-400"
-                title="Password reset is not configured in this demo"
-                disabled
+              <Link
+                href={ROUTES.forgotPassword}
+                className="text-sm font-medium text-brand-600 hover:text-brand-700"
+                data-testid="forgot-password-link"
               >
                 Forgot password?
-              </button>
+              </Link>
             </div>
             {error && (
               <p role="alert" className="text-sm text-red-600">

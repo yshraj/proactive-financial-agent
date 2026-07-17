@@ -13,7 +13,11 @@ export class MeetingBriefPage {
   }
 
   async generateBrief() {
+    const generated = this.page.waitForResponse(
+      (r) => r.url().includes("/api/chat/brief") && r.request().method() === "POST"
+    );
     await this.page.getByTestId("generate-brief-button").click();
+    await generated;
     await expect(this.page.getByTestId("generated-brief")).toBeVisible();
   }
 

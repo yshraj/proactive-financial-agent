@@ -13,7 +13,14 @@ export class AiCopilotPage {
   }
 
   async askSuggestedQuestion() {
+    // Wait on the chat response itself, not just the DOM: under parallel load
+    // (esp. Firefox) the answer render lags the click, which flaked when we
+    // only waited on visibility.
+    const answered = this.page.waitForResponse(
+      (r) => r.url().includes("/api/chat") && r.request().method() === "POST"
+    );
     await this.page.getByRole("button", { name: /ISA allowance still available/ }).click();
+    await answered;
     await expect(this.page.getByTestId("ai-copilot-answer")).toBeVisible();
     await expect(this.page.getByText(/unused ISA allowance/i)).toBeVisible();
   }
@@ -23,15 +30,17 @@ export class AiCopilotPage {
   }
 
   async askScopedQuestion() {
-    await this.page.getByTestId("ai-copilot-input").fill("Summarise open action items for this client");
-    await this.page.getByTestId("ai-copilot-submit").click();
-    await expect(this.page.getByTestId("ai-copilot-answer")).toBeVisible();
+    await this.ask("Summarise open action items for this client");
   }
 
   /** Ask a free-text question and wait for the answer. */
   async ask(question: string) {
+    const answered = this.page.waitForResponse(
+      (r) => r.url().includes("/api/chat") && r.request().method() === "POST"
+    );
     await this.page.getByTestId("ai-copilot-input").fill(question);
     await this.page.getByTestId("ai-copilot-submit").click();
+    await answered;
     await expect(this.page.getByTestId("ai-copilot-answer")).toBeVisible();
   }
 

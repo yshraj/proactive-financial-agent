@@ -66,6 +66,11 @@ export default defineConfig({
       dependencies: ["auth"],
       use: { ...devices["Pixel 5"], storageState },
     },
+    {
+      name: "tablet-chromium",
+      dependencies: ["auth"],
+      use: { ...devices["iPad (gen 7)"], storageState },
+    },
   ],
   webServer: skipWebServer
     ? undefined

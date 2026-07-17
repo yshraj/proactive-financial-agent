@@ -46,7 +46,26 @@ def main():
         ),
     )
     print(f"Created collection '{COLLECTION_NAME}' with vector size={VECTOR_SIZE}, distance=COSINE.")
-    print("Payload fields (for ingestion): content, client_id, doc_type, date, topics")
+
+    # Payload indexes: org_id is the tenant boundary (is_tenant optimisation
+    # where supported), client_id the per-client filter.
+    from qdrant_client.models import KeywordIndexParams
+
+    try:
+        client.create_payload_index(
+            collection_name=COLLECTION_NAME,
+            field_name="org_id",
+            field_schema=KeywordIndexParams(type="keyword", is_tenant=True),
+        )
+    except Exception:
+        client.create_payload_index(
+            collection_name=COLLECTION_NAME, field_name="org_id", field_schema="keyword"
+        )
+    client.create_payload_index(
+        collection_name=COLLECTION_NAME, field_name="client_id", field_schema="keyword"
+    )
+    print("Payload indexes created: org_id (tenant), client_id.")
+    print("Payload fields (for ingestion): content, org_id, client_id, doc_type, date, topics")
 
 
 if __name__ == "__main__":

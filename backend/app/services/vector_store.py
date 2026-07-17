@@ -60,6 +60,7 @@ def upsert_to_qdrant(
     doc_date: Optional[str] = None,
     topics: Optional[list[str]] = None,
     *,
+    org_id: Optional[str] = None,
     client_name: Optional[str] = None,
     document_id: Optional[str] = None,
     filename: Optional[str] = None,
@@ -69,12 +70,17 @@ def upsert_to_qdrant(
 ) -> None:
     """
     Upsert chunk vectors into Qdrant with full metadata for filtered search.
-    Filterable payload fields: client_id, client_name, doc_type, date, topics,
-    document_id, filename, source_type, ingested_at.
+    Filterable payload fields: org_id (tenant boundary), client_id, client_name,
+    doc_type, date, topics, document_id, filename, source_type, ingested_at.
     """
     from qdrant_client.models import PointStruct
 
+    from app.context import require_current_tenant
     from app.services.clients import get_qdrant_client
+
+    resolved_org = org_id or require_current_tenant().org_id
+    if not resolved_org:
+        raise ValueError("upsert_to_qdrant requires an org_id (tenant isolation)")
 
     client = get_qdrant_client()
     topics = topics or []
@@ -84,6 +90,7 @@ def upsert_to_qdrant(
             vector=vec,
             payload={
                 "content": content,
+                "org_id": resolved_org,
                 "client_id": client_id,
                 "doc_type": doc_type,
                 "date": doc_date or "",
@@ -110,6 +117,38 @@ def upsert_to_qdrant(
     logger.info("[ingest] Qdrant upsert done: %d points in %s", len(points), collection)
 
 
+def ensure_payload_indexes(collection: str = QDRANT_COLLECTION) -> None:
+    """Create keyword payload indexes for the fields every search filters on.
+
+    org_id uses ``is_tenant=True`` (Qdrant's multitenancy optimisation) where
+    the server version supports it; plain keyword indexes otherwise. Idempotent.
+    """
+    from qdrant_client.models import KeywordIndexParams
+
+    from app.services.clients import get_qdrant_client
+
+    client = get_qdrant_client()
+    try:
+        client.create_payload_index(
+            collection_name=collection,
+            field_name="org_id",
+            field_schema=KeywordIndexParams(type="keyword", is_tenant=True),
+        )
+    except Exception:
+        try:
+            client.create_payload_index(
+                collection_name=collection, field_name="org_id", field_schema="keyword"
+            )
+        except Exception:
+            logger.info("org_id payload index already present or unsupported")
+    try:
+        client.create_payload_index(
+            collection_name=collection, field_name="client_id", field_schema="keyword"
+        )
+    except Exception:
+        logger.info("client_id payload index already present")
+
+
 def recreate_collection(collection: str = QDRANT_COLLECTION) -> None:
     """Delete and recreate the Qdrant collection (demo reset)."""
     from qdrant_client.models import Distance, VectorParams
@@ -124,6 +163,22 @@ def recreate_collection(collection: str = QDRANT_COLLECTION) -> None:
     client.create_collection(
         collection_name=collection,
         vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+    )
+    ensure_payload_indexes(collection)
+
+
+def delete_org_points(org_id: str, collection: str = QDRANT_COLLECTION) -> None:
+    """Delete only this org's points (org-scoped data reset)."""
+    from qdrant_client.models import FieldCondition, Filter, FilterSelector, MatchValue
+
+    from app.services.clients import get_qdrant_client
+
+    client = get_qdrant_client()
+    client.delete(
+        collection_name=collection,
+        points_selector=FilterSelector(
+            filter=Filter(must=[FieldCondition(key="org_id", match=MatchValue(value=org_id))])
+        ),
     )
 
 

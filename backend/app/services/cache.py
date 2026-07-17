@@ -1,6 +1,15 @@
 """
 In-memory TTL cache for LLM responses to reduce API calls and latency.
-Used for: pre-meeting briefs (by client_id), draft emails (by alert_id), optional chat (by query hash).
+
+Tenant scoping: all product code uses the ``*_scoped`` helpers, which prefix
+keys with the current org id (``{org_id}|{key}``) so cache entries can never be
+shared across workspaces. The raw ``get``/``set_`` primitives remain for the
+cache's own plumbing and tests. CI guards that routers/services only use the
+scoped API (scripts/check_sql_fstrings.py also checks cache usage).
+
+This cache is process-local, which is correct for the current single-instance
+deployment; the Redis decision gate is documented in NEXT_PLAN/RFC (adopt only
+when there is more than one API instance).
 """
 from __future__ import annotations
 
@@ -8,6 +17,8 @@ import hashlib
 import threading
 import time
 from typing import Any, Optional
+
+from app.context import TenantContext, get_current_tenant
 
 # Single in-memory store: key -> (value, expiry_ts)
 _store: dict[str, tuple[Any, float]] = {}
@@ -63,23 +74,65 @@ def hash_query_for_key(query: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
-def invalidate_pulse_caches() -> None:
-    """Clear pulse snapshots when alert or client data changes."""
-    delete_prefix("pulse:")
+# ---------------------------------------------------------------------------
+# Tenant-scoped API — the only API product code should use.
+# ---------------------------------------------------------------------------
 
 
-def invalidate_client_ai_caches(client_id: str) -> None:
-    """Bust LLM caches when client data or documents change."""
+def _org_id(ctx: Optional[TenantContext]) -> str:
+    tenant = ctx or get_current_tenant()
+    if tenant is None or not tenant.org_id:
+        raise RuntimeError(
+            "Scoped cache access requires a tenant context; bind one via the "
+            "request dependency or pass ctx explicitly from jobs."
+        )
+    return tenant.org_id
+
+
+def scoped_key(key: str, ctx: Optional[TenantContext] = None) -> str:
+    return f"{_org_id(ctx)}|{key}"
+
+
+def get_scoped(key: str, ctx: Optional[TenantContext] = None) -> Optional[Any]:
+    return get(scoped_key(key, ctx))
+
+
+def set_scoped(key: str, value: Any, ttl_seconds: int, ctx: Optional[TenantContext] = None) -> None:
+    set_(scoped_key(key, ctx), value, ttl_seconds)
+
+
+def delete_scoped(key: str, ctx: Optional[TenantContext] = None) -> None:
+    delete(scoped_key(key, ctx))
+
+
+def delete_prefix_scoped(prefix: str, ctx: Optional[TenantContext] = None) -> int:
+    return delete_prefix(scoped_key(prefix, ctx))
+
+
+def invalidate_pulse_caches(ctx: Optional[TenantContext] = None) -> None:
+    """Clear this org's pulse snapshots when alert or client data changes."""
+    delete_prefix_scoped("pulse:", ctx)
+
+
+def invalidate_client_ai_caches(client_id: str, ctx: Optional[TenantContext] = None) -> None:
+    """Bust this org's LLM caches when client data or documents change."""
     from app.services.prompts import PROMPT_VERSION
 
-    delete(f"brief:{PROMPT_VERSION}:{client_id}")
-    delete(f"summary:{PROMPT_VERSION}:{client_id}")
-    delete_prefix("chat:")
-    delete_prefix("digest:")
-    invalidate_pulse_caches()
+    delete_scoped(f"brief:{PROMPT_VERSION}:{client_id}", ctx)
+    delete_scoped(f"summary:{PROMPT_VERSION}:{client_id}", ctx)
+    delete_scoped(f"review-note:{PROMPT_VERSION}:{client_id}", ctx)
+    delete_prefix_scoped("chat:", ctx)
+    delete_prefix_scoped("digest:", ctx)
+    invalidate_pulse_caches(ctx)
 
 
-def invalidate_all_ai_caches() -> None:
-    """Clear all AI-related cache prefixes (used on full data reset)."""
-    for prefix in ("brief:", "draft:", "chat:", "extract:", "digest:", "summary:", "pulse:"):
-        delete_prefix(prefix)
+def invalidate_all_ai_caches(ctx: Optional[TenantContext] = None) -> None:
+    """Clear all AI-related cache prefixes for this org (full data reset)."""
+    for prefix in ("brief:", "draft:", "chat:", "extract:", "digest:", "summary:", "review-note:", "pulse:"):
+        delete_prefix_scoped(prefix, ctx)
+
+
+def clear_all_unscoped_for_tests() -> None:
+    """Wipe the entire store. Test helper only."""
+    with _lock:
+        _store.clear()

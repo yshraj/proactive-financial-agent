@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Optional
+from typing import Any
 
 REVIEW_OVERDUE_DESCRIPTION = (
     "No review in 12+ months. Consumer Duty requires demonstrating ongoing value."
@@ -67,10 +67,15 @@ def alert_sort_key(alert: Any) -> tuple:
 
 
 def get_client_name(client_id: str, default: str = "Client") -> str:
+    from app.context import require_current_tenant
     from app.db import get_cursor
 
+    org_id = require_current_tenant().org_id
     with get_cursor() as cur:
-        cur.execute("SELECT full_name FROM clients WHERE id = %s", (client_id,))
+        cur.execute(
+            "SELECT full_name FROM clients WHERE id = %s AND org_id = %s",
+            (client_id, org_id),
+        )
         row = cur.fetchone()
     if not row:
         return default
@@ -79,10 +84,15 @@ def get_client_name(client_id: str, default: str = "Client") -> str:
 
 def require_client_name(client_id: str) -> str:
     """Return client display name or raise LookupError if the client does not exist."""
+    from app.context import require_current_tenant
     from app.db import get_cursor
 
+    org_id = require_current_tenant().org_id
     with get_cursor() as cur:
-        cur.execute("SELECT full_name FROM clients WHERE id = %s", (client_id,))
+        cur.execute(
+            "SELECT full_name FROM clients WHERE id = %s AND org_id = %s",
+            (client_id, org_id),
+        )
         row = cur.fetchone()
     if not row:
         raise LookupError("Client not found")

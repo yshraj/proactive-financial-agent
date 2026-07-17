@@ -1,5 +1,10 @@
 """
 RAG retrieval, score filtering, and citation-ready context formatting.
+
+Tenant isolation: :func:`search_qdrant` is the single search wrapper and it
+REQUIRES an ``org_id`` — a filter-less (cross-tenant) vector search cannot be
+expressed through this module. Points carry ``org_id`` in their payload
+(services/vector_store.py) with a keyword payload index (is_tenant pattern).
 """
 from __future__ import annotations
 
@@ -28,19 +33,28 @@ def embed_query(text: str) -> list[float]:
 def search_qdrant(
     query_vector: list[float],
     *,
+    org_id: str,
     limit: int = 5,
     client_id: Optional[str] = None,
     min_score: float = RAG_MIN_SCORE,
 ) -> list[Any]:
-    """Return Qdrant points at or above min_score, up to limit."""
+    """Return Qdrant points at or above min_score, up to limit.
+
+    ``org_id`` is mandatory: every search is tenant-filtered. Raises ValueError
+    when missing so a scoping bug fails loudly instead of leaking data.
+    """
+    if not org_id:
+        raise ValueError("search_qdrant requires org_id (tenant isolation)")
+
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
     from app.services.clients import get_qdrant_client
 
     client = get_qdrant_client()
-    query_filter = None
+    must = [FieldCondition(key="org_id", match=MatchValue(value=org_id))]
     if client_id:
-        query_filter = Filter(must=[FieldCondition(key="client_id", match=MatchValue(value=client_id))])
+        must.append(FieldCondition(key="client_id", match=MatchValue(value=client_id)))
+    query_filter = Filter(must=must)
 
     results = client.query_points(
         collection_name=QDRANT_COLLECTION,
@@ -109,10 +123,11 @@ def brief_retrieval_query(client_name: str, alert_titles: list[str]) -> str:
 def retrieve_for_chat(
     query: str,
     *,
+    org_id: str,
     client_id: Optional[str] = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     vector = embed_query(query)
-    points = search_qdrant(vector, limit=CHAT_RAG_LIMIT, client_id=client_id)
+    points = search_qdrant(vector, org_id=org_id, limit=CHAT_RAG_LIMIT, client_id=client_id)
     return format_rag_context(points, chunk_chars=CHAT_CHUNK_CHARS)
 
 
@@ -120,9 +135,10 @@ def retrieve_for_brief(
     client_name: str,
     alert_titles: list[str],
     *,
+    org_id: str,
     client_id: str,
 ) -> tuple[str, list[dict[str, Any]]]:
     query = brief_retrieval_query(client_name, alert_titles)
     vector = embed_query(query)
-    points = search_qdrant(vector, limit=BRIEF_RAG_LIMIT, client_id=client_id)
+    points = search_qdrant(vector, org_id=org_id, limit=BRIEF_RAG_LIMIT, client_id=client_id)
     return format_rag_context(points, chunk_chars=BRIEF_CHUNK_CHARS)

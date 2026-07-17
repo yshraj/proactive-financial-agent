@@ -1,0 +1,24 @@
+[tool.ruff]
+line-length = 110
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom uses calls in argument defaults.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Header",
+    "fastapi.File",
+    "fastapi.Body",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# .env must load before app imports read the environment.
+"app/main.py" = ["E402"]
+"app/worker.py" = ["E402"]
+# Scripts bootstrap sys.path/.env before importing the app package.
+"scripts/*.py" = ["E402"]
+"alembic/env.py" = ["E402"]

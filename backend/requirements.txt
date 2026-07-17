@@ -5,8 +5,12 @@ python-dotenv>=1.0.0
 python-multipart>=0.0.6
 slowapi>=0.1.9
 
-# Database
+# Database + migrations
 psycopg2-binary>=2.9.9
+alembic>=1.13.0
+
+# Observability (init is a no-op unless SENTRY_DSN is set)
+sentry-sdk[fastapi]>=2.0.0
 
 # Vector store
 qdrant-client>=1.7.0

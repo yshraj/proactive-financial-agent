@@ -1,16 +1,25 @@
--- =============================================================================
--- Proactive Financial Agent – LEGACY pre-tenancy schema (reference only)
---
--- ⚠ Do NOT run this on new databases. The schema is now managed by Alembic:
---     cd backend && alembic upgrade head
--- which additionally creates the tenancy model (organizations/users/
--- org_memberships + org_id columns), row-level-security policies, the
--- kritifin_app runtime role, and the durable audit/jobs/conversations tables.
--- Databases created from this file can be adopted with `alembic stamp 0001`
--- followed by `alembic upgrade head`.
--- =============================================================================
+"""Baseline: pre-tenancy schema (clients, alerts, ingested_documents).
 
--- Table: clients (the "hard" facts per client)
+Reproduces backend/supabase_schema.sql exactly (including migrations 001/002,
+which the consolidated schema already contains). Idempotent (IF NOT EXISTS) so
+existing databases can either run it as a no-op or be stamped:
+
+    alembic stamp 0001   # database already has the legacy schema
+    alembic upgrade head
+
+Revision ID: 0001
+Revises: None
+"""
+from __future__ import annotations
+
+from alembic import op
+
+revision = "0001"
+down_revision = None
+branch_labels = None
+depends_on = None
+
+_UP = """
 CREATE TABLE IF NOT EXISTS clients (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     full_name TEXT,
@@ -25,32 +34,27 @@ CREATE TABLE IF NOT EXISTS clients (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Table: alerts (the proactive engine – ingestion populates this)
 CREATE TABLE IF NOT EXISTS alerts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     trigger_date DATE NOT NULL,
-    type VARCHAR(50),   -- 'DEADLINE', 'OPPORTUNITY', 'COMPLIANCE'
-    priority VARCHAR(20), -- 'HIGH', 'MEDIUM', 'LOW'
+    type VARCHAR(50),
+    priority VARCHAR(20),
     title TEXT,
     description TEXT,
-    action_type VARCHAR(50), -- 'EMAIL_DRAFT', 'Meeting_Link'
+    action_type VARCHAR(50),
     action_payload JSONB,
     status VARCHAR(20) DEFAULT 'PENDING',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Indexes for the monitor/pulse query (alerts by date range)
 CREATE INDEX IF NOT EXISTS idx_alerts_trigger_date ON alerts(trigger_date);
 CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);
 CREATE INDEX IF NOT EXISTS idx_alerts_client_id ON alerts(client_id);
-
--- Optional: index for filtering clients by adviser
 CREATE INDEX IF NOT EXISTS idx_clients_adviser_id ON clients(adviser_id);
 CREATE INDEX IF NOT EXISTS idx_clients_last_review ON clients(last_review_date);
 
--- Optional: trigger to keep updated_at in sync (Supabase supports this)
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -69,9 +73,6 @@ CREATE TRIGGER alerts_updated_at
     BEFORE UPDATE ON alerts
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- =============================================================================
--- Ingestion: stored PDF metadata (content hash for duplicate detection)
--- =============================================================================
 CREATE TABLE IF NOT EXISTS ingested_documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     filename TEXT NOT NULL,
@@ -85,3 +86,19 @@ CREATE TABLE IF NOT EXISTS ingested_documents (
 CREATE INDEX IF NOT EXISTS idx_ingested_documents_content_hash ON ingested_documents(content_hash);
 CREATE INDEX IF NOT EXISTS idx_ingested_documents_uploaded_at ON ingested_documents(uploaded_at);
 CREATE INDEX IF NOT EXISTS idx_ingested_documents_client_id ON ingested_documents(client_id);
+"""
+
+_DOWN = """
+DROP TABLE IF EXISTS ingested_documents;
+DROP TABLE IF EXISTS alerts;
+DROP TABLE IF EXISTS clients;
+DROP FUNCTION IF EXISTS set_updated_at();
+"""
+
+
+def upgrade() -> None:
+    op.execute(_UP)
+
+
+def downgrade() -> None:
+    op.execute(_DOWN)

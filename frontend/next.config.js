@@ -20,6 +20,13 @@ const localApiConnect = [
   .filter((v, i, a) => a.indexOf(v) === i)
   .join(" ");
 
+// 'unsafe-eval' is required only by React Fast Refresh in development;
+// production bundles run without it, so the deployed CSP is stricter.
+const scriptSrc =
+  process.env.NODE_ENV === "development"
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+    : "script-src 'self' 'unsafe-inline'";
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -28,7 +35,7 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      scriptSrc,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
@@ -52,4 +59,18 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+// Sentry wraps the build only when configured; keeps local/dev builds clean.
+let exported = nextConfig;
+if (process.env.NEXT_PUBLIC_SENTRY_DSN || process.env.SENTRY_AUTH_TOKEN) {
+  const { withSentryConfig } = require("@sentry/nextjs");
+  exported = withSentryConfig(nextConfig, {
+    silent: true,
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT,
+    // Source maps only upload in CI when SENTRY_AUTH_TOKEN is present.
+    disableServerWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
+    disableClientWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
+  });
+}
+
+module.exports = exported;

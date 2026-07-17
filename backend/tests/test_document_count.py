@@ -29,18 +29,21 @@ class _MissingColumnCursor:
         return None
 
 
+_ORG = "00000000-0000-0000-0000-000000000001"
+
+
 def test_counts_documents():
-    assert _document_count_for_client(_FakeCursor(3), "c1") == 3
+    assert _document_count_for_client(_FakeCursor(3), "c1", _ORG) == 3
 
 
 def test_zero_when_no_rows():
-    assert _document_count_for_client(_FakeCursor(0), "c1") == 0
+    assert _document_count_for_client(_FakeCursor(0), "c1", _ORG) == 0
 
 
 def test_handles_null_count():
-    assert _document_count_for_client(_FakeCursor(None), "c1") == 0
+    assert _document_count_for_client(_FakeCursor(None), "c1", _ORG) == 0
 
 
 def test_returns_zero_when_column_missing():
-    # Migration 002 not applied: should not raise, just report 0.
-    assert _document_count_for_client(_MissingColumnCursor(), "c1") == 0
+    # Legacy degradation path: should not raise, just report 0.
+    assert _document_count_for_client(_MissingColumnCursor(), "c1", _ORG) == 0

@@ -2,6 +2,10 @@
 Ask Jarvis: Hybrid chat. Combines structured data (Postgres: clients, alerts) with RAG (Qdrant).
 Query → embed + structured context (parallel when needed) → search Qdrant → LLM synthesize.
 Structured context is cached briefly to avoid DB on every query; embedding and DB run in parallel on cache miss.
+
+Tenancy: the executor-submitted helpers receive the TenantContext explicitly —
+contextvars do not propagate into ThreadPoolExecutor threads — and every SQL,
+cache, and vector-search call is org-scoped.
 """
 from __future__ import annotations
 
@@ -9,19 +13,22 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.context import TenantContext
 from app.db import get_cursor
+from app.deps import current_tenant
 from app.security import limiter
+from app.services import audit
 from app.services import conversations
 from app.services.cache import (
     BRIEF_TTL,
     CHAT_TTL,
     STRUCTURED_CTX_TTL,
-    get as cache_get,
+    get_scoped as cache_get,
     hash_query_for_key,
-    set_ as cache_set,
+    set_scoped as cache_set,
 )
 from app.services.llm import complete_with_system, resolve_model
 from app.services.prompts import (
@@ -76,22 +83,23 @@ def _fmt_gbp(value) -> str:
     return f"£{float(value):,.0f}"
 
 
-def _get_structured_context(client_id: Optional[str] = None) -> str:
+def _get_structured_context(ctx: TenantContext, client_id: Optional[str] = None) -> str:
     """Fetch compact structured summary from Postgres for hybrid context."""
     try:
         today = datetime.now().date()
         review_cutoff = today - timedelta(days=365)
         end_30 = today + timedelta(days=30)
+        org_id = ctx.org_id
         parts = []
-        with get_cursor() as cur:
+        with get_cursor(ctx=ctx) as cur:
             if client_id:
                 cur.execute(
                     """
                     SELECT c.full_name, c.last_review_date, c.total_assets, c.risk_score,
                            c.retirement_target_age, c.cash_savings
-                    FROM clients c WHERE c.id = %s
+                    FROM clients c WHERE c.id = %s AND c.org_id = %s
                     """,
-                    (client_id,),
+                    (client_id, org_id),
                 )
                 row = cur.fetchone()
                 if not row:
@@ -116,9 +124,11 @@ def _get_structured_context(client_id: Optional[str] = None) -> str:
                     """
                     SELECT c.full_name, c.last_review_date, c.total_assets, c.risk_score
                     FROM clients c
+                    WHERE c.org_id = %s
                     ORDER BY c.full_name
                     LIMIT 30
-                    """
+                    """,
+                    (org_id,),
                 )
                 client_rows = cur.fetchall()
                 parts.append(f"Clients in book: {len(client_rows)}")
@@ -138,11 +148,12 @@ def _get_structured_context(client_id: Optional[str] = None) -> str:
                     """
                     SELECT c.full_name
                     FROM clients c
-                    WHERE c.last_review_date IS NULL OR c.last_review_date < %s
+                    WHERE c.org_id = %s
+                      AND (c.last_review_date IS NULL OR c.last_review_date < %s)
                     ORDER BY c.last_review_date NULLS FIRST
                     LIMIT 20
                     """,
-                    (review_cutoff,),
+                    (org_id, review_cutoff),
                 )
                 rows = cur.fetchall()
                 if rows:
@@ -153,9 +164,10 @@ def _get_structured_context(client_id: Optional[str] = None) -> str:
                 SELECT a.title, a.trigger_date, a.type, a.priority, c.full_name AS client_name
                 FROM alerts a
                 JOIN clients c ON c.id = a.client_id
-                WHERE a.trigger_date >= %s AND a.trigger_date <= %s AND a.status = 'PENDING'
+                WHERE a.org_id = %s AND a.trigger_date >= %s AND a.trigger_date <= %s
+                  AND a.status = 'PENDING'
             """
-            alert_params: list = [today, end_30]
+            alert_params: list = [org_id, today, end_30]
             if client_id:
                 alert_sql += " AND a.client_id = %s"
                 alert_params.append(client_id)
@@ -174,9 +186,10 @@ def _get_structured_context(client_id: Optional[str] = None) -> str:
                 SELECT a.title, a.trigger_date, c.full_name AS client_name
                 FROM alerts a
                 JOIN clients c ON c.id = a.client_id
-                WHERE a.trigger_date < %s AND a.status = 'PENDING' AND a.type = 'FOLLOW_UP'
+                WHERE a.org_id = %s AND a.trigger_date < %s AND a.status = 'PENDING'
+                  AND a.type = 'FOLLOW_UP'
             """
-            follow_params: list = [today]
+            follow_params: list = [org_id, today]
             if client_id:
                 follow_sql += " AND a.client_id = %s"
                 follow_params.append(client_id)
@@ -193,11 +206,14 @@ def _get_structured_context(client_id: Optional[str] = None) -> str:
 
             if client_id:
                 cur.execute(
-                    "SELECT COUNT(*) AS n FROM alerts WHERE client_id = %s AND status = 'PENDING'",
-                    (client_id,),
+                    "SELECT COUNT(*) AS n FROM alerts WHERE client_id = %s AND org_id = %s AND status = 'PENDING'",
+                    (client_id, org_id),
                 )
             else:
-                cur.execute("SELECT COUNT(*) AS n FROM alerts WHERE status = 'PENDING'")
+                cur.execute(
+                    "SELECT COUNT(*) AS n FROM alerts WHERE org_id = %s AND status = 'PENDING'",
+                    (org_id,),
+                )
             pending_count = (cur.fetchone() or {}).get("n") or 0
             parts.append(f"Total pending alerts: {pending_count}")
         return "\n\n".join(parts)
@@ -207,7 +223,7 @@ def _get_structured_context(client_id: Optional[str] = None) -> str:
 
 @router.post("/", response_model=ChatResponse)
 @limiter.limit("30/minute")
-def chat(request: Request, body: ChatRequest):
+def chat(request: Request, body: ChatRequest, ctx: TenantContext = Depends(current_tenant)):
     """
     Ask Jarvis: embed query + structured context (parallel when cache miss), search Qdrant, synthesize with LLM.
     Responses cached by query hash; structured context cached briefly to avoid DB every time.
@@ -219,21 +235,23 @@ def chat(request: Request, body: ChatRequest):
     client_id = (body.client_id or "").strip() or None
     if client_id:
         with get_cursor() as cur:
-            cur.execute("SELECT id FROM clients WHERE id = %s", (client_id,))
+            cur.execute(
+                "SELECT id FROM clients WHERE id = %s AND org_id = %s", (client_id, ctx.org_id)
+            )
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="Client not found")
 
-    # Resolve the conversation thread: reuse the supplied one or start a new one.
+    # Resolve the conversation thread: reuse the supplied one (must be owned by
+    # this user in this workspace) or start a new one.
     conversation_id = (body.conversation_id or "").strip() or None
     if conversation_id and not conversations.exists(conversation_id):
         conversation_id = None
     if conversation_id is None:
-        conversation_id = conversations.create()
+        conversation_id = conversations.create(client_id=client_id)
     prior_messages = conversations.get_messages(conversation_id)
     history = conversations.format_history(prior_messages)
 
-    user_sub = getattr(getattr(request, "state", None), "user", {}) or {}
-    user_prefix = user_sub.get("id") or "anon"
+    user_prefix = ctx.user_id or ctx.role
     scope_key = client_id or "all"
     # Only cache stateless (first-turn) queries; follow-ups depend on history.
     use_cache = not history
@@ -252,10 +270,11 @@ def chat(request: Request, body: ChatRequest):
     structured_cached = cache_get(cache_key_ctx)
     if isinstance(structured_cached, str) and structured_cached:
         structured_context = structured_cached
-        rag_context, source_dicts = retrieve_for_chat(query, client_id=client_id)
+        rag_context, source_dicts = retrieve_for_chat(query, org_id=ctx.org_id, client_id=client_id)
     else:
-        fut_ctx = _executor.submit(_get_structured_context, client_id)
-        fut_rag = _executor.submit(retrieve_for_chat, query, client_id)
+        # Pass ctx explicitly: contextvars do not cross into executor threads.
+        fut_ctx = _executor.submit(_get_structured_context, ctx, client_id)
+        fut_rag = _executor.submit(retrieve_for_chat, query, org_id=ctx.org_id, client_id=client_id)
         structured_context = fut_ctx.result()
         cache_set(cache_key_ctx, structured_context, STRUCTURED_CTX_TTL)
         rag_context, source_dicts = fut_rag.result()
@@ -288,18 +307,29 @@ def chat(request: Request, body: ChatRequest):
         cache_set(cache_key, {"answer": out.answer, "sources": [s.model_dump() for s in out.sources]}, CHAT_TTL)
     conversations.add_message(conversation_id, "user", query)
     conversations.add_message(conversation_id, "assistant", final_answer)
+    audit.record_event(
+        action="ai.chat.answered",
+        resource_type="conversation",
+        resource_id=conversation_id,
+        client_id=client_id,
+        metadata={"sources": len(sources_out), "first_turn": use_cache},
+        model=model,
+        prompt_version=PROMPT_VERSION,
+        actor_type="ai",
+    )
     return out
 
 
-def _generate_brief(client_id: str) -> tuple[str, list[str], list[dict]]:
+def _generate_brief(ctx: TenantContext, client_id: str) -> tuple[str, list[str], list[dict]]:
     """Build pre-meeting brief: structured data + RAG chunks, then LLM one-pager + talking points."""
     structured_parts: list[str] = []
     alert_titles: list[str] = []
 
-    with get_cursor() as cur:
+    with get_cursor(ctx=ctx) as cur:
         cur.execute(
-            "SELECT id, full_name, last_review_date, risk_score, total_assets, cash_savings FROM clients WHERE id = %s",
-            (client_id,),
+            "SELECT id, full_name, last_review_date, risk_score, total_assets, cash_savings"
+            " FROM clients WHERE id = %s AND org_id = %s",
+            (client_id, ctx.org_id),
         )
         row = cur.fetchone()
         if not row:
@@ -321,12 +351,13 @@ def _generate_brief(client_id: str) -> tuple[str, list[str], list[dict]]:
             """
             SELECT a.title, a.trigger_date, a.type, a.description
             FROM alerts a
-            WHERE a.client_id = %s AND a.trigger_date >= %s AND a.trigger_date <= %s
+            WHERE a.client_id = %s AND a.org_id = %s
+              AND a.trigger_date >= %s AND a.trigger_date <= %s
               AND a.status = 'PENDING'
             ORDER BY a.trigger_date
             LIMIT 12
             """,
-            (client_id, today, end),
+            (client_id, ctx.org_id, today, end),
         )
         alert_rows = cur.fetchall()
     if alert_rows:
@@ -339,7 +370,9 @@ def _generate_brief(client_id: str) -> tuple[str, list[str], list[dict]]:
         structured_parts.append("Open alerts (90 days):\n" + "\n".join(lines))
 
     try:
-        rag_context, source_dicts = retrieve_for_brief(client_name, alert_titles, client_id=client_id)
+        rag_context, source_dicts = retrieve_for_brief(
+            client_name, alert_titles, org_id=ctx.org_id, client_id=client_id
+        )
     except Exception:
         rag_context = ""
         source_dicts = []
@@ -369,18 +402,29 @@ def _generate_brief(client_id: str) -> tuple[str, list[str], list[dict]]:
         talking_points = talking_points[:5]
     else:
         brief_text = raw
+    audit.record(
+        kind="brief",
+        client_id=client_id,
+        client_name=client_name,
+        model=model,
+        output=brief_text,
+        prompt_version=PROMPT_VERSION,
+        ctx=ctx,
+    )
     return brief_text, talking_points, source_dicts
 
 
 @router.post("/brief", response_model=BriefResponse)
 @limiter.limit("30/minute")
-def post_brief(request: Request, body: BriefRequest):
+def post_brief(request: Request, body: BriefRequest, ctx: TenantContext = Depends(current_tenant)):
     """Generate a pre-meeting brief for the given client (structured data + RAG). Cached by client_id."""
     client_id = (body.client_id or "").strip()
     if not client_id:
         raise HTTPException(status_code=400, detail="client_id is required")
     with get_cursor() as cur:
-        cur.execute("SELECT id FROM clients WHERE id = %s", (client_id,))
+        cur.execute(
+            "SELECT id FROM clients WHERE id = %s AND org_id = %s", (client_id, ctx.org_id)
+        )
         if not cur.fetchone():
             raise HTTPException(status_code=404, detail="Client not found")
     cache_key = f"brief:{PROMPT_VERSION}:{client_id}"
@@ -392,7 +436,7 @@ def post_brief(request: Request, body: BriefRequest):
             talking_points=cached.get("talking_points") or [],
             sources=sources,
         )
-    brief_text, talking_points, source_dicts = _generate_brief(client_id)
+    brief_text, talking_points, source_dicts = _generate_brief(ctx, client_id)
     sources_out = [SourceOut(**s) for s in source_dicts]
     cache_set(
         cache_key,

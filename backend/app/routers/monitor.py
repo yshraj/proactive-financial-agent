@@ -2,6 +2,9 @@
 Monitor / Pulse API: alerts by simulated date for the dashboard (time-travel).
 GET /api/monitor/pulse?simulated_date=YYYY-MM-DD returns alerts in the next 30 days + KPI counts.
 POST /api/monitor/draft-email: generate personalised email draft for an alert or meeting brief (LLM).
+
+Every query is org-scoped twice over: an explicit ``org_id = %s`` predicate and
+the RLS policies keyed on the transaction GUCs bound by app.db.get_cursor.
 """
 from __future__ import annotations
 
@@ -11,11 +14,13 @@ from datetime import datetime, timedelta, date
 from typing import Optional
 
 import psycopg2
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from app.context import TenantContext
 from app.db import get_cursor
+from app.deps import current_tenant
 from app.security import limiter
 from app.services.alert_helpers import (
     ALERTS_WITH_CLIENT_SQL,
@@ -29,11 +34,11 @@ from app.services.cache import (
     BRIEF_TTL,
     DRAFT_EMAIL_TTL,
     PULSE_TTL,
-    delete as cache_delete,
-    get as cache_get,
+    delete_scoped as cache_delete,
+    get_scoped as cache_get,
     invalidate_client_ai_caches,
     invalidate_pulse_caches,
-    set_ as cache_set,
+    set_scoped as cache_set,
 )
 from app.services.client_updates import validate_client_update
 from app.services import audit
@@ -52,13 +57,13 @@ from app.services.prompts import (
     DRAFT_ALERT_EMAIL_SYSTEM,
     DRAFT_BRIEF_FOLLOWUP_SYSTEM,
     PROMPT_VERSION,
-    REVIEW_NOTE_SYSTEM,
     client_summary_user_message,
     digest_user_message,
     draft_alert_user_message,
     draft_brief_followup_user_message,
     review_note_user_message,
 )
+from app.services.prompts import REVIEW_NOTE_SYSTEM
 from app.services.review_note import fallback_review_note
 
 router = APIRouter()
@@ -128,17 +133,12 @@ def _alert_from_row(r: dict) -> AlertOut:
     return AlertOut(**_alert_row_dict(r))
 
 
-def _document_count_for_client(cur, client_id: str) -> int:
-    """
-    Count documents linked to a client.
-
-    Returns 0 if the ``client_id`` link column does not exist yet (migration 002
-    not applied), so Client 360 degrades gracefully instead of erroring.
-    """
+def _document_count_for_client(cur, client_id: str, org_id: str) -> int:
+    """Count documents linked to a client (org-scoped)."""
     try:
         cur.execute(
-            "SELECT COUNT(*) AS n FROM ingested_documents WHERE client_id = %s",
-            (client_id,),
+            "SELECT COUNT(*) AS n FROM ingested_documents WHERE client_id = %s AND org_id = %s",
+            (client_id, org_id),
         )
         row = cur.fetchone()
         return int((row or {}).get("n") or 0)
@@ -147,7 +147,7 @@ def _document_count_for_client(cur, client_id: str) -> int:
 
 
 @router.get("/clients", response_model=ClientsListResponse)
-def get_clients():
+def get_clients(ctx: TenantContext = Depends(current_tenant)):
     """List all clients with key profile fields for dropdowns and client list page."""
     with get_cursor() as cur:
         cur.execute(
@@ -156,8 +156,10 @@ def get_clients():
                    (SELECT COUNT(*) FROM alerts a
                     WHERE a.client_id = c.id AND a.status = 'PENDING') AS open_alert_count
             FROM clients c
+            WHERE c.org_id = %s
             ORDER BY c.full_name
-            """
+            """,
+            (ctx.org_id,),
         )
         rows = cur.fetchall()
     clients = [
@@ -182,10 +184,13 @@ class BookAnalytics(BaseModel):
 
 
 @router.get("/analytics", response_model=BookAnalytics)
-def get_book_analytics():
+def get_book_analytics(ctx: TenantContext = Depends(current_tenant)):
     """Headline metrics across the whole client book (AUM, avg risk, overdue reviews)."""
     with get_cursor() as cur:
-        cur.execute("SELECT total_assets, risk_score, last_review_date FROM clients")
+        cur.execute(
+            "SELECT total_assets, risk_score, last_review_date FROM clients WHERE org_id = %s",
+            (ctx.org_id,),
+        )
         rows = [dict(r) for r in cur.fetchall()]
     return BookAnalytics(**compute_book_analytics(rows, datetime.now().date()))
 
@@ -212,7 +217,7 @@ _ALERT_EXPORT_COLUMNS = [
 ]
 
 
-def _fetch_export_rows(export_type: str) -> list[dict]:
+def _fetch_export_rows(export_type: str, org_id: str) -> list[dict]:
     """Return plain dict rows for the requested export type (clients or alerts)."""
     with get_cursor() as cur:
         if export_type == "clients":
@@ -223,15 +228,19 @@ def _fetch_export_rows(export_type: str) -> list[dict]:
                        (SELECT COUNT(*) FROM alerts a
                         WHERE a.client_id = c.id AND a.status = 'PENDING') AS open_alert_count
                 FROM clients c
+                WHERE c.org_id = %s
                 ORDER BY c.full_name
-                """
+                """,
+                (org_id,),
             )
         else:
             cur.execute(
                 f"""
                 {ALERTS_WITH_CLIENT_SQL}
+                WHERE a.org_id = %s
                 ORDER BY a.trigger_date DESC, c.full_name
-                """
+                """,
+                (org_id,),
             )
         rows = cur.fetchall()
     out: list[dict] = []
@@ -250,6 +259,7 @@ def _fetch_export_rows(export_type: str) -> list[dict]:
 def export_csv(
     request: Request,
     type: str = Query("clients", description="What to export: clients or alerts"),
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """Export the client book or alert list as a downloadable CSV file."""
     export_type = (type or "clients").strip().lower()
@@ -259,8 +269,14 @@ def export_csv(
     spec = _CLIENT_EXPORT_COLUMNS if export_type == "clients" else _ALERT_EXPORT_COLUMNS
     columns = [c for c, _ in spec]
     headers = [h for _, h in spec]
-    rows = _fetch_export_rows(export_type)
+    rows = _fetch_export_rows(export_type, ctx.org_id)
     csv_text = rows_to_csv(rows, columns, headers)
+    audit.record_event(
+        action="data.exported",
+        resource_type="export",
+        resource_id=export_type,
+        metadata={"rows": len(rows)},
+    )
     return Response(
         content=csv_text,
         media_type="text/csv",
@@ -295,10 +311,17 @@ class ApplyPlaybookResponse(BaseModel):
 
 @router.post("/clients/{client_id}/apply-playbook", response_model=ApplyPlaybookResponse)
 @limiter.limit("30/minute")
-def apply_playbook(request: Request, client_id: str, body: ApplyPlaybookRequest):
+def apply_playbook(
+    request: Request,
+    client_id: str,
+    body: ApplyPlaybookRequest,
+    ctx: TenantContext = Depends(current_tenant),
+):
     """Apply a playbook to a client, creating its task templates as alerts."""
     with get_cursor() as cur:
-        cur.execute("SELECT id FROM clients WHERE id = %s", (client_id,))
+        cur.execute(
+            "SELECT id FROM clients WHERE id = %s AND org_id = %s", (client_id, ctx.org_id)
+        )
         if not cur.fetchone():
             raise HTTPException(status_code=404, detail="Client not found")
     try:
@@ -307,19 +330,26 @@ def apply_playbook(request: Request, client_id: str, body: ApplyPlaybookRequest)
         raise HTTPException(status_code=400, detail="Unknown playbook.") from None
 
     rows = [
-        (client_id, a["trigger_date"], a["type"], a["priority"], a["title"], a["description"])
+        (ctx.org_id, client_id, a["trigger_date"], a["type"], a["priority"], a["title"], a["description"])
         for a in alerts
     ]
     with get_cursor(commit=True) as cur:
         cur.executemany(
             """
-            INSERT INTO alerts (client_id, trigger_date, type, priority, title, description)
-            VALUES (%s, %s::date, %s, %s, %s, %s)
+            INSERT INTO alerts (org_id, client_id, trigger_date, type, priority, title, description)
+            VALUES (%s, %s, %s::date, %s, %s, %s, %s)
             """,
             rows,
         )
     invalidate_client_ai_caches(client_id)
     invalidate_pulse_caches()
+    audit.record_event(
+        action="playbook.applied",
+        resource_type="playbook",
+        resource_id=body.playbook_id,
+        client_id=client_id,
+        metadata={"alerts_created": len(rows)},
+    )
     return ApplyPlaybookResponse(applied=len(rows))
 
 
@@ -339,7 +369,9 @@ def _generate_client_summary(client_name: str, profile_bits: str, alert_lines: s
 
 @router.get("/clients/{client_id}", response_model=ClientDetailOut)
 @limiter.limit("30/minute")
-def get_client_detail(request: Request, client_id: str):
+def get_client_detail(
+    request: Request, client_id: str, ctx: TenantContext = Depends(current_tenant)
+):
     """Client 360° view: profile, open alerts, overdue follow-ups, and AI relationship summary."""
     today = datetime.now().date()
     end_90 = today + timedelta(days=90)
@@ -350,9 +382,9 @@ def get_client_detail(request: Request, client_id: str):
             """
             SELECT id, full_name, last_review_date, retirement_target_age, risk_score,
                    total_assets, cash_savings, raw_profile_json
-            FROM clients WHERE id = %s
+            FROM clients WHERE id = %s AND org_id = %s
             """,
-            (client_id,),
+            (client_id, ctx.org_id),
         )
         row = cur.fetchone()
         if not row:
@@ -361,22 +393,22 @@ def get_client_detail(request: Request, client_id: str):
         cur.execute(
             f"""
             {ALERTS_WITH_CLIENT_SQL}
-            WHERE a.client_id = %s AND a.status = 'PENDING'
+            WHERE a.client_id = %s AND a.org_id = %s AND a.status = 'PENDING'
               AND a.trigger_date >= %s AND a.trigger_date <= %s
             ORDER BY a.trigger_date, a.priority DESC
             """,
-            (client_id, today, end_90),
+            (client_id, ctx.org_id, today, end_90),
         )
         pending_rows = cur.fetchall()
 
         cur.execute(
             f"""
             {ALERTS_WITH_CLIENT_SQL}
-            WHERE a.client_id = %s AND a.trigger_date < %s
+            WHERE a.client_id = %s AND a.org_id = %s AND a.trigger_date < %s
               AND a.status = 'PENDING' AND a.type = 'FOLLOW_UP'
             ORDER BY a.trigger_date ASC
             """,
-            (client_id, today),
+            (client_id, ctx.org_id, today),
         )
         overdue_rows = cur.fetchall()
 
@@ -413,7 +445,7 @@ def get_client_detail(request: Request, client_id: str):
     # Separate cursor block: an UndefinedColumn would abort the transaction, so
     # isolate it from the reads above.
     with get_cursor() as cur:
-        document_count = _document_count_for_client(cur, client_id)
+        document_count = _document_count_for_client(cur, client_id, ctx.org_id)
 
     cache_key = f"summary:{PROMPT_VERSION}:{client_id}"
     summary = cache_get(cache_key)
@@ -497,7 +529,12 @@ class ClientUpdateResponse(BaseModel):
 
 @router.patch("/clients/{client_id}", response_model=ClientUpdateResponse)
 @limiter.limit("60/minute")
-def update_client(request: Request, client_id: str, body: ClientUpdateRequest):
+def update_client(
+    request: Request,
+    client_id: str,
+    body: ClientUpdateRequest,
+    ctx: TenantContext = Depends(current_tenant),
+):
     """Edit a client's extracted profile fields (fixes mis-extractions). Partial update."""
     try:
         # Only fields the caller explicitly set are considered, so omitted fields
@@ -514,14 +551,23 @@ def update_client(request: Request, client_id: str, body: ClientUpdateRequest):
         else:
             set_clauses.append(f"{col} = %s")
         params.append(value)
-    params.append(client_id)
+    params.extend([client_id, ctx.org_id])
 
     with get_cursor(commit=True) as cur:
+        cur.execute(
+            "SELECT full_name, last_review_date, retirement_target_age, risk_score,"
+            " total_assets, cash_savings FROM clients WHERE id = %s AND org_id = %s",
+            (client_id, ctx.org_id),
+        )
+        before_row = cur.fetchone()
+        if not before_row:
+            raise HTTPException(status_code=404, detail="Client not found")
+        # sql-ok: set_clauses columns come from the validate_client_update allowlist
         cur.execute(
             f"""
             UPDATE clients
             SET {', '.join(set_clauses)}, updated_at = NOW()
-            WHERE id = %s
+            WHERE id = %s AND org_id = %s
             RETURNING id, full_name, last_review_date, retirement_target_age,
                       risk_score, total_assets, cash_savings
             """,
@@ -532,6 +578,14 @@ def update_client(request: Request, client_id: str, body: ClientUpdateRequest):
         raise HTTPException(status_code=404, detail="Client not found")
 
     invalidate_client_ai_caches(client_id)
+    audit.record_event(
+        action="client.updated",
+        resource_type="client",
+        resource_id=client_id,
+        client_id=client_id,
+        before={k: before_row.get(k) for k in updates},
+        after={k: row.get(k) for k in updates},
+    )
 
     return ClientUpdateResponse(
         id=str(row["id"]),
@@ -552,7 +606,9 @@ class ReviewNoteResponse(BaseModel):
 
 @router.post("/clients/{client_id}/review-note", response_model=ReviewNoteResponse)
 @limiter.limit("30/minute")
-def client_review_note(request: Request, client_id: str):
+def client_review_note(
+    request: Request, client_id: str, ctx: TenantContext = Depends(current_tenant)
+):
     """Generate a Consumer-Duty client review note (LLM, with deterministic fallback)."""
     today = datetime.now().date()
     review_cutoff = today - timedelta(days=365)
@@ -560,8 +616,9 @@ def client_review_note(request: Request, client_id: str):
 
     with get_cursor() as cur:
         cur.execute(
-            "SELECT id, full_name, last_review_date, total_assets, risk_score FROM clients WHERE id = %s",
-            (client_id,),
+            "SELECT id, full_name, last_review_date, total_assets, risk_score"
+            " FROM clients WHERE id = %s AND org_id = %s",
+            (client_id, ctx.org_id),
         )
         row = cur.fetchone()
         if not row:
@@ -569,11 +626,11 @@ def client_review_note(request: Request, client_id: str):
         cur.execute(
             f"""
             {ALERTS_WITH_CLIENT_SQL}
-            WHERE a.client_id = %s AND a.status = 'PENDING'
+            WHERE a.client_id = %s AND a.org_id = %s AND a.status = 'PENDING'
               AND a.trigger_date >= %s AND a.trigger_date <= %s
             ORDER BY a.trigger_date, a.priority DESC
             """,
-            (client_id, today, end_90),
+            (client_id, ctx.org_id, today, end_90),
         )
         pending = cur.fetchall()
 
@@ -629,12 +686,12 @@ def client_review_note(request: Request, client_id: str):
     cache_set(cache_key, payload, BRIEF_TTL)
     audit.record(
         kind="review_note",
-        timestamp=generated_at,
         client_id=client_id,
         client_name=client_name,
         model=model,
         output=note,
         ai_generated=ai_generated,
+        prompt_version=PROMPT_VERSION,
     )
     return ReviewNoteResponse(**payload)
 
@@ -660,7 +717,7 @@ def _parse_simulated_date(simulated_date: str) -> date:
         return datetime.now().date()
 
 
-def _build_pulse(base: date) -> PulseResponse:
+def _build_pulse(base: date, org_id: str) -> PulseResponse:
     """Shared pulse logic for dashboard and morning digest."""
     end = base + timedelta(days=30)
     review_cutoff = base - timedelta(days=365)
@@ -669,10 +726,11 @@ def _build_pulse(base: date) -> PulseResponse:
         cur.execute(
             f"""
             {ALERTS_WITH_CLIENT_SQL}
-            WHERE a.trigger_date >= %s AND a.trigger_date <= %s AND a.status = 'PENDING'
+            WHERE a.org_id = %s AND a.trigger_date >= %s AND a.trigger_date <= %s
+              AND a.status = 'PENDING'
             ORDER BY a.trigger_date, a.priority DESC
             """,
-            (base, end),
+            (org_id, base, end),
         )
         rows = cur.fetchall()
 
@@ -680,23 +738,24 @@ def _build_pulse(base: date) -> PulseResponse:
             """
             SELECT c.id AS client_id, c.full_name AS client_name, c.last_review_date
             FROM clients c
-            WHERE c.last_review_date IS NULL OR c.last_review_date < %s
+            WHERE c.org_id = %s AND (c.last_review_date IS NULL OR c.last_review_date < %s)
             ORDER BY c.last_review_date NULLS FIRST
             """,
-            (review_cutoff,),
+            (org_id, review_cutoff),
         )
         review_overdue_rows = cur.fetchall()
 
-        cur.execute("SELECT COUNT(*) AS n FROM clients")
+        cur.execute("SELECT COUNT(*) AS n FROM clients WHERE org_id = %s", (org_id,))
         client_count = cur.fetchone()["n"] or 0
 
         cur.execute(
             f"""
             {ALERTS_WITH_CLIENT_SQL}
-            WHERE a.trigger_date < %s AND a.status = 'PENDING' AND a.type = 'FOLLOW_UP'
+            WHERE a.org_id = %s AND a.trigger_date < %s AND a.status = 'PENDING'
+              AND a.type = 'FOLLOW_UP'
             ORDER BY a.trigger_date ASC
             """,
-            (base,),
+            (org_id, base),
         )
         overdue_follow_up_rows = cur.fetchall()
 
@@ -720,14 +779,14 @@ def _build_pulse(base: date) -> PulseResponse:
     )
 
 
-def _get_pulse_cached(simulated_date: str) -> PulseResponse:
+def _get_pulse_cached(simulated_date: str, org_id: str) -> PulseResponse:
     """Return pulse data, reusing a short-lived cache shared with /digest."""
     cache_key = f"pulse:{simulated_date}"
     cached = cache_get(cache_key)
     if isinstance(cached, dict):
         return PulseResponse.model_validate(cached)
     base = _parse_simulated_date(simulated_date)
-    pulse = _build_pulse(base)
+    pulse = _build_pulse(base, org_id)
     cache_set(cache_key, pulse.model_dump(), PULSE_TTL)
     return pulse
 
@@ -762,12 +821,13 @@ Overdue follow-ups:
 @router.get("/pulse", response_model=PulseResponse)
 def get_pulse(
     simulated_date: str = Query(..., description="YYYY-MM-DD"),
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """
     Alerts whose trigger_date is in [simulated_date, simulated_date + 30 days], status PENDING.
     Joins clients for display name. Also returns KPI counts for the dashboard.
     """
-    return _get_pulse_cached(simulated_date)
+    return _get_pulse_cached(simulated_date, ctx.org_id)
 
 
 @router.get("/digest", response_model=DigestResponse)
@@ -776,11 +836,12 @@ def get_digest(
     request: Request,
     simulated_date: str = Query(..., description="YYYY-MM-DD"),
     refresh: bool = Query(False, description="Bypass cache and regenerate digest"),
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """AI-generated morning briefing summarising today's priorities from pulse data."""
     if refresh:
         invalidate_pulse_caches()
-    pulse = _get_pulse_cached(simulated_date)
+    pulse = _get_pulse_cached(simulated_date, ctx.org_id)
     pulse_json = pulse.model_dump_json()
     ctx_hash = hashlib.md5(pulse_json.encode()).hexdigest()[:16]
     cache_key = f"digest:{PROMPT_VERSION}:{simulated_date}:{ctx_hash}"
@@ -810,8 +871,8 @@ def get_digest(
 
     generated_at = datetime.now().isoformat()
     cache_set(cache_key, {"digest": digest_text, "generated_at": generated_at}, BRIEF_TTL)
-    audit.record(kind="digest", timestamp=generated_at, model=model, output=digest_text,
-                 ai_generated=ai_generated)
+    audit.record(kind="digest", model=model, output=digest_text,
+                 ai_generated=ai_generated, prompt_version=PROMPT_VERSION)
     return DigestResponse(digest=digest_text, generated_at=generated_at)
 
 
@@ -826,6 +887,7 @@ def get_alerts(
     type_filter: Optional[str] = Query(None, alias="type", description="Filter by type"),
     priority: Optional[str] = Query(None, description="Filter by priority"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status: PENDING, COMPLETED, or omit for all"),
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """
     All alerts in [simulated_date, simulated_date + days], with optional type/priority/status filters.
@@ -838,9 +900,9 @@ def get_alerts(
     with get_cursor() as cur:
         sql = f"""
             {ALERTS_WITH_CLIENT_SQL}
-            WHERE a.trigger_date >= %s AND a.trigger_date <= %s
+            WHERE a.org_id = %s AND a.trigger_date >= %s AND a.trigger_date <= %s
             """
-        params: list = [base, end]
+        params: list = [ctx.org_id, base, end]
         if type_filter:
             sql += " AND a.type = %s"
             params.append(type_filter)
@@ -858,9 +920,9 @@ def get_alerts(
             """
             SELECT c.id AS client_id, c.full_name AS client_name
             FROM clients c
-            WHERE c.last_review_date IS NULL OR c.last_review_date < %s
+            WHERE c.org_id = %s AND (c.last_review_date IS NULL OR c.last_review_date < %s)
             """,
-            (review_cutoff,),
+            (ctx.org_id, review_cutoff),
         )
         review_overdue_rows = cur.fetchall()
 
@@ -886,6 +948,7 @@ def get_alerts(
 @router.get("/completed", response_model=AlertsListResponse)
 def get_completed(
     limit: int = Query(10, ge=1, le=50, description="Max number of recently completed alerts"),
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """
     Recently completed (marked as done) alerts, ordered by updated_at descending.
@@ -895,11 +958,11 @@ def get_completed(
         cur.execute(
             f"""
             {ALERTS_WITH_CLIENT_SQL}
-            WHERE a.status = 'COMPLETED'
+            WHERE a.org_id = %s AND a.status = 'COMPLETED'
             ORDER BY a.updated_at DESC
             LIMIT %s
             """,
-            (limit,),
+            (ctx.org_id, limit),
         )
         rows = cur.fetchall()
     alerts = [_alert_from_row(r) for r in rows]
@@ -912,7 +975,12 @@ class AlertStatusUpdate(BaseModel):
 
 @router.patch("/alerts/{alert_id}/status", response_model=AlertOut)
 @limiter.limit("60/minute")
-def update_alert_status(alert_id: str, body: AlertStatusUpdate, request: Request):
+def update_alert_status(
+    alert_id: str,
+    body: AlertStatusUpdate,
+    request: Request,
+    ctx: TenantContext = Depends(current_tenant),
+):
     """
     Update alert status (e.g. mark as COMPLETED). Only for real alerts (UUID); synthetic review-overdue cannot be updated.
     """
@@ -927,17 +995,24 @@ def update_alert_status(alert_id: str, body: AlertStatusUpdate, request: Request
             UPDATE alerts a
             SET status = %s, updated_at = NOW()
             FROM clients c
-            WHERE a.id = %s AND c.id = a.client_id
+            WHERE a.id = %s AND a.org_id = %s AND c.id = a.client_id
             RETURNING a.id, a.client_id, a.trigger_date, a.type, a.priority,
                       a.title, a.description, a.status, c.full_name AS client_name
             """,
-            (status, alert_id),
+            (status, alert_id, ctx.org_id),
         )
         row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Alert not found")
     cache_delete(f"draft:{PROMPT_VERSION}:{alert_id}")
     invalidate_client_ai_caches(str(row["client_id"]))
+    audit.record_event(
+        action="alert.status_changed",
+        resource_type="alert",
+        resource_id=alert_id,
+        client_id=str(row["client_id"]),
+        after={"status": status},
+    )
     return AlertOut(
         id=str(row["id"]),
         client_id=str(row["client_id"]),
@@ -1001,7 +1076,9 @@ def _call_llm_brief_followup(
 
 @router.post("/draft-email", response_model=DraftEmailResponse)
 @limiter.limit("30/minute")
-def draft_email(request: Request, body: DraftEmailRequest):
+def draft_email(
+    request: Request, body: DraftEmailRequest, ctx: TenantContext = Depends(current_tenant)
+):
     """Generate a personalised email draft for an alert or meeting brief. Cached by alert_id or client+context hash."""
     model = resolve_model("draft")
 
@@ -1022,8 +1099,8 @@ def draft_email(request: Request, body: DraftEmailRequest):
             raise HTTPException(status_code=404, detail="Client not found") from None
         draft = _call_llm_brief_followup(client_name, context, body.talking_points, model)
         cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
-        audit.record(kind="draft_email", timestamp=datetime.now().isoformat(),
-                     client_id=client_id, client_name=client_name, model=model, output=draft)
+        audit.record(kind="draft_email", client_id=client_id, client_name=client_name,
+                     model=model, output=draft, prompt_version=PROMPT_VERSION)
         return DraftEmailResponse(draft=draft, subject=f"Follow-up: {client_name}")
 
     alert_id = (body.alert_id or "").strip()
@@ -1048,19 +1125,20 @@ def draft_email(request: Request, body: DraftEmailRequest):
         description = "No review in 12+ months. Consumer Duty requires demonstrating ongoing value."
         draft = _call_llm_draft(client_name, title, description, None, model)
         cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
-        audit.record(kind="draft_email", timestamp=datetime.now().isoformat(),
-                     client_id=client_id, client_name=client_name, model=model, output=draft)
+        audit.record(kind="draft_email", client_id=client_id, client_name=client_name,
+                     model=model, output=draft, prompt_version=PROMPT_VERSION)
         return DraftEmailResponse(draft=draft)
 
     with get_cursor() as cur:
         cur.execute(
             """
-            SELECT a.id, a.title, a.description, a.action_payload, c.full_name AS client_name
+            SELECT a.id, a.client_id, a.title, a.description, a.action_payload,
+                   c.full_name AS client_name
             FROM alerts a
             JOIN clients c ON c.id = a.client_id
-            WHERE a.id = %s
+            WHERE a.id = %s AND a.org_id = %s
             """,
-            (alert_id,),
+            (alert_id, ctx.org_id),
         )
         row = cur.fetchone()
     if not row:
@@ -1076,7 +1154,8 @@ def draft_email(request: Request, body: DraftEmailRequest):
             action_payload = None
     draft = _call_llm_draft(client_name, title, description, action_payload, model)
     cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
-    audit.record(kind="draft_email", timestamp=datetime.now().isoformat(),
+    audit.record(kind="draft_email",
                  client_id=str(row["client_id"]) if row.get("client_id") else None,
-                 client_name=client_name, model=model, output=draft)
+                 client_name=client_name, model=model, output=draft,
+                 prompt_version=PROMPT_VERSION)
     return DraftEmailResponse(draft=draft)

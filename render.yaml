@@ -1,0 +1,58 @@
+# Render Blueprint: API web service + background worker.
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Deploy discipline (see docs/runbooks/deploy-and-rollback.md):
+# - migrations run in preDeploy as the admin role (DATABASE_ADMIN_URL);
+# - the runtime connects as the RLS-enforced kritifin_app role (DATABASE_URL);
+# - deploys are gated on GitHub CI ("Wait for CI" in Render settings);
+# - rollback = Render "Rollback" to the previous deploy (schema changes are
+#   expand-contract, so the previous release always runs on the new schema).
+#
+# Secrets (DATABASE_URL, DATABASE_ADMIN_URL, OPENAI_API_KEY, QDRANT_API_KEY,
+# SUPABASE_SERVICE_ROLE_KEY, SENTRY_DSN, API_KEY) are set in the Render
+# dashboard env group `kritifin-secrets`, never in this file.
+
+services:
+  - type: web
+    name: kritifin-api
+    runtime: python
+    plan: starter # zero-downtime deploys + preDeploy + no cold starts
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    preDeployCommand: cd backend && alembic upgrade head
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health/ready
+    envVars:
+      - fromGroup: kritifin-secrets
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: ENV
+        value: production
+      - key: AUTH_MODE
+        value: required
+      - key: INLINE_WORKER
+        value: "false" # the dedicated worker below owns the queue
+      - key: ALLOW_DATA_RESET
+        value: "false"
+      - key: LOG_FORMAT
+        value: json
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.1"
+
+  - type: worker
+    name: kritifin-worker
+    runtime: python
+    plan: starter
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && python -m app.worker
+    envVars:
+      - fromGroup: kritifin-secrets
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: ENV
+        value: production
+      - key: AUTH_MODE
+        value: required
+      - key: LOG_FORMAT
+        value: json

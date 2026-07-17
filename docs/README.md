@@ -11,6 +11,9 @@
 | [Performance improvements](performance-improvements.md) | Backend pooling, caching, frontend lazy loading |
 | [Security audit](security-audit.md) | Input validation, auth gates, safe redirects |
 | [Threat model](security-threat-model.md) | Data flows, trust boundaries, STRIDE summary, accepted risks |
+| [Production audit (Jul 2026)](production-audit-2026-07.md) | Full audit: architecture, security, QA, a11y, SEO, AI architecture, framework evaluations, roadmap |
+| [AI evaluation framework](ai-evaluation.md) | Grounding, citation, hallucination, injection, latency, and cost metrics; offline + online harness |
+| [Pre-beta checklist](pre-beta-checklist.md) | Go/no-go gate before real client PII |
 | [Runbook: deploy & rollback](runbooks/deploy-and-rollback.md) | Environments, migrations, rollback levers, drills |
 | [Runbook: incident response](runbooks/incident-response.md) | Severity levels, detection, cross-tenant exposure playbook |
 | [Runbook: backups & restore](runbooks/backups-and-restore.md) | RPO/RTO targets, PITR, restore drills, audit retention |

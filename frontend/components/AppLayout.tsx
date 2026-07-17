@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -53,7 +53,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
     <nav className="flex flex-col gap-6" aria-label="Primary">
       {NAV_GROUPS.map((group) => (
         <div key={group.label} className="flex flex-col gap-1">
-          <p className="px-3 text-xs font-medium text-slate-400">
+          <p className="px-3 text-xs font-medium text-slate-500">
             {group.label}
           </p>
           {group.items.map(({ href, label, icon: Icon }) => {
@@ -137,18 +137,55 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { pageTitle, headerExtra } = useLayout();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   // Close the mobile drawer on route change.
   useEffect(() => {
     setDrawerOpen(false);
   }, [router.pathname]);
 
-  // Close drawer on Escape.
+  // Drawer keyboard behaviour: Escape closes; Tab is trapped inside the
+  // dialog (mirrors components/ui/Modal.tsx).
   useEffect(() => {
     if (!drawerOpen) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setDrawerOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setDrawerOpen(false);
+        return;
+      }
+      if (e.key !== "Tab" || !drawerRef.current) return;
+      const focusables = drawerRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
+
+  // Move focus into the drawer on open; restore it to the menu button on close.
+  useEffect(() => {
+    if (drawerOpen) {
+      const focusables = drawerRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled])'
+      );
+      focusables?.[0]?.focus();
+    } else {
+      // Only restore if focus was left inside the removed drawer.
+      if (document.activeElement === document.body) {
+        menuButtonRef.current?.focus();
+      }
+    }
   }, [drawerOpen]);
 
   return (
@@ -178,7 +215,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             aria-hidden
           />
           <aside
-              className="absolute left-0 top-0 flex h-full w-72 flex-col gap-8 border-r border-slate-200 bg-white p-6 shadow-overlay"
+            ref={drawerRef}
+            className="absolute left-0 top-0 flex h-full w-72 flex-col gap-8 border-r border-slate-200 bg-white p-6 shadow-overlay"
             role="dialog"
             aria-modal="true"
             aria-label="Navigation menu"
@@ -206,6 +244,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-30 flex flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white/80 px-4 py-4 backdrop-blur-xl sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <button
+              ref={menuButtonRef}
               type="button"
               onClick={() => setDrawerOpen(true)}
               data-testid="mobile-menu-button"

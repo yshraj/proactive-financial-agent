@@ -58,8 +58,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            role="status"
-            aria-live="polite"
+            // Errors interrupt screen readers immediately; success/info wait.
+            role={t.kind === "error" ? "alert" : "status"}
+            aria-live={t.kind === "error" ? "assertive" : "polite"}
             className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm shadow-overlay animate-fade-in-up ${STYLES[t.kind]}`}
           >
             {ICONS[t.kind]}

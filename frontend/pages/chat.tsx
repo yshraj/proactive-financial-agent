@@ -209,6 +209,18 @@ export default function AICopilotPage() {
                   </p>
                 )}
               </div>
+              {clientsQuery.isError && (
+                <p role="alert" className="mb-4 text-sm text-red-600">
+                  Couldn&apos;t load your client list — scoping is unavailable.{" "}
+                  <button
+                    type="button"
+                    onClick={() => clientsQuery.refetch()}
+                    className="font-medium underline underline-offset-2 hover:text-red-700"
+                  >
+                    Retry
+                  </button>
+                </p>
+              )}
               <div className="mb-4 flex items-center gap-3">
                 <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-ai-600 text-white shadow-xs">
                   <Sparkles className="h-5 w-5" aria-hidden />
@@ -308,7 +320,7 @@ export default function AICopilotPage() {
                 <div className="mb-3 flex items-center gap-2">
                   <AiBadge label="Copilot answer" />
                   {turn.sources.length > 0 && (
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-[11px] text-slate-500">
                       {turn.sources.length} source{turn.sources.length !== 1 ? "s" : ""} cited
                     </span>
                   )}

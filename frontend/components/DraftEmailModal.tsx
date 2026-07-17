@@ -145,7 +145,7 @@ export default function DraftEmailModal({
           </div>
           {subject && (
             <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
                 Subject line
               </p>
               <p className="mt-1 text-sm font-medium text-slate-900">{subject}</p>

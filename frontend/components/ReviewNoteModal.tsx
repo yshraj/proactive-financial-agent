@@ -49,7 +49,7 @@ export default function ReviewNoteModal({ data, loading, onClose }: ReviewNoteMo
       ) : (
         <div data-testid="review-note-content">
           <AiMarkdown>{data.note}</AiMarkdown>
-          <p className="mt-4 text-[11px] text-slate-400">
+          <p className="mt-4 text-[11px] text-slate-500">
             {data.ai_generated ? "AI-generated draft" : "Generated from your records"} — confirm before filing.
           </p>
         </div>

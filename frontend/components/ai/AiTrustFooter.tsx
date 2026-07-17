@@ -23,7 +23,7 @@ export function AiTrustFooter({
 
   if (compact) {
     return (
-      <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-400">
+      <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-500">
         <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
         <span>{disclaimer}</span>
       </p>
@@ -35,12 +35,12 @@ export function AiTrustFooter({
       <div className="flex flex-wrap items-center gap-2">
         <AiBadge />
         {meta.map((m) => (
-          <span key={m} className="text-[11px] text-slate-400">
+          <span key={m} className="text-[11px] text-slate-500">
             {m}
           </span>
         ))}
       </div>
-      <p className="max-w-md text-[11px] leading-relaxed text-slate-400">{disclaimer}</p>
+      <p className="max-w-md text-[11px] leading-relaxed text-slate-500">{disclaimer}</p>
     </div>
   );
 }

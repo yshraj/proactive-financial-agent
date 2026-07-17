@@ -161,7 +161,7 @@ export default function AlertsPage() {
                             {priorityLabel(row.priority)}
                           </Badge>
                         </td>
-                        <td className={`px-6 py-4 ${isCompleted ? "text-gray-400" : "text-gray-600"}`}>
+                        <td className={`px-6 py-4 ${isCompleted ? "text-gray-500" : "text-gray-600"}`}>
                           {formatDate(row.trigger_date)}
                         </td>
                         <td className="px-6 py-4">
@@ -171,7 +171,7 @@ export default function AlertsPage() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           {isCompleted ? (
-                            <span className="text-xs text-gray-400">Done</span>
+                            <span className="text-xs text-gray-500">Done</span>
                           ) : (
                             <div className="flex flex-wrap justify-end gap-2">
                               <ButtonLink

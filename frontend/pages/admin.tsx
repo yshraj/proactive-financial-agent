@@ -116,14 +116,22 @@ function TranscriptCard() {
         Paste notes or a transcript and KritiFin extracts the client profile and alerts,
         and indexes it for AI Copilot — the same pipeline as document upload.
       </p>
+      <label htmlFor="transcript-title" className="sr-only">
+        Transcript title (optional)
+      </label>
       <input
+        id="transcript-title"
         className="input mb-3 w-full"
         placeholder="Optional title (e.g. Partridge annual review)"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         data-testid="transcript-title"
       />
+      <label htmlFor="transcript-text" className="sr-only">
+        Meeting transcript
+      </label>
       <textarea
+        id="transcript-text"
         className="input min-h-[140px] w-full"
         placeholder="Paste the meeting transcript here (minimum 50 characters)…"
         value={text}
@@ -171,7 +179,11 @@ function ComplianceScanCard() {
         Paste meeting notes to flag vulnerability drivers (FCA FG21/1) and Consumer Duty
         signals for review. Flags are indicative — the adviser makes the assessment.
       </p>
+      <label htmlFor="compliance-scan-text" className="sr-only">
+        Client meeting notes to scan
+      </label>
       <textarea
+        id="compliance-scan-text"
         className="input min-h-[120px] w-full"
         placeholder="Paste client meeting notes here…"
         value={text}
@@ -279,6 +291,14 @@ export default function IngestionPage() {
         if (e instanceof ApiError && e.status === 409) {
           const detail = e.detail as { existing_filename?: string } | undefined;
           patch(id, { state: "duplicate", message: `Same content as "${detail?.existing_filename ?? "an existing file"}". Not stored again.` });
+          return;
+        }
+        if (e instanceof ApiError && e.status === 413) {
+          patch(id, { state: "error", message: "File is too large — the server limit is 20 MB." });
+          return;
+        }
+        if (e instanceof ApiError && e.status === 400) {
+          patch(id, { state: "error", message: errorMessage(e, "The server rejected this file as invalid.") });
           return;
         }
         patch(id, { state: "error", message: errorMessage(e, "Upload failed.") });

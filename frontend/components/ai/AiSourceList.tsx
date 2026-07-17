@@ -15,7 +15,7 @@ export function AiSourceList({ sources, title = "Sources" }: AiSourceListProps) 
     <div className="mt-6 border-t border-slate-100 pt-5">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="ui-label">{title}</h3>
-        <span className="text-[11px] text-slate-400">
+        <span className="text-[11px] text-slate-500">
           {sources.length} document{sources.length !== 1 ? "s" : ""} referenced
         </span>
       </div>
@@ -44,7 +44,7 @@ export function AiSourceList({ sources, title = "Sources" }: AiSourceListProps) 
                     </span>
                   )}
                   {src.date && (
-                    <span className="shrink-0 text-slate-400">{src.date}</span>
+                    <span className="shrink-0 text-slate-500">{src.date}</span>
                   )}
                 </summary>
                 <p className="border-t border-slate-100 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
@@ -55,7 +55,7 @@ export function AiSourceList({ sources, title = "Sources" }: AiSourceListProps) 
           );
         })}
       </ol>
-      <p className="mt-2 text-[11px] text-slate-400">
+      <p className="mt-2 text-[11px] text-slate-500">
         Click citation numbers in the answer to jump to the matching source.
       </p>
     </div>

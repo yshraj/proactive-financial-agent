@@ -32,7 +32,7 @@ export function DemoSpotlight({ alert, onDraftEmail }: DemoSpotlightProps) {
           <p className="mt-2 text-sm text-slate-600">
             {title}
             {!isReviewOverdue(alert.type) && alert.trigger_date && (
-              <span className="text-slate-400"> · due {formatDate(alert.trigger_date)}</span>
+              <span className="text-slate-500"> · due {formatDate(alert.trigger_date)}</span>
             )}
           </p>
           {alert.description && (

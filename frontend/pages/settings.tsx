@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { useState } from "react";
 import { Download, History, ShieldCheck, Trash2 } from "lucide-react";
-import { Card, CardHeader, Button, Modal, useToast, PageIntro, PageShell } from "../components/ui";
+import { Card, CardHeader, Button, ErrorState, Modal, useToast, PageIntro, PageShell } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
 import { useApproveAuditEntry, useAuditLog, useClearData, useCompliancePosture, useExportData } from "../hooks/useApi";
 import type { ExportType } from "../lib/export";
@@ -145,12 +145,16 @@ export default function SettingsPage() {
                 { label: "Sign-in required", value: posture.auth_required ? "Yes" : posture.auth_mode === "demo" ? "No (demo mode)" : "No" },
                 { label: "Durable audit trail", value: posture.durable_audit ? "Enabled" : "In-memory only" },
               ].map(({ label, value }) => (
-                <div key={label} className="flex items-center gap-3 bg-white px-6 py-4">
-                  <ShieldCheck className="h-4 w-4 flex-shrink-0 text-brand-600" aria-hidden />
-                  <div>
-                    <dt className="text-xs font-medium text-slate-500">{label}</dt>
-                    <dd className="text-sm font-semibold capitalize text-slate-900">{value}</dd>
-                  </div>
+                // dt/dd must be direct children of the div grouping inside a
+                // dl (axe: definition-list / dlitem).
+                <div key={label} className="bg-white px-6 py-4">
+                  <dt className="flex items-center gap-3 text-xs font-medium text-slate-500">
+                    <ShieldCheck className="h-4 w-4 flex-shrink-0 text-brand-600" aria-hidden />
+                    {label}
+                  </dt>
+                  <dd className="mt-0.5 pl-7 text-sm font-semibold capitalize text-slate-900">
+                    {value}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -160,10 +164,15 @@ export default function SettingsPage() {
         <Card data-testid="audit-log-card">
           <CardHeader
             title="AI audit log"
-            description="Recent AI-generated outputs, for accountability. Held in memory on the server."
+            description="Recent AI-generated outputs, for accountability. Stored durably on the server."
           />
           <div className="px-6 py-5">
-            {auditEntries.length === 0 ? (
+            {auditLog.isError ? (
+              <ErrorState
+                message="Couldn't load the audit log."
+                onRetry={() => auditLog.refetch()}
+              />
+            ) : auditEntries.length === 0 ? (
               <p className="flex items-center gap-2 text-sm text-slate-500">
                 <History className="h-4 w-4" aria-hidden />
                 No AI activity recorded yet.
@@ -177,7 +186,7 @@ export default function SettingsPage() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm text-slate-700">{entry.preview}</p>
-                      <p className="mt-0.5 text-xs text-slate-400">
+                      <p className="mt-0.5 text-xs text-slate-500">
                         {entry.client_name ? `${entry.client_name} · ` : ""}
                         {formatDateTime(entry.timestamp)}
                         {entry.ai_generated ? "" : " · fallback"}

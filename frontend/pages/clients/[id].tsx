@@ -156,7 +156,7 @@ export default function ClientDetailPage() {
                 </span>
               </div>
               <p className="text-sm leading-relaxed text-slate-700">{client.summary}</p>
-              <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
+              <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
                 Based on profile data and open alerts. For document-grounded detail, use{" "}
                 <ButtonLink href={chatForClient(client.id)} size="sm" variant="ghost" className="inline h-auto px-0 py-0 text-[11px]">
                   AI Copilot

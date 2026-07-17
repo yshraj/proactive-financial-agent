@@ -327,7 +327,7 @@ export default function Dashboard() {
                         {" — "}
                         {isReviewOverdue(row.type) ? "Annual review overdue" : row.title || alertTypeLabel(row.type)}
                         {!isReviewOverdue(row.type) && row.trigger_date && (
-                          <span className="ml-1 text-slate-400">· due {formatDate(row.trigger_date)}</span>
+                          <span className="ml-1 text-slate-500">· due {formatDate(row.trigger_date)}</span>
                         )}
                       </span>
                     </div>
@@ -533,7 +533,15 @@ export default function Dashboard() {
 
                 <Card className="overflow-hidden">
                   <CardHeader title="Recently completed" description="Alerts you marked as done." />
-                  {completedAlerts.length > 0 ? (
+                  {completedQuery.isError ? (
+                    <div className="px-6 py-4">
+                      <ErrorState
+                        compact
+                        message="Couldn't load completed alerts."
+                        onRetry={() => completedQuery.refetch()}
+                      />
+                    </div>
+                  ) : completedAlerts.length > 0 ? (
                     <ul className="divide-y divide-slate-100">
                       {completedAlerts.map((row) => (
                         <li key={row.id} className="flex flex-wrap items-center gap-3 px-6 py-4">

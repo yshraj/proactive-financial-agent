@@ -142,6 +142,8 @@ export default function SettingsPage() {
                 },
                 { label: "Encryption in transit", value: posture.encryption_in_transit ? "Enabled" : "Not configured" },
                 { label: "Encryption at rest", value: posture.encryption_at_rest ? "Enabled" : "Not configured" },
+                { label: "Sign-in required", value: posture.auth_required ? "Yes" : posture.auth_mode === "demo" ? "No (demo mode)" : "No" },
+                { label: "Durable audit trail", value: posture.durable_audit ? "Enabled" : "In-memory only" },
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-center gap-3 bg-white px-6 py-4">
                   <ShieldCheck className="h-4 w-4 flex-shrink-0 text-brand-600" aria-hidden />

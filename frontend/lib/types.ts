@@ -175,6 +175,8 @@ export interface CompliancePosture {
   encryption_at_rest: boolean;
   encryption_in_transit: boolean;
   auth_required: boolean;
+  auth_mode: "required" | "demo" | string;
+  durable_audit: boolean;
 }
 
 export interface AuditLogResponse {

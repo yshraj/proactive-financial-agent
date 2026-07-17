@@ -223,6 +223,8 @@ const server = createServer((req, res) => {
         encryption_at_rest: true,
         encryption_in_transit: true,
         auth_required: true,
+        auth_mode: "required",
+        durable_audit: true,
       });
     if (path === "/api/compliance/audit")
       return send(res, 200, {

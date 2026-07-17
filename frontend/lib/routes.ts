@@ -48,4 +48,8 @@ export const BARE_ROUTES: ReadonlySet<string> = new Set([
   ROUTES.signup,
   ROUTES.forgotPassword,
   ROUTES.resetPassword,
+  // Error pages render bare so they work signed-in or signed-out (Next.js
+  // reports router.pathname as /404 and /500 for these).
+  "/404",
+  "/500",
 ]);

@@ -122,12 +122,6 @@ def extract_structured(file_path: Path) -> dict[str, Any]:
     return extract_structured_from_text(text)
 
 
-def extract_structured_from_bytes(content: bytes, ext: str, display_name: str = "document") -> dict[str, Any]:
-    """Extraction over raw document bytes (storage-backed ingestion path)."""
-    text = extract_text_from_bytes(content, ext, display_name)
-    return extract_structured_from_text(text)
-
-
 def extract_structured_from_text(text: str) -> dict[str, Any]:
     """
     Run structured extraction over already-extracted text (e.g. a pasted meeting

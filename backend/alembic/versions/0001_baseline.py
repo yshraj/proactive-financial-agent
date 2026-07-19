@@ -83,6 +83,11 @@ CREATE TABLE IF NOT EXISTS ingested_documents (
     uploaded_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(content_hash)
 );
+-- Adoption path: databases created from the original migration 001 have this
+-- table WITHOUT client_id (legacy 002 never applied). CREATE TABLE IF NOT
+-- EXISTS above no-ops there, so add the column explicitly before indexing it.
+ALTER TABLE ingested_documents
+    ADD COLUMN IF NOT EXISTS client_id UUID REFERENCES clients(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_ingested_documents_content_hash ON ingested_documents(content_hash);
 CREATE INDEX IF NOT EXISTS idx_ingested_documents_uploaded_at ON ingested_documents(uploaded_at);
 CREATE INDEX IF NOT EXISTS idx_ingested_documents_client_id ON ingested_documents(client_id);

@@ -3,6 +3,7 @@ Input sanitization and defensive helpers for security-sensitive paths.
 """
 from __future__ import annotations
 
+import codecs
 import logging
 import re
 
@@ -51,8 +52,32 @@ def sanitize_rag_content(content: str) -> str:
     return cleaned[:2000]
 
 
+def is_plausible_text(content: bytes) -> bool:
+    """True when bytes look like a genuine UTF-8 text document.
+
+    Text formats (.md/.txt) have no magic number, so the equivalent check is:
+    decodes as UTF-8 (BOM tolerated) and contains no NUL bytes — which rejects
+    binaries masquerading under a text extension.
+    """
+    if not content:
+        return False
+    sample = content[:64 * 1024]
+    if b"\x00" in sample:
+        return False
+    # Incremental decode: when the sample truncates the file mid-way through a
+    # multi-byte sequence, final=False buffers the incomplete tail instead of
+    # raising; genuinely invalid bytes still fail.
+    decoder = codecs.getincrementaldecoder("utf-8-sig")()
+    try:
+        decoder.decode(sample, final=len(content) <= len(sample))
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
 def validate_file_magic(content: bytes, ext: str) -> bool:
-    """Verify file content matches expected extension via magic bytes."""
+    """Verify file content matches its extension (magic bytes, or a UTF-8
+    plausibility check for text formats that have none)."""
     if not content:
         return False
     ext = ext.lower()
@@ -61,6 +86,8 @@ def validate_file_magic(content: bytes, ext: str) -> bool:
     if ext == ".docx":
         # DOCX is a ZIP archive (PK\x03\x04)
         return content[:4] == b"PK\x03\x04"
+    if ext in (".md", ".txt"):
+        return is_plausible_text(content)
     return False
 
 

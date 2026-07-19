@@ -8,6 +8,7 @@ from app.services.llm_extractor import extract_structured_from_text
 def test_doc_type_for_ext():
     assert doc_type_for_ext(".pdf") == ("PDF", "pdf")
     assert doc_type_for_ext(".docx") == ("Word", "docx")
+    assert doc_type_for_ext(".md") == ("Markdown", "markdown")
     assert doc_type_for_ext(".txt") == ("Transcript", "transcript")
     assert doc_type_for_ext(".odt") == ("Document", "document")
 

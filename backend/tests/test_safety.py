@@ -5,6 +5,7 @@ import io
 import zipfile
 
 from app.services.safety import (
+    is_plausible_text,
     sanitize_rag_content,
     sanitize_user_query,
     validate_docx_zip,
@@ -32,6 +33,28 @@ def test_validate_file_magic_pdf():
 def test_validate_file_magic_docx():
     assert validate_file_magic(b"PK\x03\x04" + b"\x00" * 4, ".docx") is True
     assert validate_file_magic(b"NOTZIP", ".docx") is False
+
+
+def test_validate_file_magic_text_formats():
+    assert validate_file_magic(b"# Meeting notes\n\nPension discussed.", ".md") is True
+    assert validate_file_magic("Caf\u00e9 review \u2014 ISA".encode("utf-8"), ".txt") is True
+    assert validate_file_magic(b"\xef\xbb\xbfBOM prefixed text", ".txt") is True  # UTF-8 BOM
+    # Binaries masquerading as text are rejected.
+    assert validate_file_magic(b"MZ\x00\x00\x03\x00", ".txt") is False  # NUL bytes
+    assert validate_file_magic(b"\xff\xfe\x00a\x00b", ".md") is False  # UTF-16-ish
+    assert validate_file_magic(b"", ".txt") is False
+
+
+def test_is_plausible_text_tolerates_multibyte_at_sample_boundary():
+    # > 64KB of text whose 64KB sample boundary lands inside a multi-byte
+    # character must not be rejected as invalid UTF-8.
+    text = ("é" * (64 * 1024)).encode("utf-8")
+    assert len(text) > 64 * 1024
+    assert is_plausible_text(text) is True
+
+
+def test_validate_file_magic_rejects_unknown_extension():
+    assert validate_file_magic(b"anything", ".exe") is False
 
 
 def _make_zip(entries: dict) -> bytes:

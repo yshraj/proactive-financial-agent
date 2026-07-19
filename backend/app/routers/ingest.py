@@ -51,7 +51,8 @@ TABLE_MISSING_MSG = (
 
 router = APIRouter()
 
-ALLOWED_EXTENSIONS = (".pdf", ".docx")
+ALLOWED_EXTENSIONS = (".pdf", ".docx", ".md", ".txt")
+_UPLOAD_TYPES_MSG = "Only PDF, Word (.docx), Markdown (.md), and text (.txt) files are accepted."
 
 
 def _compute_content_hash(content: bytes) -> str:
@@ -65,23 +66,22 @@ def _allowed_file(filename: str) -> bool:
 
 
 def _get_extension(filename: str) -> str:
-    """Return .pdf or .docx based on filename; default .pdf."""
-    if not filename:
-        return ".pdf"
-    lower = filename.lower()
-    if lower.endswith(".docx"):
-        return ".docx"
+    """Return the allowed extension for the filename; default .pdf."""
+    lower = (filename or "").lower()
+    for ext in ALLOWED_EXTENSIONS:
+        if lower.endswith(ext):
+            return ext
     return ".pdf"
 
 
 def _sanitize_filename(name: str) -> str:
-    """Keep only safe characters for display/storage; preserve .pdf or .docx."""
+    """Keep only safe characters for display/storage; preserve the allowed extension."""
     base = os.path.basename(name)
     if not base:
         base = "document"
     name_no_ext, _, ext = base.rpartition(".")
     ext_lower = ext.lower() if ext else ""
-    if ext_lower not in ("pdf", "docx"):
+    if f".{ext_lower}" not in ALLOWED_EXTENSIONS:
         ext_lower = "pdf"
     safe = re.sub(r"[^\w\-.]", "_", name_no_ext)[:100] or "document"
     return f"{safe}.{ext_lower}"
@@ -113,6 +113,8 @@ def doc_type_for_ext(ext: str) -> tuple[str, str]:
         return "PDF", "pdf"
     if ext == ".docx":
         return "Word", "docx"
+    if ext == ".md":
+        return "Markdown", "markdown"
     if ext == ".txt":
         return "Transcript", "transcript"
     return "Document", "document"
@@ -121,10 +123,7 @@ def doc_type_for_ext(ext: str) -> tuple[str, str]:
 async def _read_validated_upload(request: Request, file: UploadFile) -> tuple[bytes, str]:
     """Shared upload validation: extension, size, magic bytes, zip bombs."""
     if not file.filename or not _allowed_file(file.filename):
-        raise HTTPException(
-            status_code=400,
-            detail="Only PDF and Word (.docx) files are accepted.",
-        )
+        raise HTTPException(status_code=400, detail=_UPLOAD_TYPES_MSG)
 
     # Fast-path reject using Content-Length when present.
     content_length = request.headers.get("content-length")
@@ -148,7 +147,7 @@ async def _read_validated_upload(request: Request, file: UploadFile) -> tuple[by
     if not validate_file_magic(content, ext):
         raise HTTPException(
             status_code=400,
-            detail="File content does not match its extension. Only valid PDF and DOCX files are accepted.",
+            detail="File content does not match its extension.",
         )
     if ext == ".docx":
         ok, reason = validate_docx_zip(content)

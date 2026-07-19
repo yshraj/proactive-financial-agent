@@ -123,12 +123,45 @@ test.describe("upload validation", () => {
   test("rejects unsupported file types", async ({ app, page }) => {
     await app.ingestion.goto();
     await page.getByTestId("document-upload-input").setInputFiles({
-      name: "notes.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("plain text file"),
+      name: "photo.png",
+      mimeType: "image/png",
+      buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     });
-    const row = page.getByTestId("upload-status-item").filter({ hasText: "notes.txt" });
-    await expect(row).toContainText(/Only PDF and Word/i);
+    const row = page.getByTestId("upload-status-item").filter({ hasText: "photo.png" });
+    await expect(row).toContainText(/Only PDF, Word/i);
+  });
+
+  test("accepts markdown and plain-text uploads", async ({ app, page }) => {
+    await app.ingestion.goto();
+    await page.getByTestId("document-upload-input").setInputFiles([
+      {
+        name: "meeting-notes.md",
+        mimeType: "text/markdown",
+        buffer: Buffer.from("# Client review\n\nDiscussed pension consolidation and ISA top-up."),
+      },
+      {
+        name: "call-summary.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("Call with client about protection cover renewal."),
+      },
+    ]);
+    for (const name of ["meeting-notes.md", "call-summary.txt"]) {
+      const row = page.getByTestId("upload-status-item").filter({ hasText: name });
+      await expect(row).toContainText(/Uploading|Done|Stored/);
+      await expect(row).not.toContainText(/accepted|Invalid|does not match/i);
+    }
+  });
+
+  test("rejects a binary masquerading as a text file", async ({ app, page }) => {
+    await app.ingestion.goto();
+    await page.getByTestId("document-upload-input").setInputFiles({
+      name: "innocent.txt",
+      // NUL bytes: executables/binaries renamed to .txt must fail client-side.
+      buffer: Buffer.from([0x4d, 0x5a, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00]),
+      mimeType: "text/plain",
+    });
+    const row = page.getByTestId("upload-status-item").filter({ hasText: "innocent.txt" });
+    await expect(row).toContainText(/does not match its extension/i);
   });
 
   test("surfaces duplicate uploads distinctly", async ({ app, page }) => {

@@ -58,8 +58,10 @@ def extract_text_from_bytes(content: bytes, ext: str, display_name: str = "docum
         text = "\n\n".join(paragraphs).strip()[:MAX_EXTRACT_CHARS]
         logger.info("[ingest] DOCX extracted: %s → %d chars, %d paragraphs", display_name, len(text), len(paragraphs))
         return text
-    if ext == ".txt":
-        return content.decode("utf-8", errors="replace")[:MAX_EXTRACT_CHARS]
+    if ext in (".txt", ".md"):
+        # utf-8-sig tolerates a BOM; upstream validation already rejected
+        # binaries masquerading as text.
+        return content.decode("utf-8-sig", errors="replace")[:MAX_EXTRACT_CHARS]
     raise ValueError(f"Unsupported file type: {ext}")
 
 

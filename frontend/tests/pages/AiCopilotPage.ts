@@ -21,8 +21,11 @@ export class AiCopilotPage {
     );
     await this.page.getByRole("button", { name: /ISA allowance still available/ }).click();
     await answered;
-    await expect(this.page.getByTestId("ai-copilot-answer")).toBeVisible();
-    await expect(this.page.getByText(/unused ISA allowance/i)).toBeVisible();
+    const answer = this.page.getByTestId("ai-copilot-answer");
+    await expect(answer).toBeVisible();
+    // Scope to the answer card: the same phrase also appears in follow-up
+    // suggestion chips, which would otherwise be a strict-mode violation.
+    await expect(answer.getByText(/unused ISA allowance/i)).toBeVisible();
   }
 
   async selectClientScope(clientLabel: string) {

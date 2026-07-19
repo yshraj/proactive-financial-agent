@@ -7,7 +7,7 @@ import { usePageSetup } from "../hooks/usePageSetup";
 import { useComplianceScan, useDocuments, useIngestTranscript, useNoteTemplate, useNoteTemplates } from "../hooks/useApi";
 import { ApiError, errorMessage } from "../lib/api";
 import { uploadDocument } from "../lib/ingest";
-import { isAllowedUploadMime, validateUploadMagic } from "../lib/sanitize";
+import { hasAllowedUploadExtension, isAllowedUploadMime, validateUploadMagic } from "../lib/sanitize";
 import { formatDateTime, formatFileSize } from "../lib/format";
 
 type UploadState = "processing" | "done" | "duplicate" | "error";
@@ -260,9 +260,8 @@ export default function IngestionPage() {
   const processFile = useCallback(
     async (file: File) => {
       const id = `up-${Date.now()}-${file.name}`;
-      const lower = file.name.toLowerCase();
-      if (!lower.endsWith(".pdf") && !lower.endsWith(".docx")) {
-        setUploads((p) => [...p, { id, name: file.name, state: "error", message: "Only PDF and Word (.docx) files are accepted." }]);
+      if (!hasAllowedUploadExtension(file.name)) {
+        setUploads((p) => [...p, { id, name: file.name, state: "error", message: "Only PDF, Word (.docx), Markdown (.md), and text (.txt) files are accepted." }]);
         return;
       }
       if (file.size > MAX_FILE_BYTES) {
@@ -270,7 +269,7 @@ export default function IngestionPage() {
         return;
       }
       if (file.type && !isAllowedUploadMime(file.type)) {
-        setUploads((p) => [...p, { id, name: file.name, state: "error", message: "Invalid file type. Only PDF and Word (.docx) are accepted." }]);
+        setUploads((p) => [...p, { id, name: file.name, state: "error", message: "Invalid file type. Only PDF, Word (.docx), Markdown (.md), and text (.txt) are accepted." }]);
         return;
       }
       const magicOk = await validateUploadMagic(file);
@@ -328,7 +327,7 @@ export default function IngestionPage() {
         ref={fileInputRef}
         type="file"
         data-testid="document-upload-input"
-        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        accept=".pdf,.docx,.md,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
         multiple
         className="hidden"
         onChange={(e) => {
@@ -366,7 +365,7 @@ export default function IngestionPage() {
         </div>
         <h2 className="mb-1.5 text-base font-semibold text-slate-950">Drop PDFs or Word docs here</h2>
         <p className="mb-6 text-sm text-slate-500">
-          Supports PDF and .docx, up to 20 MB. Duplicates (same content) are detected and skipped.
+          Supports PDF, .docx, .md, and .txt, up to 20 MB. Duplicates (same content) are detected and skipped.
         </p>
         <Button size="lg" onClick={() => fileInputRef.current?.click()} data-testid="choose-files-button">
           Choose files
@@ -428,7 +427,7 @@ export default function IngestionPage() {
           <EmptyState
             icon={<FileText className="h-5 w-5" aria-hidden />}
             title="No documents yet"
-            description="Upload a PDF or Word file above to populate your dashboard and power AI Copilot."
+            description="Upload a PDF, Word, Markdown, or text file above to populate your dashboard and power AI Copilot."
             action={
               <Button size="lg" onClick={() => fileInputRef.current?.click()}>
                 Upload your first document

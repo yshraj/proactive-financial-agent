@@ -193,6 +193,47 @@ def test_export_is_org_scoped_and_audited(api_client, clean_db, org_a, org_b):
     assert "Alan Partridge" not in resp.text
 
 
+def test_markdown_and_text_uploads_are_accepted(api_client, clean_db, org_a):
+    """.md/.txt go through the same validated upload path as PDF/DOCX."""
+    for name, mime, body in (
+        ("meeting-notes.md", "text/markdown", b"# Review\nShort note."),
+        ("call-summary.txt", "text/plain", b"Client called about ISA."),
+    ):
+        resp = api_client.post(
+            "/api/ingest/upload",
+            files={"file": (name, body, mime)},
+            headers=auth_headers_for(org_a),
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["filename"] == name
+
+    listed = api_client.get(
+        "/api/ingest/documents", headers=auth_headers_for(org_a)
+    ).json()
+    names = {d["filename"] for d in listed}
+    assert {"meeting-notes.md", "call-summary.txt"} <= names
+
+
+def test_binary_masquerading_as_text_is_rejected(api_client, org_a):
+    resp = api_client.post(
+        "/api/ingest/upload",
+        files={"file": ("innocent.txt", b"MZ\x00\x00\x03\x00\x00\x00", "text/plain")},
+        headers=auth_headers_for(org_a),
+    )
+    assert resp.status_code == 400
+    assert "does not match" in resp.json()["detail"]
+
+
+def test_unsupported_extension_is_rejected(api_client, org_a):
+    resp = api_client.post(
+        "/api/ingest/upload",
+        files={"file": ("archive.zip", b"PK\x03\x04data", "application/zip")},
+        headers=auth_headers_for(org_a),
+    )
+    assert resp.status_code == 400
+    assert "Only PDF, Word" in resp.json()["detail"]
+
+
 def test_duplicate_detection_is_per_org(api_client, clean_db, org_a, org_b):
     """The content-hash oracle is closed: another org can upload the same doc."""
     transcript = {

@@ -6,7 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { downloadExport, type ExportType } from "@/lib/export";
 import { ingestTranscript, uploadDocument } from "@/lib/ingest";
@@ -186,25 +186,34 @@ export function useUpdateAlertStatus() {
 }
 
 export function useDraftEmail(source: DraftEmailSource | null) {
-  return useQuery({
-    queryKey: ["draft", source],
+  // Incremented by regenerate(): keyed into the query so a new request fires,
+  // and any nonce > 0 sends refresh=true to bypass the server-side cache
+  // (plain refetch would otherwise get the same cached draft back).
+  const [regenNonce, setRegenNonce] = useState(0);
+  const query = useQuery({
+    queryKey: ["draft", source, regenNonce],
     queryFn: () => {
       if (!source) throw new Error("No draft source");
+      const refresh = regenNonce > 0 ? { refresh: true } : {};
       if (source.type === "alert") {
         return api.post<DraftEmailResponse>("/api/monitor/draft-email", {
           alert_id: source.alertId,
+          ...refresh,
         });
       }
       return api.post<DraftEmailResponse>("/api/monitor/draft-email", {
         client_id: source.clientId,
         context: source.context,
         talking_points: source.talkingPoints,
+        ...refresh,
       });
     },
     enabled: !!source,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
+  const regenerate = useCallback(() => setRegenNonce((n) => n + 1), []);
+  return { ...query, regenerate };
 }
 
 export function useClientDetail(clientId: string | undefined) {
@@ -309,9 +318,12 @@ export function useChat() {
 }
 
 export function useBrief() {
-  return useMutation<BriefResponse, ApiError, string>({
-    mutationFn: (clientId: string) =>
-      api.post<BriefResponse>("/api/chat/brief", { client_id: clientId }),
+  return useMutation<BriefResponse, ApiError, { clientId: string; refresh?: boolean }>({
+    mutationFn: ({ clientId, refresh = false }) =>
+      api.post<BriefResponse>("/api/chat/brief", {
+        client_id: clientId,
+        ...(refresh ? { refresh: true } : {}),
+      }),
   });
 }
 

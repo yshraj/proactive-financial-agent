@@ -69,6 +69,9 @@ class ChatResponse(BaseModel):
 
 class BriefRequest(BaseModel):
     client_id: str = Field(..., min_length=1, max_length=64)
+    # True = regenerate: bypass the cached brief (the fresh result still
+    # replaces the cache entry so subsequent loads stay fast).
+    refresh: bool = False
 
 
 class BriefResponse(BaseModel):
@@ -428,14 +431,15 @@ def post_brief(request: Request, body: BriefRequest, ctx: TenantContext = Depend
         if not cur.fetchone():
             raise HTTPException(status_code=404, detail="Client not found")
     cache_key = f"brief:{PROMPT_VERSION}:{client_id}"
-    cached = cache_get(cache_key)
-    if cached is not None and isinstance(cached, dict):
-        sources = [SourceOut(**s) for s in (cached.get("sources") or []) if isinstance(s, dict)]
-        return BriefResponse(
-            brief=cached.get("brief") or "",
-            talking_points=cached.get("talking_points") or [],
-            sources=sources,
-        )
+    if not body.refresh:
+        cached = cache_get(cache_key)
+        if cached is not None and isinstance(cached, dict):
+            sources = [SourceOut(**s) for s in (cached.get("sources") or []) if isinstance(s, dict)]
+            return BriefResponse(
+                brief=cached.get("brief") or "",
+                talking_points=cached.get("talking_points") or [],
+                sources=sources,
+            )
     brief_text, talking_points, source_dicts = _generate_brief(ctx, client_id)
     sources_out = [SourceOut(**s) for s in source_dicts]
     cache_set(

@@ -1031,6 +1031,8 @@ class DraftEmailRequest(BaseModel):
     client_id: Optional[str] = None
     context: Optional[str] = None
     talking_points: Optional[list[str]] = None
+    # True = regenerate: bypass the cached draft (fresh result re-populates it).
+    refresh: bool = False
 
 
 class DraftEmailResponse(BaseModel):
@@ -1087,7 +1089,7 @@ def draft_email(
         context = (body.context or "").strip()
         ctx_hash = hashlib.md5(context.encode()).hexdigest()[:16]
         cache_key = f"draft:{PROMPT_VERSION}:brief:{client_id}:{ctx_hash}"
-        draft = cache_get(cache_key)
+        draft = None if body.refresh else cache_get(cache_key)
         if draft is not None:
             return DraftEmailResponse(
                 draft=draft,
@@ -1111,7 +1113,7 @@ def draft_email(
         )
 
     cache_key = f"draft:{PROMPT_VERSION}:{alert_id}"
-    draft = cache_get(cache_key)
+    draft = None if body.refresh else cache_get(cache_key)
     if draft is not None:
         return DraftEmailResponse(draft=draft)
 

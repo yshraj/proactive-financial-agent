@@ -66,17 +66,22 @@ export default function BriefPage() {
     );
   }, []);
 
-  const generateBrief = useCallback(() => {
-    if (!selectedId) return;
-    brief.mutate(selectedId, { onSuccess: scrollToBrief });
-  }, [selectedId, brief, scrollToBrief]);
+  const generateBrief = useCallback(
+    (refresh = false) => {
+      if (!selectedId) return;
+      // refresh=true (the Regenerate button) bypasses the server-side cache;
+      // the initial generate keeps using it for fast repeat loads.
+      brief.mutate({ clientId: selectedId, refresh }, { onSuccess: scrollToBrief });
+    },
+    [selectedId, brief, scrollToBrief]
+  );
 
   useEffect(() => {
     if (!shouldAutoGenerate || autoTriggered.current || !selectedId || brief.isPending) return;
     if (queryClientId && selectedId !== queryClientId) return;
     if (!clients.some((c) => c.id === selectedId)) return;
     autoTriggered.current = true;
-    brief.mutate(selectedId, { onSuccess: scrollToBrief });
+    brief.mutate({ clientId: selectedId }, { onSuccess: scrollToBrief });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when deep-link params are ready
   }, [shouldAutoGenerate, selectedId, queryClientId, clients.length, brief.isPending, scrollToBrief]);
 
@@ -136,7 +141,7 @@ export default function BriefPage() {
                   testId="client-select"
                 />
                 <Button
-                  onClick={generateBrief}
+                  onClick={() => generateBrief()}
                   loading={brief.isPending}
                   disabled={!selectedId}
                   data-testid="generate-brief-button"
@@ -152,7 +157,7 @@ export default function BriefPage() {
             <ErrorState
               title="Couldn't generate the brief"
               message={aiErrorMessage(brief.error, "brief")}
-              onRetry={generateBrief}
+              onRetry={() => generateBrief()}
             />
           )}
 
@@ -174,7 +179,7 @@ export default function BriefPage() {
               action={
                 selectedId ? (
                   <Button
-                    onClick={generateBrief}
+                    onClick={() => generateBrief()}
                     leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
                   >
                     Generate brief for {selectedClientName ?? "client"}
@@ -203,8 +208,9 @@ export default function BriefPage() {
                     <Button
                       variant="secondary"
                       size="sm"
-                      onClick={generateBrief}
+                      onClick={() => generateBrief(true)}
                       leftIcon={<RefreshCw className="h-4 w-4" aria-hidden />}
+                      data-testid="regenerate-brief-button"
                     >
                       Regenerate
                     </Button>

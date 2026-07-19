@@ -105,8 +105,9 @@ export default function DraftEmailModal({
           {draft && (
             <Button
               variant="secondary"
-              onClick={() => draftQuery.refetch()}
+              onClick={() => draftQuery.regenerate()}
               leftIcon={<RefreshCw className="h-4 w-4" aria-hidden />}
+              data-testid="regenerate-draft-button"
             >
               Regenerate
             </Button>

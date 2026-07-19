@@ -54,5 +54,8 @@ backend/.coverage
 backend/coverage.xml
 backend/htmlcov/
 
+# Embedded local Postgres for development (scripts/local_db.py)
+backend/.localdb/
+
 # Local dummy/sample documents for manual testing (not committed)
 sample-documents/

@@ -202,4 +202,25 @@ export interface StoredDocument {
   file_size_bytes: number | null;
   uploaded_at: string;
   processing_error?: string | null;
+  /** Informational outcome: merged into an existing client / content duplicate. */
+  note?: string | null;
+  client_id?: string | null;
+  client_name?: string | null;
+}
+
+export interface UploadJobResponse {
+  job_id: string;
+  document_id: string;
+  status: string;
+}
+
+export interface JobStatus {
+  id: string;
+  kind: string;
+  filename?: string | null;
+  status: "PENDING" | "PROCESSING" | "DONE" | "ERROR" | string;
+  progress: number;
+  message: string;
+  document_id?: string | null;
+  error?: string | null;
 }

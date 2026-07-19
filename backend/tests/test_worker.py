@@ -9,14 +9,18 @@ from app.worker import process_one
 
 def test_worker_processes_upload_job_under_org_context(clean_db, org_a, monkeypatch, tmp_path):
     """A claimed upload job runs the ingestion handler with the job's org bound."""
+    from app.routers.ingest import IngestOutcome
+
     seen = {}
 
-    def fake_ingestion(file_path, filename, ext, document_id, ingested_at):
+    def fake_ingestion(file_path, filename, ext, document_id, ingested_at, progress=None):
         from app.context import get_current_tenant
 
         seen["org_id"] = get_current_tenant().org_id
         seen["file_path"] = file_path
-        return None  # success
+        if progress:
+            progress(40, "AI extraction…")
+        return IngestOutcome()  # success
 
     monkeypatch.setattr(
         "app.routers.ingest.run_dual_path_ingestion_from_storage", fake_ingestion
@@ -41,8 +45,10 @@ def test_worker_processes_upload_job_under_org_context(clean_db, org_a, monkeypa
 
 
 def test_worker_records_handler_error(clean_db, org_a, monkeypatch):
+    from app.routers.ingest import IngestOutcome
+
     def failing_ingestion(*args, **kwargs):
-        return "Extraction failed."  # soft error path
+        return IngestOutcome(error="Extraction failed.")  # soft error path
 
     monkeypatch.setattr(
         "app.routers.ingest.run_dual_path_ingestion_from_storage", failing_ingestion

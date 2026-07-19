@@ -51,16 +51,21 @@ def _process_upload_job(job: dict[str, Any]) -> None:
     ingested_at = payload.get("ingested_at")
     document_id = job.get("document_id") or job["id"]
 
-    jobs.update(job["id"], status=jobs.PROCESSING, progress=40, message="Extracting and indexing…")
-    err = run_dual_path_ingestion_from_storage(
-        file_path, job.get("filename") or "document", ext, document_id, ingested_at
+    def report(pct: int, message: str) -> None:
+        # Stage updates power the UI progress bar (poll GET /jobs/{id}).
+        jobs.update(job["id"], status=jobs.PROCESSING, progress=pct, message=message)
+
+    outcome = run_dual_path_ingestion_from_storage(
+        file_path, job.get("filename") or "document", ext, document_id, ingested_at,
+        progress=report,
     )
-    if err:
+    if outcome.error:
         jobs.update(job["id"], status=jobs.ERROR, progress=100,
-                    message="Completed with issues", error=err, document_id=document_id)
-    else:
-        jobs.update(job["id"], status=jobs.DONE, progress=100, message="Done",
+                    message="Completed with issues", error=outcome.error,
                     document_id=document_id)
+    else:
+        jobs.update(job["id"], status=jobs.DONE, progress=100,
+                    message=outcome.note or "Done", document_id=document_id)
 
 
 _HANDLERS = {

@@ -6,7 +6,7 @@ import { AiMarkdown } from "../components/ai";
 import { usePageSetup } from "../hooks/usePageSetup";
 import { useComplianceScan, useDocuments, useIngestTranscript, useNoteTemplate, useNoteTemplates } from "../hooks/useApi";
 import { ApiError, errorMessage } from "../lib/api";
-import { uploadDocument } from "../lib/ingest";
+import { uploadDocumentWithProgress } from "../lib/ingest";
 import { hasAllowedUploadExtension, isAllowedUploadMime, validateUploadMagic } from "../lib/sanitize";
 import { formatDateTime, formatFileSize } from "../lib/format";
 
@@ -16,6 +16,8 @@ interface UploadItem {
   name: string;
   state: UploadState;
   message?: string;
+  /** 0-100 pipeline progress while state === "processing". */
+  progress?: number;
 }
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB client-side guard
@@ -278,13 +280,28 @@ export default function IngestionPage() {
         return;
       }
 
-      setUploads((p) => [...p, { id, name: file.name, state: "processing", message: "Uploading, extracting & indexing…" }]);
+      setUploads((p) => [...p, { id, name: file.name, state: "processing", progress: 2, message: "Uploading…" }]);
       try {
-        const doc = await uploadDocument(file);
-        patch(id, {
-          state: "done",
-          message: doc.processing_error ? `Stored, but processing had issues: ${doc.processing_error}` : "Done — extracted and indexed.",
-        });
+        const job = await uploadDocumentWithProgress(file, (progress, message) =>
+          patch(id, { progress, message })
+        );
+        if (job.status === "ERROR") {
+          patch(id, {
+            state: "error",
+            progress: undefined,
+            message: job.error ? `Stored, but processing had issues: ${job.error}` : "Processing failed.",
+          });
+        } else if (job.message?.startsWith("Content matches")) {
+          // Same content already ingested (e.g. the .pdf of an uploaded .md):
+          // stored, linked, but no duplicate client/alerts were created.
+          patch(id, { state: "duplicate", progress: undefined, message: job.message });
+        } else {
+          patch(id, {
+            state: "done",
+            progress: undefined,
+            message: job.message && job.message !== "Done" ? job.message : "Done — extracted and indexed.",
+          });
+        }
         docsQuery.refetch();
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
@@ -381,7 +398,7 @@ export default function IngestionPage() {
               <li
                 key={f.id}
                 data-testid="upload-status-item"
-                className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 shadow-xs transition-colors ${
+                className={`rounded-xl border px-4 py-3 shadow-xs transition-colors ${
                   f.state === "duplicate"
                     ? "border-amber-200 bg-amber-50/60"
                     : f.state === "error"
@@ -391,24 +408,47 @@ export default function IngestionPage() {
                     : "border-slate-200 bg-white"
                 }`}
               >
-                {f.state === "processing" && <Loader2 className="h-4 w-4 animate-spin text-brand-600" aria-hidden />}
-                {f.state === "done" && <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />}
-                {f.state === "duplicate" && <Copy className="h-4 w-4 text-amber-600" aria-hidden />}
-                {f.state === "error" && <AlertTriangle className="h-4 w-4 text-red-600" aria-hidden />}
-                <span className="flex-1 text-sm font-medium text-slate-950">{f.name}</span>
-                <span
-                  className={`text-xs font-medium ${
-                    f.state === "duplicate"
-                      ? "text-amber-800"
-                      : f.state === "error"
-                      ? "text-red-700"
-                      : f.state === "done"
-                      ? "text-emerald-800"
-                      : "text-brand-700"
-                  }`}
-                >
-                  {f.message}
-                </span>
+                <div className="flex w-full flex-wrap items-center gap-3">
+                  {f.state === "processing" && <Loader2 className="h-4 w-4 animate-spin text-brand-600" aria-hidden />}
+                  {f.state === "done" && <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />}
+                  {f.state === "duplicate" && <Copy className="h-4 w-4 text-amber-600" aria-hidden />}
+                  {f.state === "error" && <AlertTriangle className="h-4 w-4 text-red-600" aria-hidden />}
+                  <span className="flex-1 text-sm font-medium text-slate-950">{f.name}</span>
+                  {f.state === "processing" && f.progress != null && (
+                    <span className="text-xs font-semibold tabular-nums text-brand-700">
+                      {Math.round(f.progress)}%
+                    </span>
+                  )}
+                  <span
+                    className={`text-xs font-medium ${
+                      f.state === "duplicate"
+                        ? "text-amber-800"
+                        : f.state === "error"
+                        ? "text-red-700"
+                        : f.state === "done"
+                        ? "text-emerald-800"
+                        : "text-brand-700"
+                    }`}
+                  >
+                    {f.message}
+                  </span>
+                </div>
+                {f.state === "processing" && f.progress != null && (
+                  <div
+                    className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
+                    role="progressbar"
+                    aria-valuenow={Math.round(f.progress)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={`Processing ${f.name}`}
+                    data-testid="upload-progress-bar"
+                  >
+                    <div
+                      className="h-full rounded-full bg-brand-600 transition-[width] duration-500 ease-out"
+                      style={{ width: `${Math.max(2, Math.min(f.progress, 100))}%` }}
+                    />
+                  </div>
+                )}
               </li>
             ))}
           </ul>

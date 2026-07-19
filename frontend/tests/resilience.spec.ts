@@ -165,7 +165,7 @@ test.describe("upload validation", () => {
   });
 
   test("surfaces duplicate uploads distinctly", async ({ app, page }) => {
-    await page.route("**/api/ingest/upload", (route) =>
+    await page.route("**/api/ingest/upload-async", (route) =>
       route.fulfill({
         status: 409,
         contentType: "application/json",
@@ -188,6 +188,78 @@ test.describe("upload validation", () => {
     });
     const row = page.getByTestId("upload-status-item").filter({ hasText: "duplicate.pdf" });
     await expect(row).toContainText(/original\.pdf.*Not stored again/);
+  });
+});
+
+test.describe("ingestion pipeline UX", () => {
+  test("upload shows stage progress before completing", async ({ app, page }) => {
+    await app.ingestion.goto();
+    await app.ingestion.expectLoaded();
+    await page.getByTestId("document-upload-input").setInputFiles({
+      name: "progress-demo.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"),
+    });
+
+    const row = page.getByTestId("upload-status-item").filter({ hasText: "progress-demo.pdf" });
+    // Mock job reports PROCESSING 55% on the first poll: the determinate
+    // progress bar must be visible with a real value before completion.
+    const bar = row.getByTestId("upload-progress-bar");
+    await expect(bar).toBeVisible();
+    await expect(bar).toHaveAttribute("aria-valuenow", /\d+/);
+    await expect(row).toContainText(/%/);
+
+    await expect(row).toContainText(/Done/, { timeout: 15_000 });
+    await expect(bar).toBeHidden();
+  });
+
+  test("same-content document in another format is linked, not duplicated", async ({
+    app,
+    page,
+  }) => {
+    // Simulate the backend's content-level dedup outcome via the job status.
+    await page.route("**/api/ingest/jobs/**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "job-ct-dup",
+          kind: "upload",
+          filename: "whitfield.pdf",
+          status: "DONE",
+          progress: 100,
+          message: 'Content matches "whitfield-fact-find.md" — no duplicate records created.',
+          document_id: "job-ct-dup",
+          error: null,
+        }),
+      })
+    );
+    await app.ingestion.goto();
+    await page.getByTestId("document-upload-input").setInputFiles({
+      name: "whitfield.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"),
+    });
+    const row = page.getByTestId("upload-status-item").filter({ hasText: "whitfield.pdf" });
+    await expect(row).toContainText(/Content matches .* no duplicate records created/i, {
+      timeout: 15_000,
+    });
+  });
+
+  test("brief Regenerate bypasses the server cache with refresh=true", async ({ app, page }) => {
+    await app.meetingBrief.goto();
+    await app.meetingBrief.expectLoaded();
+    await app.meetingBrief.generateBrief();
+
+    const regenRequest = page.waitForRequest(
+      (r) =>
+        r.url().includes("/api/chat/brief") &&
+        r.method() === "POST" &&
+        r.postDataJSON()?.refresh === true
+    );
+    await page.getByTestId("regenerate-brief-button").click();
+    await regenRequest;
+    await expect(page.getByTestId("generated-brief")).toBeVisible();
   });
 });
 

@@ -44,6 +44,11 @@ const DOCUMENTS = [
   { id: "d2", filename: "Chen_MeetingNotes_Jan.docx", content_hash: "cd34", file_size_bytes: 45056, uploaded_at: plus(-2) + "T14:05:00" },
 ];
 
+// Async upload simulation state: unique job ids + per-job poll counts so the
+// UI's progress bar sees PROCESSING before DONE.
+let asyncJobCounter = 0;
+const jobPolls = new Map();
+
 const CLIENT_DETAILS = {
   c1: {
     id: "c1",
@@ -203,6 +208,22 @@ const server = createServer((req, res) => {
     }
     if (/^\/api\/ingest\/jobs\/[^/]+$/.test(path)) {
       const jobId = path.split("/").pop();
+      // Simulate the pipeline advancing across polls so the UI progress bar
+      // is exercised: poll 1 -> PROCESSING 55%, poll 2+ -> DONE.
+      const polls = (jobPolls.get(jobId) ?? 0) + 1;
+      jobPolls.set(jobId, polls);
+      if (polls === 1) {
+        return send(res, 200, {
+          id: jobId,
+          kind: "upload",
+          filename: "sample.pdf",
+          status: "PROCESSING",
+          progress: 55,
+          message: "AI extraction…",
+          document_id: jobId,
+          error: null,
+        });
+      }
       return send(res, 200, {
         id: jobId,
         kind: "upload",
@@ -325,8 +346,10 @@ const server = createServer((req, res) => {
       return send(res, 200, { id: "uploaded-doc", filename: "sample-client-note.pdf", content_hash: "upload", file_size_bytes: 620, uploaded_at: new Date().toISOString(), processing_error: null });
     if (path === "/api/ingest/transcript")
       return send(res, 201, { id: "transcript-doc", filename: "transcript-abc123.txt", content_hash: "transcript", file_size_bytes: 1200, uploaded_at: new Date().toISOString(), processing_error: null });
-    if (path === "/api/ingest/upload-async")
-      return send(res, 202, { job_id: "job-async-1", document_id: "job-async-1", status: "PENDING" });
+    if (path === "/api/ingest/upload-async") {
+      const jobId = `job-async-${++asyncJobCounter}`;
+      return send(res, 202, { job_id: jobId, document_id: jobId, status: "PENDING" });
+    }
     if (path === "/api/compliance/scan") {
       let body = {};
       try {

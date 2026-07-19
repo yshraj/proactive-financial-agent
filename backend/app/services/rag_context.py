@@ -49,6 +49,7 @@ def search_qdrant(
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
     from app.services.clients import get_qdrant_client
+    from app.services.vector_store import ensure_payload_indexes, is_missing_index_error
 
     client = get_qdrant_client()
     must = [FieldCondition(key="org_id", match=MatchValue(value=org_id))]
@@ -56,12 +57,23 @@ def search_qdrant(
         must.append(FieldCondition(key="client_id", match=MatchValue(value=client_id)))
     query_filter = Filter(must=must)
 
-    results = client.query_points(
-        collection_name=QDRANT_COLLECTION,
-        query=query_vector,
-        limit=limit,
-        query_filter=query_filter,
-    )
+    def _query():
+        return client.query_points(
+            collection_name=QDRANT_COLLECTION,
+            query=query_vector,
+            limit=limit,
+            query_filter=query_filter,
+        )
+
+    try:
+        results = _query()
+    except Exception as exc:
+        if not is_missing_index_error(exc):
+            raise
+        # Collection predates the tenancy migration (no org_id/client_id
+        # payload indexes): create them and retry once.
+        ensure_payload_indexes(QDRANT_COLLECTION)
+        results = _query()
     points = getattr(results, "points", None) or (
         list(results) if isinstance(results, (list, tuple)) else []
     )

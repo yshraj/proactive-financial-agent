@@ -117,6 +117,15 @@ def upsert_to_qdrant(
     logger.info("[ingest] Qdrant upsert done: %d points in %s", len(points), collection)
 
 
+def is_missing_index_error(exc: Exception) -> bool:
+    """Qdrant Cloud rejects filters on unindexed payload fields with this 400.
+
+    Happens when the collection predates the tenancy migration (indexes were
+    never created). Callers self-heal by creating the indexes and retrying.
+    """
+    return "Index required but not found" in str(exc)
+
+
 def ensure_payload_indexes(collection: str = QDRANT_COLLECTION) -> None:
     """Create keyword payload indexes for the fields every search filters on.
 
@@ -174,12 +183,19 @@ def delete_org_points(org_id: str, collection: str = QDRANT_COLLECTION) -> None:
     from app.services.clients import get_qdrant_client
 
     client = get_qdrant_client()
-    client.delete(
-        collection_name=collection,
-        points_selector=FilterSelector(
-            filter=Filter(must=[FieldCondition(key="org_id", match=MatchValue(value=org_id))])
-        ),
+    selector = FilterSelector(
+        filter=Filter(must=[FieldCondition(key="org_id", match=MatchValue(value=org_id))])
     )
+    try:
+        client.delete(collection_name=collection, points_selector=selector)
+    except Exception as exc:
+        if not is_missing_index_error(exc):
+            raise
+        # Collection predates the tenancy migration: create the payload
+        # indexes it is missing, then retry once.
+        logger.warning("[qdrant] org_id index missing on %s; creating and retrying", collection)
+        ensure_payload_indexes(collection)
+        client.delete(collection_name=collection, points_selector=selector)
 
 
 def index_document_text(

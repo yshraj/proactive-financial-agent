@@ -45,15 +45,11 @@ ratelimit_logger = logging.getLogger("jarvis.ratelimit")
 async def lifespan(app: FastAPI):
     # Fail closed before accepting traffic: unsafe auth config refuses to boot.
     enforce_auth_mode()
-    # Demo mode with no shared access code = a fully open public door. Allowed
-    # (local dev / previews) but loudly flagged so a deploy doesn't do it silently.
-    from app.security import access_code_configured, demo_mode_enabled
+    # Loudly name every unset-but-expected var (access code, LLM key, CORS, …)
+    # so a misconfigured deploy is obvious in the logs, not a silent surprise.
+    from app.observability import log_startup_config
 
-    if demo_mode_enabled() and not access_code_configured():
-        logger.warning(
-            "AUTH_MODE=demo and ACCESS_CODE is unset — the API is open to anyone "
-            "with the URL. Set ACCESS_CODE to enable the shared front-door gate."
-        )
+    log_startup_config(logger)
     # Single-service deployments process queued jobs in-process; render.yaml
     # disables this (INLINE_WORKER=false) once the dedicated worker exists.
     inline_worker_stop = None

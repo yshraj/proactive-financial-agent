@@ -57,6 +57,68 @@ def init_sentry() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Startup config audit: name every unset-but-expected var loudly, so a
+# misconfigured deploy shows up in the logs instead of failing mysteriously.
+# ---------------------------------------------------------------------------
+
+
+def _unset(name: str) -> bool:
+    return not (os.environ.get(name) or "").strip()
+
+
+def startup_config_warnings() -> list[str]:
+    """Human-readable warnings for missing/defaulted config. Non-fatal: hard
+    requirements (auth posture, DATABASE_URL on first query) fail elsewhere;
+    this surfaces the quieter foot-guns a deploy tends to forget."""
+    from app import security
+
+    warnings: list[str] = []
+
+    # Data plane.
+    if _unset("DATABASE_URL"):
+        warnings.append("DATABASE_URL is not set — the backend cannot reach Postgres.")
+    if _unset("QDRANT_URL"):
+        warnings.append("QDRANT_URL is not set — RAG/semantic search will be unavailable.")
+
+    # LLM provider.
+    provider = (os.environ.get("LLM_PROVIDER") or "openai").strip().lower()
+    if provider == "openai" and _unset("OPENAI_API_KEY"):
+        warnings.append("OPENAI_API_KEY is not set — AI features fall back to deterministic stubs.")
+    if provider == "gemini" and _unset("GEMINI_API_KEY") and _unset("GOOGLE_API_KEY"):
+        warnings.append("LLM_PROVIDER=gemini but neither GEMINI_API_KEY nor GOOGLE_API_KEY is set.")
+
+    # Front door: demo mode with no shared code = a fully open public API.
+    if security.demo_mode_enabled() and not security.access_code_configured():
+        warnings.append(
+            "AUTH_MODE=demo and ACCESS_CODE is unset — the API is open to anyone with "
+            "the URL. Set ACCESS_CODE to enable the shared front-door gate."
+        )
+
+    # CORS: the default only allows localhost, which blocks a real frontend origin.
+    if _unset("CORS_ORIGINS"):
+        warnings.append(
+            "CORS_ORIGINS is not set — defaulting to http://localhost:3000; browser "
+            "calls from your deployed frontend origin will be blocked by CORS."
+        )
+
+    # Observability.
+    if _unset("SENTRY_DSN"):
+        warnings.append("SENTRY_DSN is not set — backend error reporting is disabled (structured logs only).")
+
+    return warnings
+
+
+def log_startup_config(target_logger: logging.Logger) -> None:
+    """Emit the config audit at startup (WARNING per finding, or a clear all-good)."""
+    findings = startup_config_warnings()
+    if not findings:
+        target_logger.info("Config audit: all expected environment variables are set.")
+        return
+    for w in findings:
+        target_logger.warning("CONFIG: %s", w)
+
+
+# ---------------------------------------------------------------------------
 # Readiness: deep health with a short cache so probes stay cheap.
 # ---------------------------------------------------------------------------
 

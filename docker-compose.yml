@@ -5,12 +5,37 @@
 # self-contained. Secrets come from .env (see .env.production.example); never
 # hardcode them in this file.
 #
-# Host ports are bound to 127.0.0.1 only — the reverse proxy (Phase 4) is the
-# public entry point. On a VM without the proxy, tunnel or bind wider knowingly.
+# Host ports are bound to 127.0.0.1 only — the Caddy reverse proxy is the public
+# entry point (profile "proxy"). Run the public stack with:
+#     docker compose --profile proxy up -d --build
+# Plain `docker compose up` (no profile) runs backend+frontend+qdrant only, with
+# their ports on localhost — handy for a local bring-up without a domain/TLS.
 
 name: kritifin
 
 services:
+  # Public HTTPS entry point. Routes / -> frontend, /api|/health -> backend, with
+  # automatic TLS from Let's Encrypt for $DOMAIN. Only runs with --profile proxy.
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    profiles: ["proxy"]
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+
   qdrant:
     image: qdrant/qdrant:v1.12.4
     restart: unless-stopped
@@ -57,3 +82,5 @@ services:
 
 volumes:
   qdrant_storage:
+  caddy_data:
+  caddy_config:

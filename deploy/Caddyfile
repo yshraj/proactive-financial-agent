@@ -1,0 +1,27 @@
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+#
+# Requires DOMAIN to resolve to this VM's public IP and ports 80/443 reachable.
+# Caddy redirects HTTP -> HTTPS automatically for a named site address.
+
+{
+	# ACME account contact. Empty is allowed but a real address gets expiry
+	# notices from Let's Encrypt.
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Backend API + health endpoints.
+	#
+	# Overwrite X-Forwarded-For with the REAL peer IP so a client can't forge it.
+	# The daily cost budget keys on this IP (see app.security.client_ip_from);
+	# without the overwrite, a spoofed X-Forwarded-For would reset the budget.
+	@backend path /api/* /health*
+	reverse_proxy @backend backend:8000 {
+		header_up X-Forwarded-For {http.request.remote.host}
+	}
+
+	# Everything else -> the Next.js frontend.
+	reverse_proxy frontend:3000
+}

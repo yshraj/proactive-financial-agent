@@ -49,6 +49,10 @@ os.environ.setdefault("ENV", "test")
 DEFAULT_ORG_ID = "00000000-0000-0000-0000-000000000001"
 
 _ALL_DATA_TABLES = (
+    "credit_requests",
+    "credit_ledger",
+    "credit_reservations",
+    "credit_accounts",
     "conversation_messages",
     "conversations",
     "jobs",

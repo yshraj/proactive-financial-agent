@@ -44,6 +44,8 @@ def test_all_tables_have_rls_enabled(migrated_db):
         "clients", "alerts", "ingested_documents", "organizations", "users",
         "org_memberships", "audit_log", "ai_outputs", "jobs",
         "conversations", "conversation_messages",
+        "credit_accounts", "credit_reservations", "credit_ledger",
+        "credit_requests",
     }
     conn = psycopg2.connect(migrated_db["admin"])
     with conn.cursor() as cur:

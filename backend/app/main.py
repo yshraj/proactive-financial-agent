@@ -29,8 +29,13 @@ from app import security
 from app.auth import authenticate_request, require_access_code
 from app.logging_config import configure_logging
 from app.observability import init_sentry, readiness_report
-from app.routers import chat, compliance, ingest, monitor, settings
+from app.routers import chat, compliance, credits, ingest, monitor, settings
 from app.security import enforce_auth_mode, limiter
+from app.services.credits import (
+    CreditBalanceUnavailable,
+    DuplicateCreditAction,
+    InsufficientCredits,
+)
 from app.services.safety import public_error_message
 
 configure_logging()
@@ -83,18 +88,15 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     Wraps slowapi's default handler to inherit correct Retry-After / rate-limit
     headers, then replaces the body with a machine-readable shape the frontend
     can branch on, and emits one structured log line per hit (session/limit
-    type/timestamp) to inform later pricing decisions.
+    type/timestamp) to diagnose abuse-protection events.
     """
     default = _rate_limit_exceeded_handler(request, exc)
     scope = getattr(getattr(exc, "limit", None), "scope", None)
     limit_type = security.limit_type_for(scope, request.url.path)
 
-    # Daily budgets key on IP; per-minute/default limits key per session/user.
-    # Log the key that actually gated this request so hit analytics line up.
-    if limit_type in (security.LLM_SCOPE, security.INGEST_SCOPE):
-        rate_limit_key = security.daily_budget_key(request)
-    else:
-        rate_limit_key = security._rate_limit_key(request)
+    # Short-window abuse protection uses the same per-user/session key as the
+    # limiter. Lifetime credits are enforced by the separate credit ledger.
+    rate_limit_key = security._rate_limit_key(request)
 
     retry_after = default.headers.get("Retry-After")
     reset_at = None
@@ -123,7 +125,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
             "error": "rate_limit",
             "limit_type": limit_type,
             "reset_at": reset_at,
-            "detail": "You've reached the demo usage limit. Please try again later.",
+            "detail": "Too many requests in a short period. Wait a moment and try again.",
         },
     )
     # Preserve rate-limit headers slowapi computed on the default response.
@@ -131,6 +133,52 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         if header in default.headers:
             response.headers[header] = default.headers[header]
     return response
+
+
+@app.exception_handler(InsufficientCredits)
+async def insufficient_credits_handler(request: Request, exc: InsufficientCredits):
+    return JSONResponse(
+        status_code=409,
+        content={
+            "error": "insufficient_credits",
+            "required": exc.required,
+            "remaining": exc.remaining,
+            "feature": exc.feature,
+            "contact_available": (
+                os.environ.get("CREDIT_REQUEST_ENABLED", "true").lower()
+                in ("1", "true", "yes")
+                or bool(os.environ.get("CREDIT_CONTACT_EMAIL", "").strip())
+            ),
+        },
+    )
+
+
+@app.exception_handler(CreditBalanceUnavailable)
+async def credit_balance_unavailable_handler(
+    request: Request, exc: CreditBalanceUnavailable
+):
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "credit_balance_unavailable",
+            "detail": "Credit balance is temporarily unavailable. Please try again.",
+        },
+    )
+
+
+@app.exception_handler(DuplicateCreditAction)
+async def duplicate_credit_action_handler(
+    request: Request, exc: DuplicateCreditAction
+):
+    return JSONResponse(
+        status_code=409,
+        content={
+            "error": "duplicate_credit_action",
+            "feature": exc.feature,
+            "status": exc.status,
+            "detail": "This idempotent AI action has already been processed.",
+        },
+    )
 
 
 @app.exception_handler(Exception)
@@ -163,7 +211,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=[
         "Authorization", "Content-Type", "X-API-Key", "X-Request-ID",
-        "X-Access-Code", "X-Session-Id",
+        "X-Access-Code", "X-Session-Id", "X-Idempotency-Key",
     ],
 )
 
@@ -214,6 +262,7 @@ app.include_router(monitor.router, prefix="/api/monitor", tags=["monitor"], depe
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"], dependencies=api_guard)
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"], dependencies=api_guard)
 app.include_router(compliance.router, prefix="/api/compliance", tags=["compliance"], dependencies=api_guard)
+app.include_router(credits.router, prefix="/api/credits", tags=["credits"], dependencies=api_guard)
 
 
 @app.get("/api/access/check", dependencies=[Depends(require_access_code)])

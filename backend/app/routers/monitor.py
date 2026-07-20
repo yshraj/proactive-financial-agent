@@ -16,12 +16,12 @@ from typing import Optional
 import psycopg2
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.context import TenantContext
 from app.db import get_cursor
 from app.deps import current_tenant
-from app.security import limiter, llm_daily_limit
+from app.security import limiter
 from app.services.alert_helpers import (
     ALERTS_WITH_CLIENT_SQL,
     alert_from_row as _alert_row_dict,
@@ -42,6 +42,7 @@ from app.services.cache import (
 )
 from app.services.client_updates import validate_client_update
 from app.services import audit
+from app.services import credits
 from app.services.analytics import compute_book_analytics
 from app.services.export import rows_to_csv
 from app.services.playbooks import build_playbook_alerts, list_playbooks
@@ -634,7 +635,10 @@ class ReviewNoteResponse(BaseModel):
 
 @router.post("/clients/{client_id}/review-note", response_model=ReviewNoteResponse)
 @limiter.limit("30/minute")
-@llm_daily_limit
+@credits.enforce(
+    credits.CreditFeature.REVIEW_NOTE,
+    release_if=lambda result: not result.ai_generated,
+)
 def client_review_note(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
@@ -740,6 +744,8 @@ class PulseResponse(BaseModel):
 class DigestResponse(BaseModel):
     digest: str
     generated_at: str
+    # Internal accounting signal; excluded to preserve the public response.
+    ai_generated: bool = Field(default=True, exclude=True)
 
 
 def _parse_simulated_date(simulated_date: str) -> date:
@@ -850,6 +856,20 @@ Overdue follow-ups:
     )
 
 
+def _fallback_morning_digest(pulse: PulseResponse) -> str:
+    """Deterministic dashboard copy; this never consumes AI credits."""
+    if pulse.total == 0:
+        return (
+            "Your book looks clear today — a good moment for proactive client "
+            "outreach or reviewing uploaded documents."
+        )
+    top = pulse.alerts[0]
+    return (
+        f"You have {pulse.total} open priorities. Start with {top.client_name}: "
+        f"{top.title or top.type} due {top.trigger_date}."
+    )
+
+
 @router.get("/pulse", response_model=PulseResponse)
 def get_pulse(
     simulated_date: str = Query(..., description="YYYY-MM-DD"),
@@ -864,7 +884,6 @@ def get_pulse(
 
 @router.get("/digest", response_model=DigestResponse)
 @limiter.limit("30/minute")
-@llm_daily_limit
 def get_digest(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
@@ -886,28 +905,59 @@ def get_digest(
             return DigestResponse(
                 digest=cached["digest"],
                 generated_at=cached.get("generated_at", datetime.now().isoformat()),
+                ai_generated=bool(cached.get("ai_generated", True)),
             )
 
-    model = resolve_model("brief")
-    ai_generated = True
+        # Passive dashboard loads never invoke a provider or consume credits.
+        return DigestResponse(
+            digest=_fallback_morning_digest(pulse),
+            generated_at=datetime.now().isoformat(),
+            ai_generated=False,
+        )
+
+    reservation = credits.reserve(
+        credits.CreditFeature.DIGEST,
+        credits.request_idempotency_key(request, credits.CreditFeature.DIGEST),
+        ctx=ctx,
+    )
     try:
-        digest_text = _generate_morning_digest(pulse, simulated_date, model)
-    except Exception:
-        ai_generated = False
-        if pulse.total == 0:
-            digest_text = "Your book looks clear today — a good moment for proactive client outreach or reviewing uploaded documents."
-        else:
-            top = pulse.alerts[0]
-            digest_text = (
-                f"You have {pulse.total} open priorities. Start with {top.client_name}: "
-                f"{top.title or top.type} due {top.trigger_date}."
-            )
+        model = resolve_model("brief")
+        ai_generated = True
+        try:
+            digest_text = _generate_morning_digest(pulse, simulated_date, model)
+        except Exception:
+            ai_generated = False
+            digest_text = _fallback_morning_digest(pulse)
 
-    generated_at = datetime.now().isoformat()
-    cache_set(cache_key, {"digest": digest_text, "generated_at": generated_at}, BRIEF_TTL)
-    audit.record(kind="digest", model=model, output=digest_text,
-                 ai_generated=ai_generated, prompt_version=PROMPT_VERSION)
-    return DigestResponse(digest=digest_text, generated_at=generated_at)
+        generated_at = datetime.now().isoformat()
+        cache_set(
+            cache_key,
+            {
+                "digest": digest_text,
+                "generated_at": generated_at,
+                "ai_generated": ai_generated,
+            },
+            BRIEF_TTL,
+        )
+        audit.record(
+            kind="digest",
+            model=model,
+            output=digest_text,
+            ai_generated=ai_generated,
+            prompt_version=PROMPT_VERSION,
+        )
+        if ai_generated:
+            credits.commit(reservation.id, ctx=ctx)
+        else:
+            credits.release(reservation.id, ctx=ctx)
+        return DigestResponse(
+            digest=digest_text,
+            generated_at=generated_at,
+            ai_generated=ai_generated,
+        )
+    except BaseException:
+        credits.release(reservation.id, ctx=ctx)
+        raise
 
 
 class AlertsListResponse(BaseModel):
@@ -1123,7 +1173,7 @@ def _call_llm_brief_followup(
 
 @router.post("/draft-email", response_model=DraftEmailResponse)
 @limiter.limit("30/minute")
-@llm_daily_limit
+@credits.enforce(credits.CreditFeature.DRAFT_EMAIL)
 def draft_email(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)

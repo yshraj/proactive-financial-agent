@@ -19,9 +19,10 @@ from pydantic import BaseModel, Field
 from app.context import TenantContext
 from app.db import get_cursor
 from app.deps import current_tenant
-from app.security import limiter, llm_daily_limit
+from app.security import limiter
 from app.services import audit
 from app.services import conversations
+from app.services import credits
 from app.services.cache import (
     BRIEF_TTL,
     CHAT_TTL,
@@ -254,7 +255,7 @@ def get_conversation_messages(
 
 @router.post("/", response_model=ChatResponse)
 @limiter.limit("30/minute")
-@llm_daily_limit
+@credits.enforce(credits.CreditFeature.CHAT)
 def chat(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
@@ -453,7 +454,7 @@ def _generate_brief(ctx: TenantContext, client_id: str) -> tuple[str, list[str],
 
 @router.post("/brief", response_model=BriefResponse)
 @limiter.limit("30/minute")
-@llm_daily_limit
+@credits.enforce(credits.CreditFeature.REPORT)
 def post_brief(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)

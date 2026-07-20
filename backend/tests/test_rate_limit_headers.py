@@ -59,10 +59,10 @@ def test_sync_json_endpoint_with_limiter_enabled(
     _assert_rate_limit_headers(resp)
 
 
-def test_shared_daily_budget_endpoint_with_limiter_enabled(
+def test_credit_guarded_endpoint_with_limiter_enabled(
     api_client, clean_db, org_a, rate_limiting_enabled
 ):
-    """Stacked @limiter.limit + shared daily budget on a Pydantic endpoint."""
+    """A credit-guarded Pydantic endpoint still receives burst-limit headers."""
     client_id = seed_client(clean_db, org_a.org_id, "Alan Partridge")
     resp = api_client.post(
         f"/api/monitor/clients/{client_id}/review-note",

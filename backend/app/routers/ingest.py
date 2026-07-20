@@ -23,14 +23,15 @@ from typing import Callable, Optional
 
 import psycopg2
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.context import TenantContext
 from app.db import get_cursor
 from app.deps import current_tenant
-from app.security import ingestion_daily_limit, limiter
+from app.security import limiter
 from app.services.cache import invalidate_client_ai_caches
 from app.services import audit
+from app.services import credits
 from app.services import jobs
 from app.services import llm_extractor
 from app.services import note_templates
@@ -199,6 +200,7 @@ class IngestOutcome:
     note: Optional[str] = None  # info: merged / content-duplicate outcomes
     client_id: Optional[str] = None
     client_name: Optional[str] = None
+    ai_generated: bool = True
 
 
 def _normalized_text_hash(raw_text: str) -> Optional[str]:
@@ -243,9 +245,14 @@ def run_dual_path_ingestion_from_storage(
     except Exception as e:
         logger.exception("[ingest] Extraction failed: %s", e)
         return IngestOutcome(error=public_error_message("ingest_extraction", e))
-    return _persist_extraction(
+    outcome = _persist_extraction(
         extracted, display_filename, ext, document_id, ingested_at, progress=progress
     )
+    # The extractor intentionally skips the provider for unusably short text.
+    # Cached extraction remains chargeable because it represents an AI action.
+    if len(text) < 50:
+        outcome.ai_generated = False
+    return outcome
 
 
 def _find_content_duplicate(cur, org_id: str, document_id: str, text_hash: str) -> Optional[dict]:
@@ -545,6 +552,8 @@ class DocumentOut(BaseModel):
     note: Optional[str] = None
     client_id: Optional[str] = None
     client_name: Optional[str] = None
+    # Internal accounting signal; excluded from the existing API contract.
+    ai_generated: bool = Field(default=True, exclude=True)
 
 
 @router.get("/documents", response_model=list[DocumentOut])
@@ -580,7 +589,11 @@ def list_documents(ctx: TenantContext = Depends(current_tenant)):
 
 @router.post("/upload", response_model=DocumentOut, status_code=201)
 @limiter.limit("30/minute")
-@ingestion_daily_limit
+@credits.enforce(
+    credits.CreditFeature.PDF_ANALYSIS,
+    release_if=lambda result: bool(result.processing_error)
+    or not getattr(result, "ai_generated", True),
+)
 async def upload_document(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
@@ -646,6 +659,7 @@ async def upload_document(
         note=outcome.note,
         client_id=outcome.client_id,
         client_name=outcome.client_name,
+        ai_generated=outcome.ai_generated,
     )
 
 
@@ -668,7 +682,6 @@ class JobStatusResponse(BaseModel):
 
 @router.post("/upload-async", response_model=UploadJobResponse, status_code=202)
 @limiter.limit("30/minute")
-@ingestion_daily_limit
 async def upload_document_async(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
@@ -695,33 +708,44 @@ async def upload_document_async(
             },
         )
 
+    reservation = credits.reserve(
+        credits.CreditFeature.PDF_ANALYSIS,
+        credits.request_idempotency_key(request, credits.CreditFeature.PDF_ANALYSIS),
+        ctx=ctx,
+    )
     file_id = str(uuid.uuid4())
     display_filename = _sanitize_filename(file.filename)
     try:
         file_path_ref = storage.save_document(ctx.org_id, file_id, ext, content)
     except Exception as e:
+        credits.release(reservation.id, ctx=ctx)
         raise HTTPException(status_code=502, detail=public_error_message("ingest_storage", e)) from e
 
-    row = _store_document_row(
-        org_id=ctx.org_id,
-        file_id=file_id,
-        display_filename=display_filename,
-        content_hash=content_hash,
-        file_path=file_path_ref,
-        file_size=len(content),
-    )
+    try:
+        row = _store_document_row(
+            org_id=ctx.org_id,
+            file_id=file_id,
+            display_filename=display_filename,
+            content_hash=content_hash,
+            file_path=file_path_ref,
+            file_size=len(content),
+        )
 
-    job = jobs.create(
-        file_id,
-        kind="upload",
-        filename=display_filename,
-        document_id=file_id,
-        payload={
-            "file_path": file_path_ref,
-            "ext": ext,
-            "ingested_at": row["uploaded_at"].isoformat() if row.get("uploaded_at") else None,
-        },
-    )
+        job = jobs.create(
+            file_id,
+            kind="upload",
+            filename=display_filename,
+            document_id=file_id,
+            payload={
+                "file_path": file_path_ref,
+                "ext": ext,
+                "ingested_at": row["uploaded_at"].isoformat() if row.get("uploaded_at") else None,
+                "credit_reservation_id": reservation.id,
+            },
+        )
+    except BaseException:
+        credits.release(reservation.id, ctx=ctx)
+        raise
     audit.record_event(
         action="document.uploaded",
         resource_type="document",
@@ -788,7 +812,10 @@ MIN_TRANSCRIPT_CHARS = 50
 
 @router.post("/transcript", response_model=DocumentOut, status_code=201)
 @limiter.limit("30/minute")
-@ingestion_daily_limit
+@credits.enforce(
+    credits.CreditFeature.TRANSCRIPT_ANALYSIS,
+    release_if=lambda result: bool(result.processing_error),
+)
 def ingest_transcript(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
@@ -869,4 +896,5 @@ def ingest_transcript(
         note=outcome.note,
         client_id=outcome.client_id,
         client_name=outcome.client_name,
+        ai_generated=outcome.ai_generated,
     )

@@ -29,6 +29,7 @@ import time
 from typing import Any, Optional
 
 from app.context import set_current_tenant, set_request_id, system_context
+from app.services import credits
 from app.services import jobs
 
 logger = logging.getLogger("jarvis.worker")
@@ -59,11 +60,20 @@ def _process_upload_job(job: dict[str, Any]) -> None:
         file_path, job.get("filename") or "document", ext, document_id, ingested_at,
         progress=report,
     )
-    if outcome.error:
-        jobs.update(job["id"], status=jobs.ERROR, progress=100,
-                    message="Completed with issues", error=outcome.error,
-                    document_id=document_id)
+    reservation_id = payload.get("credit_reservation_id")
+    if outcome.error or not outcome.ai_generated:
+        if reservation_id:
+            credits.release(str(reservation_id))
+        if outcome.error:
+            jobs.update(job["id"], status=jobs.ERROR, progress=100,
+                        message="Completed with issues", error=outcome.error,
+                        document_id=document_id)
+        else:
+            jobs.update(job["id"], status=jobs.DONE, progress=100,
+                        message=outcome.note or "Done", document_id=document_id)
     else:
+        if reservation_id:
+            credits.commit(str(reservation_id))
         jobs.update(job["id"], status=jobs.DONE, progress=100,
                     message=outcome.note or "Done", document_id=document_id)
 
@@ -81,6 +91,9 @@ def process_one(job: dict[str, Any]) -> None:
     try:
         handler = _HANDLERS.get(job["kind"])
         if handler is None:
+            reservation_id = (job.get("payload") or {}).get("credit_reservation_id")
+            if reservation_id:
+                credits.release(str(reservation_id))
             jobs.update(job["id"], status=jobs.ERROR, progress=100, message="Failed",
                         error=f"No handler for job kind {job['kind']!r}")
             return
@@ -93,6 +106,9 @@ def process_one(job: dict[str, Any]) -> None:
         except (TypeError, ValueError):
             pass
         if attempts >= max_attempts:
+            reservation_id = (job.get("payload") or {}).get("credit_reservation_id")
+            if reservation_id:
+                credits.release(str(reservation_id))
             jobs.update(job["id"], status=jobs.ERROR, progress=100,
                         message="Failed", error=str(exc)[:500])
         else:

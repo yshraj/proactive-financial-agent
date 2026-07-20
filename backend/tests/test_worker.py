@@ -10,6 +10,7 @@ from app.worker import process_one
 def test_worker_processes_upload_job_under_org_context(clean_db, org_a, monkeypatch, tmp_path):
     """A claimed upload job runs the ingestion handler with the job's org bound."""
     from app.routers.ingest import IngestOutcome
+    from app.services import credits
 
     seen = {}
 
@@ -27,12 +28,20 @@ def test_worker_processes_upload_job_under_org_context(clean_db, org_a, monkeypa
     )
 
     job_id = str(uuid.uuid4())
+    reservation = credits.reserve(
+        credits.CreditFeature.PDF_ANALYSIS, f"upload:{job_id}", ctx=org_a
+    )
     jobs.create(
         job_id,
         kind="upload",
         filename="a.pdf",
         document_id=job_id,
-        payload={"file_path": "uploads/x/a.pdf", "ext": ".pdf", "ingested_at": None},
+        payload={
+            "file_path": "uploads/x/a.pdf",
+            "ext": ".pdf",
+            "ingested_at": None,
+            "credit_reservation_id": reservation.id,
+        },
         ctx=org_a,
     )
     claimed = jobs.claim_next("worker-test")
@@ -42,10 +51,12 @@ def test_worker_processes_upload_job_under_org_context(clean_db, org_a, monkeypa
     done = jobs.get(job_id, ctx=org_a)
     assert done["status"] == jobs.DONE
     assert done["progress"] == 100
+    assert credits.get_summary(ctx=org_a)["used"] == 2
 
 
 def test_worker_records_handler_error(clean_db, org_a, monkeypatch):
     from app.routers.ingest import IngestOutcome
+    from app.services import credits
 
     def failing_ingestion(*args, **kwargs):
         return IngestOutcome(error="Extraction failed.")  # soft error path
@@ -54,12 +65,21 @@ def test_worker_records_handler_error(clean_db, org_a, monkeypatch):
         "app.routers.ingest.run_dual_path_ingestion_from_storage", failing_ingestion
     )
     job_id = str(uuid.uuid4())
+    reservation = credits.reserve(
+        credits.CreditFeature.PDF_ANALYSIS, f"upload:{job_id}", ctx=org_a
+    )
     jobs.create(job_id, kind="upload", document_id=job_id,
-                payload={"file_path": "x", "ext": ".pdf"}, ctx=org_a)
+                payload={
+                    "file_path": "x",
+                    "ext": ".pdf",
+                    "credit_reservation_id": reservation.id,
+                }, ctx=org_a)
     process_one(jobs.claim_next("worker-test"))
     job = jobs.get(job_id, ctx=org_a)
     assert job["status"] == jobs.ERROR
     assert "Extraction failed" in (job["error"] or "")
+    assert credits.get_summary(ctx=org_a)["used"] == 0
+    assert credits.get_summary(ctx=org_a)["remaining"] == 200
 
 
 def test_worker_requeues_crash_until_attempts_exhausted(clean_db, org_a, monkeypatch):

@@ -94,27 +94,6 @@ def _rate_limit_key(request) -> str:
     return client_ip_from(request)
 
 
-def daily_budget_key(request) -> str:
-    """Key for the per-day cost budgets (LLM / ingestion).
-
-    Authenticated users key on their own identity. Anonymous/demo callers key on
-    the client IP — deliberately NOT the client-supplied ``X-Session-Id``, which
-    is trivially rotated to mint a fresh daily budget. Anchoring the daily spend
-    to the IP means rotating only the session header no longer resets it.
-
-    This RAISES THE BAR against casual header-rotation abuse; it is NOT
-    equivalent to real per-user auth (a determined attacker can still change
-    source IPs). Real auth remains explicitly out of scope for this pass.
-    """
-    tenant = getattr(getattr(request, "state", None), "tenant", None)
-    if tenant is not None and tenant.user_id:
-        return f"org:{tenant.org_id}:{tenant.user_id}"
-    ip = client_ip_from(request)
-    if tenant is not None:
-        return f"org:{tenant.org_id}:ip:{ip}"
-    return f"ip:{ip}"
-
-
 # Global default applied per-endpoint (decorated routes); key is tenant-aware.
 # RATE_LIMIT_ENABLED=false disables limiting (test suites only).
 limiter = Limiter(
@@ -126,47 +105,15 @@ limiter = Limiter(
     headers_enabled=True,
 )
 
-# Daily cost budgets (per rate-limit key — i.e. per user, or per browser session
-# in demo mode). These are SHARED buckets: every endpoint tagged with the same
-# scope draws from one counter, so the LLM budget caps total generations across
-# copilot + brief + digest + draft-email + review-note, not each in isolation.
-# Tunable via env without a code change; defaults come from the hardening plan.
-LLM_DAILY_LIMIT = os.environ.get("LLM_DAILY_LIMIT", "30/day").strip()
-INGEST_DAILY_LIMIT = os.environ.get("INGEST_DAILY_LIMIT", "5/day").strip()
-
-# scope strings double as the machine-readable limit_type in the 429 body / logs.
-LLM_SCOPE = "llm"
-INGEST_SCOPE = "ingestion"
-
-# Daily budgets key on IP (not session) so header-rotation can't reset them.
-llm_daily_limit = limiter.shared_limit(LLM_DAILY_LIMIT, scope=LLM_SCOPE, key_func=daily_budget_key)
-ingestion_daily_limit = limiter.shared_limit(
-    INGEST_DAILY_LIMIT, scope=INGEST_SCOPE, key_func=daily_budget_key
-)
-
-
 def limit_type_for(scope: Optional[str], path: str) -> str:
-    """Classify a rate-limit hit for the client and for pricing analytics.
+    """All slowapi limits are short-window abuse protection.
 
-    Prefers the shared-budget scope (``llm``/``ingestion``) when that was the
-    limit hit; otherwise infers from the path, defaulting to ``request`` for the
-    per-minute/global limits.
+    Lifetime credits are enforced separately and never reset. Keeping the
+    machine-readable type as ``request`` prevents clients from confusing a
+    temporary burst limit with an exhausted AI credit balance.
     """
-    if scope in (LLM_SCOPE, INGEST_SCOPE):
-        return scope
-    if path.startswith("/api/ingest"):
-        return INGEST_SCOPE
-    if path.startswith("/api/chat"):
-        return LLM_SCOPE
-    if path in _LLM_MONITOR_PATHS:
-        return LLM_SCOPE
+    _ = (scope, path)
     return "request"
-
-
-# Monitor endpoints that call the LLM (used only for classifying a per-minute hit).
-_LLM_MONITOR_PATHS = frozenset(
-    {"/api/monitor/digest", "/api/monitor/draft-email"}
-)
 
 
 def _expected_key() -> Optional[str]:

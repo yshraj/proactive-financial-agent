@@ -174,6 +174,28 @@ docker compose --profile proxy down   # stop the stack (volumes/certs persist)
 docker compose --profile proxy restart backend
 ```
 
+### Managing lifetime AI credits
+
+Credit requests are reviewed manually; users cannot grant credits to
+themselves. List requests, then approve one with an explicit amount:
+
+```bash
+docker compose run --rm backend python scripts/manage_credits.py --list
+docker compose run --rm backend python scripts/manage_credits.py \
+  --request-id <REQUEST_UUID> --amount 50 --apply
+```
+
+You can also grant directly to a signed-in email. `--key` makes the operation
+idempotent, so repeating the same command cannot add credits twice:
+
+```bash
+docker compose run --rm backend python scripts/manage_credits.py \
+  --email adviser@example.com --amount 25 --key manual-july-2026 --apply
+```
+
+Omit `--apply` for a dry run. Credits are lifetime balances and never reset or
+renew automatically.
+
 ## Troubleshooting
 
 - **Caddy can't get a cert** — DNS not pointing at the VM yet, or port 80/443

@@ -1,0 +1,13 @@
+# Keep the build context lean; node_modules and build output are regenerated.
+node_modules/
+.next/
+out/
+playwright-report/
+test-results/
+tests/
+.env
+.env.*
+!.env.example
+npm-debug.log*
+Dockerfile
+.dockerignore

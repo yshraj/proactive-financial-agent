@@ -49,6 +49,9 @@ const securityHeaders = [
 
 const nextConfig = {
   reactStrictMode: true,
+  // Emit a self-contained server bundle (.next/standalone) for a slim Docker
+  // runtime image. No effect on `next dev` / `next start`.
+  output: "standalone",
   async headers() {
     return [
       {

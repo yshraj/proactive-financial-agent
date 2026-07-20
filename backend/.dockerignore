@@ -1,0 +1,17 @@
+# Keep the build context (and image) lean and secret-free.
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+uploads/
+*.log
+.env
+.env.*
+!.env.example
+Dockerfile
+.dockerignore

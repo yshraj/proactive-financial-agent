@@ -8,9 +8,6 @@ test.describe("adviser QA journey", () => {
       page.waitForResponse(
         (r) => r.url().includes("/api/monitor/pulse") && r.ok()
       ),
-      page.waitForResponse(
-        (r) => r.url().includes("/api/monitor/digest") && r.ok()
-      ),
       app.dashboard.goto(),
     ]);
     await captureScreenshot(page, "01-dashboard-before", testInfo);

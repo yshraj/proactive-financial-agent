@@ -31,7 +31,13 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 2 : undefined,
-  reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: "playwright-report", open: "never" }],
+    // JUnit XML feeds GitHub Actions / GitLab / Azure DevOps / Jenkins test
+    // panels without any extra tooling.
+    ["junit", { outputFile: "playwright-results/junit.xml" }],
+  ],
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",

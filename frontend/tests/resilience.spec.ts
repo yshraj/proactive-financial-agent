@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/base";
+import { confirmCreditCostIfShown } from "./helpers/credits";
 
 /**
  * Failure-path coverage: broken URLs, API errors, network loss, rejected
@@ -258,6 +259,7 @@ test.describe("ingestion pipeline UX", () => {
         r.postDataJSON()?.refresh === true
     );
     await page.getByTestId("regenerate-brief-button").click();
+    await confirmCreditCostIfShown(page);
     await regenRequest;
     await expect(page.getByTestId("generated-brief")).toBeVisible();
   });

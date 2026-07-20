@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { confirmCreditCostIfShown } from "../helpers/credits";
 
 export class ClientsPage {
   constructor(private readonly page: Page) {}
@@ -37,6 +38,7 @@ export class ClientsPage {
   /** Open the review-note modal and wait for the generated note to render. */
   async openReviewNote() {
     await this.page.getByTestId("client-review-note-button").click();
+    await confirmCreditCostIfShown(this.page);
     await expect(this.page.getByTestId("review-note-content")).toBeVisible();
   }
 

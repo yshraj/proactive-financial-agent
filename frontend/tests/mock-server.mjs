@@ -49,6 +49,12 @@ const DOCUMENTS = [
 let asyncJobCounter = 0;
 const jobPolls = new Map();
 
+// Conversation persistence: unique ids per thread (parallel tests must not
+// share a conversation) with per-id message history so the UI's
+// restore-after-reload flow can re-fetch what it sent.
+let conversationCounter = 0;
+const conversationMessages = new Map();
+
 const CLIENT_DETAILS = {
   c1: {
     id: "c1",
@@ -123,7 +129,8 @@ function send(res, code, payload) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type,X-API-Key,Authorization",
+    "Access-Control-Allow-Headers":
+      "Content-Type,X-API-Key,Authorization,X-Access-Code,X-Session-Id,X-Idempotency-Key",
   });
   res.end(JSON.stringify(payload));
 }
@@ -135,6 +142,48 @@ const server = createServer((req, res) => {
 
   if (req.method === "GET") {
     if (path === "/health") return send(res, 200, { status: "ok" });
+    if (path === "/api/credits" || path === "/api/credits/") {
+      return send(res, 200, {
+        total_granted: 200,
+        used: 0,
+        remaining: 200,
+        version: 1,
+        costs: {
+          chat: 1,
+          report: 5,
+          image: 3,
+          pdf_analysis: 2,
+          deep_research: 10,
+          draft_email: 2,
+          digest: 2,
+          review_note: 3,
+          client_summary: 1,
+          transcript_analysis: 2,
+        },
+        contact: {
+          email: "hello@example.com",
+          request_enabled: true,
+        },
+      });
+    }
+    if (path === "/api/credits/history") {
+      return send(res, 200, {
+        entries: [
+          {
+            id: "credit-initial",
+            created_at: new Date().toISOString(),
+            feature: "initial_allocation",
+            delta: 200,
+            balance_after: 200,
+            status: "completed",
+            description: "Initial lifetime credit allocation",
+          },
+        ],
+        total: 1,
+        limit: Number(url.searchParams.get("limit") || 50),
+        offset: Number(url.searchParams.get("offset") || 0),
+      });
+    }
     if (path === "/api/monitor/export") {
       const type = url.searchParams.get("type") === "alerts" ? "alerts" : "clients";
       const csv =
@@ -204,6 +253,14 @@ const server = createServer((req, res) => {
         id,
         name: "Annual review",
         markdown: "# Annual review\n\n## Changes since last review\n\n- \n",
+      });
+    }
+    const convMatch = path.match(/^\/api\/chat\/conversations\/([^/]+)\/messages$/);
+    if (convMatch) {
+      const id = decodeURIComponent(convMatch[1]);
+      return send(res, 200, {
+        conversation_id: id,
+        messages: conversationMessages.get(id) ?? [],
       });
     }
     if (/^\/api\/ingest\/jobs\/[^/]+$/.test(path)) {
@@ -329,10 +386,15 @@ const server = createServer((req, res) => {
       } catch {
         body = {};
       }
+      const conversationId = body.conversation_id || `conv-mock-${++conversationCounter}`;
+      const messages = conversationMessages.get(conversationId) ?? [];
+      messages.push({ role: "user", content: body.query || "" });
+      messages.push({ role: "assistant", content: CHAT_ANSWER });
+      conversationMessages.set(conversationId, messages);
       return send(res, 200, {
         answer: CHAT_ANSWER,
         sources: CHAT_SOURCES,
-        conversation_id: body.conversation_id || "conv-mock-1",
+        conversation_id: conversationId,
       });
     }
     if (path === "/api/chat/brief") return send(res, 200, { brief: BRIEF, talking_points: TALKING_POINTS });
@@ -382,6 +444,15 @@ const server = createServer((req, res) => {
         message: "Loaded 4 demo clients and 6 alerts.",
         clients: 4,
         alerts: 6,
+      });
+    if (path === "/api/credits/requests")
+      return send(res, 202, {
+        id: "credit-request-mock",
+        status: "pending",
+        message:
+          "Your request is pending review. The project owner will contact you about additional credits.",
+        created_at: new Date().toISOString(),
+        contact_email: "hello@example.com",
       });
     return send(res, 404, { detail: "not found" });
   });

@@ -22,6 +22,11 @@ export class DashboardPage {
   async expectDigestVisible() {
     await expect(this.page.getByTestId("dashboard-digest-card")).toBeVisible();
     await expect(this.page.getByText(/Today's briefing/i)).toBeVisible();
+    const content = this.page.getByTestId("digest-content-text");
+    if (!(await content.isVisible().catch(() => false))) {
+      await this.page.getByTestId("generate-digest-button").click();
+      await expect(content).toBeVisible();
+    }
   }
 
   async clickFirstPrepareBrief() {

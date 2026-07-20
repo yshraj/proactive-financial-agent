@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 import psycopg2
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel
 
 from app.context import TenantContext
@@ -583,6 +583,7 @@ def list_documents(ctx: TenantContext = Depends(current_tenant)):
 @ingestion_daily_limit
 async def upload_document(
     request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
     file: UploadFile = File(...),
     ctx: TenantContext = Depends(current_tenant),
 ):
@@ -670,6 +671,7 @@ class JobStatusResponse(BaseModel):
 @ingestion_daily_limit
 async def upload_document_async(
     request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
     file: UploadFile = File(...),
     ctx: TenantContext = Depends(current_tenant),
 ):
@@ -788,7 +790,10 @@ MIN_TRANSCRIPT_CHARS = 50
 @limiter.limit("30/minute")
 @ingestion_daily_limit
 def ingest_transcript(
-    request: Request, body: TranscriptRequest, ctx: TenantContext = Depends(current_tenant)
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    body: TranscriptRequest,
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """
     Ingest a pasted meeting transcript: run the same dual-path pipeline as file

@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from app.context import TenantContext
@@ -237,7 +237,10 @@ def _get_structured_context(ctx: TenantContext, client_id: Optional[str] = None)
 @router.get("/conversations/{conversation_id}/messages", response_model=ConversationMessagesResponse)
 @limiter.limit("60/minute")
 def get_conversation_messages(
-    request: Request, conversation_id: str, ctx: TenantContext = Depends(current_tenant)
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    conversation_id: str,
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """Return a conversation's persisted messages (oldest first) so the frontend
     can restore the visible thread after a reload or server restart. Owner-scoped:
@@ -252,7 +255,12 @@ def get_conversation_messages(
 @router.post("/", response_model=ChatResponse)
 @limiter.limit("30/minute")
 @llm_daily_limit
-def chat(request: Request, body: ChatRequest, ctx: TenantContext = Depends(current_tenant)):
+def chat(
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    body: ChatRequest,
+    ctx: TenantContext = Depends(current_tenant),
+):
     """
     Ask Jarvis: embed query + structured context (parallel when cache miss), search Qdrant, synthesize with LLM.
     Responses cached by query hash; structured context cached briefly to avoid DB every time.
@@ -446,7 +454,12 @@ def _generate_brief(ctx: TenantContext, client_id: str) -> tuple[str, list[str],
 @router.post("/brief", response_model=BriefResponse)
 @limiter.limit("30/minute")
 @llm_daily_limit
-def post_brief(request: Request, body: BriefRequest, ctx: TenantContext = Depends(current_tenant)):
+def post_brief(
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    body: BriefRequest,
+    ctx: TenantContext = Depends(current_tenant),
+):
     """Generate a pre-meeting brief for the given client (structured data + RAG). Cached by client_id."""
     client_id = (body.client_id or "").strip()
     if not client_id:

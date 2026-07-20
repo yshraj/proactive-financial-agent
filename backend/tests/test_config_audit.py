@@ -1,7 +1,6 @@
 """Phase 3 — the startup config audit names exactly what a deploy is missing."""
 from __future__ import annotations
 
-import pytest
 
 from app.observability import startup_config_warnings
 

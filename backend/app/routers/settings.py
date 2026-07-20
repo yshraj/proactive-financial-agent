@@ -7,7 +7,7 @@ import logging
 import os
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.context import TenantContext
 from app.db import get_cursor
@@ -25,7 +25,11 @@ router = APIRouter()
 
 @router.post("/clear-data")
 @limiter.limit("3/hour")
-def clear_all_data(request: Request, ctx: TenantContext = Depends(current_tenant)):
+def clear_all_data(
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    ctx: TenantContext = Depends(current_tenant),
+):
     """
     Remove THIS WORKSPACE's clients, alerts, document metadata, stored files,
     and Qdrant vectors. Destructive: requires ALLOW_DATA_RESET=true (and is
@@ -80,7 +84,11 @@ def clear_all_data(request: Request, ctx: TenantContext = Depends(current_tenant
 
 @router.post("/load-sample-data")
 @limiter.limit("10/hour")
-def load_sample_data(request: Request, ctx: TenantContext = Depends(current_tenant)):
+def load_sample_data(
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    ctx: TenantContext = Depends(current_tenant),
+):
     """
     Populate the workspace with a demo dataset (clients + alerts) for onboarding.
     Only loads when the book is empty so it cannot create duplicate demo clients;

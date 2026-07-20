@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 from app.context import TenantContext
@@ -47,7 +47,12 @@ class ScanResponse(BaseModel):
 
 @router.post("/scan", response_model=ScanResponse)
 @limiter.limit("30/minute")
-def scan(request: Request, body: ScanRequest, ctx: TenantContext = Depends(current_tenant)):
+def scan(
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    body: ScanRequest,
+    ctx: TenantContext = Depends(current_tenant),
+):
     """Flag vulnerability drivers (FG21/1) and Consumer Duty signals in notes."""
     text = (body.text or "").strip()
     if not text:
@@ -146,7 +151,10 @@ def get_compliance_posture(ctx: TenantContext = Depends(current_tenant)):
 @router.post("/audit/{entry_id}/approve", response_model=AuditEntry)
 @limiter.limit("60/minute")
 def approve_audit_entry(
-    request: Request, entry_id: int, ctx: TenantContext = Depends(current_tenant)
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    entry_id: int,
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """Mark an AI output as human-reviewed — the Consumer-Duty approval gate."""
     updated = audit.approve(entry_id)

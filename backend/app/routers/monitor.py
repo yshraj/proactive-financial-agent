@@ -336,6 +336,7 @@ class ApplyPlaybookResponse(BaseModel):
 @limiter.limit("30/minute")
 def apply_playbook(
     request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
     client_id: str,
     body: ApplyPlaybookRequest,
     ctx: TenantContext = Depends(current_tenant),
@@ -393,7 +394,10 @@ def _generate_client_summary(client_name: str, profile_bits: str, alert_lines: s
 @router.get("/clients/{client_id}", response_model=ClientDetailOut)
 @limiter.limit("30/minute")
 def get_client_detail(
-    request: Request, client_id: str, ctx: TenantContext = Depends(current_tenant)
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    client_id: str,
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """Client 360° view: profile, open alerts, overdue follow-ups, and AI relationship summary."""
     today = datetime.now().date()
@@ -554,6 +558,7 @@ class ClientUpdateResponse(BaseModel):
 @limiter.limit("60/minute")
 def update_client(
     request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
     client_id: str,
     body: ClientUpdateRequest,
     ctx: TenantContext = Depends(current_tenant),
@@ -631,7 +636,10 @@ class ReviewNoteResponse(BaseModel):
 @limiter.limit("30/minute")
 @llm_daily_limit
 def client_review_note(
-    request: Request, client_id: str, ctx: TenantContext = Depends(current_tenant)
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    client_id: str,
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """Generate a Consumer-Duty client review note (LLM, with deterministic fallback)."""
     today = datetime.now().date()
@@ -859,6 +867,7 @@ def get_pulse(
 @llm_daily_limit
 def get_digest(
     request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
     simulated_date: str = Query(..., description="YYYY-MM-DD"),
     refresh: bool = Query(False, description="Bypass cache and regenerate digest"),
     ctx: TenantContext = Depends(current_tenant),
@@ -1014,6 +1023,7 @@ def update_alert_status(
     alert_id: str,
     body: AlertStatusUpdate,
     request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
     ctx: TenantContext = Depends(current_tenant),
 ):
     """
@@ -1115,7 +1125,10 @@ def _call_llm_brief_followup(
 @limiter.limit("30/minute")
 @llm_daily_limit
 def draft_email(
-    request: Request, body: DraftEmailRequest, ctx: TenantContext = Depends(current_tenant)
+    request: Request,
+    response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    body: DraftEmailRequest,
+    ctx: TenantContext = Depends(current_tenant),
 ):
     """Generate a personalised email draft for an alert or meeting brief. Cached by alert_id or client+context hash."""
     model = resolve_model("draft")

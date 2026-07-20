@@ -93,6 +93,13 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     scope = getattr(getattr(exc, "limit", None), "scope", None)
     limit_type = security.limit_type_for(scope, request.url.path)
 
+    # Daily budgets key on IP; per-minute/default limits key per session/user.
+    # Log the key that actually gated this request so hit analytics line up.
+    if limit_type in (security.LLM_SCOPE, security.INGEST_SCOPE):
+        rate_limit_key = security.daily_budget_key(request)
+    else:
+        rate_limit_key = security._rate_limit_key(request)
+
     retry_after = default.headers.get("Retry-After")
     reset_at = None
     if retry_after and str(retry_after).isdigit():
@@ -107,7 +114,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         extra={
             "event": "rate_limit_hit",
             "limit_type": limit_type,
-            "rate_limit_key": security._rate_limit_key(request),
+            "rate_limit_key": rate_limit_key,
             "path": request.url.path,
             "method": request.method,
             "request_id": getattr(request.state, "request_id", ""),

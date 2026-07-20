@@ -20,6 +20,70 @@ from tests.conftest import auth_headers_for
 # ---------------------------------------------------------------------------
 
 
+class _FakeRequest:
+    def __init__(self, headers=None, tenant=None, client_host="5.5.5.5"):
+        self.headers = headers or {}
+
+        class _State:
+            pass
+
+        self.state = _State()
+        if tenant is not None:
+            self.state.tenant = tenant
+
+        class _Client:
+            host = client_host
+
+        self.client = _Client()
+        self.scope = {"client": (client_host, 0)}
+
+
+# ---------------------------------------------------------------------------
+# Proxy-aware client IP + daily-budget key (the spoof-gap fix)
+# ---------------------------------------------------------------------------
+
+
+def test_client_ip_prefers_forwarded_for():
+    req = _FakeRequest(headers={"X-Forwarded-For": "203.0.113.9, 10.0.0.1"}, client_host="10.0.0.1")
+    assert security.client_ip_from(req) == "203.0.113.9"
+
+
+def test_client_ip_uses_real_ip_header():
+    req = _FakeRequest(headers={"X-Real-IP": "198.51.100.7"}, client_host="10.0.0.1")
+    assert security.client_ip_from(req) == "198.51.100.7"
+
+
+def test_client_ip_falls_back_to_peer():
+    req = _FakeRequest(headers={}, client_host="192.0.2.44")
+    assert security.client_ip_from(req) == "192.0.2.44"
+
+
+def test_daily_budget_key_ignores_session_rotation():
+    """The whole point: rotating X-Session-Id from the same IP must NOT mint a
+    fresh daily budget."""
+    from app.context import TenantContext
+
+    demo = TenantContext(org_id="00000000-0000-0000-0000-000000000001", user_id=None, role="demo")
+    key_a = security.daily_budget_key(
+        _FakeRequest(headers={"X-Session-Id": "aaaa"}, tenant=demo, client_host="7.7.7.7")
+    )
+    key_b = security.daily_budget_key(
+        _FakeRequest(headers={"X-Session-Id": "bbbb"}, tenant=demo, client_host="7.7.7.7")
+    )
+    assert key_a == key_b  # same IP -> same daily bucket regardless of session
+    assert "7.7.7.7" in key_a
+
+
+def test_daily_budget_key_authenticated_uses_user():
+    from app.context import TenantContext
+
+    ctx = TenantContext(org_id="org-9", user_id="user-3", role="adviser")
+    key = security.daily_budget_key(
+        _FakeRequest(headers={"X-Session-Id": "whatever"}, tenant=ctx)
+    )
+    assert key == "org:org-9:user-3"
+
+
 def test_limit_type_prefers_shared_scope():
     assert security.limit_type_for("llm", "/api/anything") == "llm"
     assert security.limit_type_for("ingestion", "/api/anything") == "ingestion"

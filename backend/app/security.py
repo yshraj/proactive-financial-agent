@@ -41,9 +41,39 @@ def session_id_from(request) -> Optional[str]:
     return raw.strip()[:64] if raw and raw.strip() else None
 
 
+def client_ip_from(request) -> str:
+    """Best-effort real client IP, proxy-aware.
+
+    Behind the reverse proxy (nginx/Caddy) the direct peer is the proxy, so the
+    real client IP arrives in ``X-Forwarded-For`` (first hop) or ``X-Real-IP``.
+    We honour those when present and fall back to the direct connection IP.
+
+    Caveat: these headers are client-settable when the app is NOT behind a
+    trusted proxy. That is acceptable here because the IP is used only for the
+    cost-budget bucket (a spend guard), never for authentication. The production
+    proxy must be configured to overwrite ``X-Forwarded-For`` so a client can't
+    forge it.
+    """
+    headers = getattr(request, "headers", None)
+    if headers is not None:
+        xff = headers.get("X-Forwarded-For")
+        if xff:
+            first = xff.split(",")[0].strip()
+            if first:
+                return first
+        xri = headers.get("X-Real-IP")
+        if xri and xri.strip():
+            return xri.strip()
+    return get_remote_address(request)
+
+
 def _rate_limit_key(request) -> str:
-    """Rate-limit bucket: real user when authenticated, else per browser session
-    (demo mode), else client IP.
+    """Per-minute / default rate-limit bucket: real user when authenticated,
+    else per browser session (demo mode), else client IP.
+
+    Session-scoped so honest concurrent demo users on one NAT'd IP don't starve
+    each other minute-to-minute. The per-DAY cost budgets use daily_budget_key
+    instead — see there for why session is deliberately excluded.
 
     Router-level auth dependencies run before endpoint rate-limit decorators,
     so ``request.state.tenant`` is populated by the time this is called.
@@ -57,11 +87,32 @@ def _rate_limit_key(request) -> str:
         session = session_id_from(request)
         if session:
             return f"org:{tenant.org_id}:sess:{session}"
-        return f"org:{tenant.org_id}:ip:{get_remote_address(request)}"
+        return f"org:{tenant.org_id}:ip:{client_ip_from(request)}"
     session = session_id_from(request)
     if session:
         return f"sess:{session}"
-    return get_remote_address(request)
+    return client_ip_from(request)
+
+
+def daily_budget_key(request) -> str:
+    """Key for the per-day cost budgets (LLM / ingestion).
+
+    Authenticated users key on their own identity. Anonymous/demo callers key on
+    the client IP — deliberately NOT the client-supplied ``X-Session-Id``, which
+    is trivially rotated to mint a fresh daily budget. Anchoring the daily spend
+    to the IP means rotating only the session header no longer resets it.
+
+    This RAISES THE BAR against casual header-rotation abuse; it is NOT
+    equivalent to real per-user auth (a determined attacker can still change
+    source IPs). Real auth remains explicitly out of scope for this pass.
+    """
+    tenant = getattr(getattr(request, "state", None), "tenant", None)
+    if tenant is not None and tenant.user_id:
+        return f"org:{tenant.org_id}:{tenant.user_id}"
+    ip = client_ip_from(request)
+    if tenant is not None:
+        return f"org:{tenant.org_id}:ip:{ip}"
+    return f"ip:{ip}"
 
 
 # Global default applied per-endpoint (decorated routes); key is tenant-aware.
@@ -87,8 +138,11 @@ INGEST_DAILY_LIMIT = os.environ.get("INGEST_DAILY_LIMIT", "5/day").strip()
 LLM_SCOPE = "llm"
 INGEST_SCOPE = "ingestion"
 
-llm_daily_limit = limiter.shared_limit(LLM_DAILY_LIMIT, scope=LLM_SCOPE)
-ingestion_daily_limit = limiter.shared_limit(INGEST_DAILY_LIMIT, scope=INGEST_SCOPE)
+# Daily budgets key on IP (not session) so header-rotation can't reset them.
+llm_daily_limit = limiter.shared_limit(LLM_DAILY_LIMIT, scope=LLM_SCOPE, key_func=daily_budget_key)
+ingestion_daily_limit = limiter.shared_limit(
+    INGEST_DAILY_LIMIT, scope=INGEST_SCOPE, key_func=daily_budget_key
+)
 
 
 def limit_type_for(scope: Optional[str], path: str) -> str:

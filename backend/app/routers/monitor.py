@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from app.context import TenantContext
 from app.db import get_cursor
 from app.deps import current_tenant
-from app.security import limiter
+from app.security import limiter, llm_daily_limit
 from app.services.alert_helpers import (
     ALERTS_WITH_CLIENT_SQL,
     alert_from_row as _alert_row_dict,
@@ -606,6 +606,7 @@ class ReviewNoteResponse(BaseModel):
 
 @router.post("/clients/{client_id}/review-note", response_model=ReviewNoteResponse)
 @limiter.limit("30/minute")
+@llm_daily_limit
 def client_review_note(
     request: Request, client_id: str, ctx: TenantContext = Depends(current_tenant)
 ):
@@ -832,6 +833,7 @@ def get_pulse(
 
 @router.get("/digest", response_model=DigestResponse)
 @limiter.limit("30/minute")
+@llm_daily_limit
 def get_digest(
     request: Request,
     simulated_date: str = Query(..., description="YYYY-MM-DD"),
@@ -1078,6 +1080,7 @@ def _call_llm_brief_followup(
 
 @router.post("/draft-email", response_model=DraftEmailResponse)
 @limiter.limit("30/minute")
+@llm_daily_limit
 def draft_email(
     request: Request, body: DraftEmailRequest, ctx: TenantContext = Depends(current_tenant)
 ):

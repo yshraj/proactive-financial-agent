@@ -29,16 +29,38 @@ AUTH_MODE_REQUIRED = "required"
 AUTH_MODE_DEMO = "demo"
 
 
+def session_id_from(request) -> Optional[str]:
+    """The browser session id (X-Session-Id), used to scope demo-mode limits.
+
+    Anonymous demo callers all share one tenant (org:default:demo), so without
+    this every visitor would draw from one global bucket. The frontend mints a
+    per-browser id; it is spoofable, so IP remains the fallback for callers that
+    send none. Truncated to bound the key space.
+    """
+    raw = request.headers.get("X-Session-Id") if hasattr(request, "headers") else None
+    return raw.strip()[:64] if raw and raw.strip() else None
+
+
 def _rate_limit_key(request) -> str:
-    """Per-tenant rate limiting: org/user when authenticated, else client IP.
+    """Rate-limit bucket: real user when authenticated, else per browser session
+    (demo mode), else client IP.
 
     Router-level auth dependencies run before endpoint rate-limit decorators,
     so ``request.state.tenant`` is populated by the time this is called.
     """
     tenant = getattr(getattr(request, "state", None), "tenant", None)
     if tenant is not None:
-        user_part = tenant.user_id or tenant.role
-        return f"org:{tenant.org_id}:{user_part}"
+        # A real signed-in user keys on their own identity.
+        if tenant.user_id:
+            return f"org:{tenant.org_id}:{tenant.user_id}"
+        # Shared/demo contexts: separate each browser session, IP as fallback.
+        session = session_id_from(request)
+        if session:
+            return f"org:{tenant.org_id}:sess:{session}"
+        return f"org:{tenant.org_id}:ip:{get_remote_address(request)}"
+    session = session_id_from(request)
+    if session:
+        return f"sess:{session}"
     return get_remote_address(request)
 
 
@@ -48,6 +70,48 @@ limiter = Limiter(
     key_func=_rate_limit_key,
     default_limits=["120/minute"],
     enabled=os.environ.get("RATE_LIMIT_ENABLED", "true").strip().lower() != "false",
+    # Emit Retry-After / X-RateLimit-* so clients (and our 429 body's reset_at)
+    # get an accurate window-reset time instead of guessing.
+    headers_enabled=True,
+)
+
+# Daily cost budgets (per rate-limit key — i.e. per user, or per browser session
+# in demo mode). These are SHARED buckets: every endpoint tagged with the same
+# scope draws from one counter, so the LLM budget caps total generations across
+# copilot + brief + digest + draft-email + review-note, not each in isolation.
+# Tunable via env without a code change; defaults come from the hardening plan.
+LLM_DAILY_LIMIT = os.environ.get("LLM_DAILY_LIMIT", "30/day").strip()
+INGEST_DAILY_LIMIT = os.environ.get("INGEST_DAILY_LIMIT", "5/day").strip()
+
+# scope strings double as the machine-readable limit_type in the 429 body / logs.
+LLM_SCOPE = "llm"
+INGEST_SCOPE = "ingestion"
+
+llm_daily_limit = limiter.shared_limit(LLM_DAILY_LIMIT, scope=LLM_SCOPE)
+ingestion_daily_limit = limiter.shared_limit(INGEST_DAILY_LIMIT, scope=INGEST_SCOPE)
+
+
+def limit_type_for(scope: Optional[str], path: str) -> str:
+    """Classify a rate-limit hit for the client and for pricing analytics.
+
+    Prefers the shared-budget scope (``llm``/``ingestion``) when that was the
+    limit hit; otherwise infers from the path, defaulting to ``request`` for the
+    per-minute/global limits.
+    """
+    if scope in (LLM_SCOPE, INGEST_SCOPE):
+        return scope
+    if path.startswith("/api/ingest"):
+        return INGEST_SCOPE
+    if path.startswith("/api/chat"):
+        return LLM_SCOPE
+    if path in _LLM_MONITOR_PATHS:
+        return LLM_SCOPE
+    return "request"
+
+
+# Monitor endpoints that call the LLM (used only for classifying a per-minute hit).
+_LLM_MONITOR_PATHS = frozenset(
+    {"/api/monitor/digest", "/api/monitor/draft-email"}
 )
 
 
@@ -66,6 +130,33 @@ def api_key_matches(candidate: Optional[str]) -> bool:
     if not expected or not candidate:
         return False
     return secrets.compare_digest(candidate, expected)
+
+
+# ---------------------------------------------------------------------------
+# Shared access code — the "locked front door" for public demo deployments.
+#
+# This is NOT authentication. It is a single shared secret checked on every
+# /api/* request (X-Access-Code header) so a public, demo-mode URL cannot be
+# hit freely by anyone who finds it. Real per-user auth is Supabase JWT (see
+# app.auth). When ACCESS_CODE is unset the gate is disabled (local dev / tests).
+# ---------------------------------------------------------------------------
+
+
+def _expected_access_code() -> Optional[str]:
+    code = os.environ.get("ACCESS_CODE")
+    return code.strip() if code else None
+
+
+def access_code_configured() -> bool:
+    return bool(_expected_access_code())
+
+
+def access_code_matches(candidate: Optional[str]) -> bool:
+    """Constant-time comparison against the configured shared access code."""
+    expected = _expected_access_code()
+    if not expected or not candidate:
+        return False
+    return secrets.compare_digest(candidate.strip(), expected)
 
 
 def _supabase_configured() -> bool:

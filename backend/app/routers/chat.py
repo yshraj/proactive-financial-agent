@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from app.context import TenantContext
 from app.db import get_cursor
 from app.deps import current_tenant
-from app.security import limiter
+from app.security import limiter, llm_daily_limit
 from app.services import audit
 from app.services import conversations
 from app.services.cache import (
@@ -419,6 +419,7 @@ def _generate_brief(ctx: TenantContext, client_id: str) -> tuple[str, list[str],
 
 @router.post("/brief", response_model=BriefResponse)
 @limiter.limit("30/minute")
+@llm_daily_limit
 def post_brief(request: Request, body: BriefRequest, ctx: TenantContext = Depends(current_tenant)):
     """Generate a pre-meeting brief for the given client (structured data + RAG). Cached by client_id."""
     client_id = (body.client_id or "").strip()

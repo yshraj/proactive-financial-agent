@@ -22,8 +22,11 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from datetime import datetime, timedelta, timezone
+
 from app import context as request_context
-from app.auth import authenticate_request
+from app import security
+from app.auth import authenticate_request, require_access_code
 from app.logging_config import configure_logging
 from app.observability import init_sentry, readiness_report
 from app.routers import chat, compliance, ingest, monitor, settings
@@ -35,12 +38,22 @@ init_sentry()
 
 logger = logging.getLogger("jarvis.api")
 access_logger = logging.getLogger("jarvis.access")
+ratelimit_logger = logging.getLogger("jarvis.ratelimit")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Fail closed before accepting traffic: unsafe auth config refuses to boot.
     enforce_auth_mode()
+    # Demo mode with no shared access code = a fully open public door. Allowed
+    # (local dev / previews) but loudly flagged so a deploy doesn't do it silently.
+    from app.security import access_code_configured, demo_mode_enabled
+
+    if demo_mode_enabled() and not access_code_configured():
+        logger.warning(
+            "AUTH_MODE=demo and ACCESS_CODE is unset — the API is open to anyone "
+            "with the URL. Set ACCESS_CODE to enable the shared front-door gate."
+        )
     # Single-service deployments process queued jobs in-process; render.yaml
     # disables this (INLINE_WORKER=false) once the dedicated worker exists.
     inline_worker_stop = None
@@ -63,9 +76,58 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Rate limiting (per org/user, IP fallback) – limits declared per-endpoint.
+# Rate limiting (per org/user, per-session in demo, IP fallback).
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """Structured 429 for a tripped limit, plus a queryable hit log.
+
+    Wraps slowapi's default handler to inherit correct Retry-After / rate-limit
+    headers, then replaces the body with a machine-readable shape the frontend
+    can branch on, and emits one structured log line per hit (session/limit
+    type/timestamp) to inform later pricing decisions.
+    """
+    default = _rate_limit_exceeded_handler(request, exc)
+    scope = getattr(getattr(exc, "limit", None), "scope", None)
+    limit_type = security.limit_type_for(scope, request.url.path)
+
+    retry_after = default.headers.get("Retry-After")
+    reset_at = None
+    if retry_after and str(retry_after).isdigit():
+        reset_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=int(retry_after))
+        ).isoformat()
+
+    ratelimit_logger.warning(
+        "rate limit exceeded: %s on %s",
+        limit_type,
+        request.url.path,
+        extra={
+            "event": "rate_limit_hit",
+            "limit_type": limit_type,
+            "rate_limit_key": security._rate_limit_key(request),
+            "path": request.url.path,
+            "method": request.method,
+            "request_id": getattr(request.state, "request_id", ""),
+        },
+    )
+
+    response = JSONResponse(
+        status_code=429,
+        content={
+            "error": "rate_limit",
+            "limit_type": limit_type,
+            "reset_at": reset_at,
+            "detail": "You've reached the demo usage limit. Please try again later.",
+        },
+    )
+    # Preserve rate-limit headers slowapi computed on the default response.
+    for header in ("Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"):
+        if header in default.headers:
+            response.headers[header] = default.headers[header]
+    return response
 
 
 @app.exception_handler(Exception)
@@ -96,7 +158,10 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
+    allow_headers=[
+        "Authorization", "Content-Type", "X-API-Key", "X-Request-ID",
+        "X-Access-Code", "X-Session-Id",
+    ],
 )
 
 
@@ -137,14 +202,22 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(RequestContextMiddleware)
 
-# API auth: every /api/* request must resolve to a tenant (Supabase JWT,
+# API guard: the shared access-code front door runs first (rejects unknown
+# callers before any tenant work), then auth resolves a tenant (Supabase JWT,
 # service API key, or — only when AUTH_MODE=demo — the shared demo workspace).
-api_guard = [Depends(authenticate_request)]
+api_guard = [Depends(require_access_code), Depends(authenticate_request)]
 app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"], dependencies=api_guard)
 app.include_router(monitor.router, prefix="/api/monitor", tags=["monitor"], dependencies=api_guard)
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"], dependencies=api_guard)
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"], dependencies=api_guard)
 app.include_router(compliance.router, prefix="/api/compliance", tags=["compliance"], dependencies=api_guard)
+
+
+@app.get("/api/access/check", dependencies=[Depends(require_access_code)])
+def access_check():
+    """Front-door probe: 200 if the access code is valid (or the gate is off),
+    401 otherwise. Lets the frontend gate the app shell without a tenant/token."""
+    return {"ok": True}
 
 
 @app.get("/health")

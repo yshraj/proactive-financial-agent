@@ -119,6 +119,26 @@ def _bearer_token(authorization: Optional[str]) -> Optional[str]:
     return None
 
 
+async def require_access_code(
+    x_access_code: Optional[str] = Header(default=None),
+) -> None:
+    """Front-door gate: reject /api/* requests without the shared access code.
+
+    A no-op when ``ACCESS_CODE`` is unset (local dev / tests). This is not
+    authentication — it is a single shared secret that keeps a public demo URL
+    from being hit freely. Runs before :func:`authenticate_request` so a missing
+    code is rejected before any tenant resolution work.
+    """
+    if not security.access_code_configured():
+        return
+    if not security.access_code_matches(x_access_code):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access code required.",
+            headers={"WWW-Authenticate": "AccessCode"},
+        )
+
+
 def service_org_id() -> str:
     """Workspace that service (API-key) callers act on."""
     return (os.environ.get("SERVICE_ORG_ID") or DEFAULT_ORG_ID).strip()

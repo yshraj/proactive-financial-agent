@@ -6,6 +6,7 @@
 //   key provides no security. API_KEY remains a server-to-server credential.
 
 import { getSupabaseClient, isSupabaseConfigured } from "./supabase/client";
+import { getAccessCode, getSessionId } from "./accessCode";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -39,6 +40,11 @@ async function authHeaders(): Promise<Record<string, string>> {
       // Proceed unauthenticated; the backend will reject if it requires a token.
     }
   }
+  // Shared front-door code + per-session id for demo-mode rate limiting.
+  const code = getAccessCode();
+  if (code) headers["X-Access-Code"] = code;
+  const sessionId = getSessionId();
+  if (sessionId) headers["X-Session-Id"] = sessionId;
   return headers;
 }
 

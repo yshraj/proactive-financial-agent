@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from app.context import TenantContext
 from app.db import get_cursor
 from app.deps import current_tenant
-from app.security import limiter
+from app.security import ingestion_daily_limit, limiter
 from app.services.cache import invalidate_client_ai_caches
 from app.services import audit
 from app.services import jobs
@@ -580,6 +580,7 @@ def list_documents(ctx: TenantContext = Depends(current_tenant)):
 
 @router.post("/upload", response_model=DocumentOut, status_code=201)
 @limiter.limit("30/minute")
+@ingestion_daily_limit
 async def upload_document(
     request: Request,
     file: UploadFile = File(...),
@@ -666,6 +667,7 @@ class JobStatusResponse(BaseModel):
 
 @router.post("/upload-async", response_model=UploadJobResponse, status_code=202)
 @limiter.limit("30/minute")
+@ingestion_daily_limit
 async def upload_document_async(
     request: Request,
     file: UploadFile = File(...),
@@ -784,6 +786,7 @@ MIN_TRANSCRIPT_CHARS = 50
 
 @router.post("/transcript", response_model=DocumentOut, status_code=201)
 @limiter.limit("30/minute")
+@ingestion_daily_limit
 def ingest_transcript(
     request: Request, body: TranscriptRequest, ctx: TenantContext = Depends(current_tenant)
 ):

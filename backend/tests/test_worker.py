@@ -79,7 +79,7 @@ def test_worker_records_handler_error(clean_db, org_a, monkeypatch):
     assert job["status"] == jobs.ERROR
     assert "Extraction failed" in (job["error"] or "")
     assert credits.get_summary(ctx=org_a)["used"] == 0
-    assert credits.get_summary(ctx=org_a)["remaining"] == 200
+    assert credits.get_summary(ctx=org_a)["remaining"] == 50
 
 
 def test_worker_requeues_crash_until_attempts_exhausted(clean_db, org_a, monkeypatch):

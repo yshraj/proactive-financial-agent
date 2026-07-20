@@ -8,11 +8,11 @@ from tests.conftest import auth_headers_for
 def test_lazy_summary_starts_with_lifetime_balance(clean_db, org_a, monkeypatch):
     from app.services import credits
 
-    monkeypatch.setenv("DEFAULT_LIFETIME_CREDITS", "200")
+    monkeypatch.setenv("DEFAULT_LIFETIME_CREDITS", "50")
     summary = credits.get_summary(ctx=org_a)
-    assert summary["total_granted"] == 200
+    assert summary["total_granted"] == 50
     assert summary["used"] == 0
-    assert summary["remaining"] == 200
+    assert summary["remaining"] == 50
     assert summary["costs"]["chat"] == 1
 
 
@@ -20,7 +20,7 @@ def test_reserve_commit_release_and_idempotency(clean_db, org_a):
     from app.services import credits
 
     first = credits.reserve(credits.CreditFeature.CHAT, "chat:one", ctx=org_a)
-    assert credits.get_summary(ctx=org_a)["remaining"] == 199
+    assert credits.get_summary(ctx=org_a)["remaining"] == 49
     with pytest.raises(credits.DuplicateCreditAction) as held:
         credits.reserve(credits.CreditFeature.CHAT, "chat:one", ctx=org_a)
     assert held.value.status == "reserved"
@@ -37,10 +37,10 @@ def test_reserve_commit_release_and_idempotency(clean_db, org_a):
     assert credits.release(second.id, ctx=org_a) == "released"
     summary = credits.get_summary(ctx=org_a)
     assert summary["used"] == 1
-    assert summary["remaining"] == 199
+    assert summary["remaining"] == 49
     usage = credits.get_history(ctx=org_a)["entries"][0]
     assert usage["delta"] == -1
-    assert usage["balance_after"] == 199
+    assert usage["balance_after"] == 49
 
 
 def test_released_idempotency_key_cannot_start_another_action(clean_db, org_a):
@@ -87,9 +87,9 @@ def test_history_and_manual_request_api(api_client, org_a, monkeypatch):
     summary = api_client.get("/api/credits", headers=headers)
     assert summary.status_code == 200
     assert summary.json() == {
-        "total_granted": 200,
+        "total_granted": 50,
         "used": 0,
-        "remaining": 200,
+        "remaining": 50,
         "version": 1,
         "costs": {
             "chat": 1,
@@ -135,8 +135,8 @@ def test_history_and_manual_request_api(api_client, org_a, monkeypatch):
         "description",
     }
     assert entry["feature"] == "initial_allocation"
-    assert entry["delta"] == 200
-    assert entry["balance_after"] == 200
+    assert entry["delta"] == 50
+    assert entry["balance_after"] == 50
     assert entry["status"] == "committed"
 
 
@@ -206,18 +206,18 @@ def test_grant_first_operation_includes_default_and_records_balances(
 ):
     from app.services import credits
 
-    monkeypatch.setenv("DEFAULT_LIFETIME_CREDITS", "200")
+    monkeypatch.setenv("DEFAULT_LIFETIME_CREDITS", "50")
     credits.grant(
         50,
         "manual-grant-1",
         metadata={"description": "Support-approved top-up"},
         ctx=org_a,
     )
-    assert credits.get_summary(ctx=org_a)["total_granted"] == 250
+    assert credits.get_summary(ctx=org_a)["total_granted"] == 100
     history = credits.get_history(ctx=org_a)["entries"]
     assert [(entry["delta"], entry["balance_after"]) for entry in history] == [
-        (50, 250),
-        (200, 200),
+        (50, 100),
+        (50, 50),
     ]
 
 

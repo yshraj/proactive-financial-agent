@@ -34,9 +34,9 @@ from app.db import admin_database_url  # noqa: E402
 
 def _default_credits() -> int:
     try:
-        return max(0, int(os.environ.get("DEFAULT_LIFETIME_CREDITS", "200")))
+        return max(0, int(os.environ.get("DEFAULT_LIFETIME_CREDITS", "50")))
     except ValueError:
-        return 200
+        return 50
 
 
 def _list_requests(cur) -> None:

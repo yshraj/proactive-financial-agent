@@ -49,9 +49,9 @@ FEATURE_COSTS: dict[CreditFeature, int] = {
 
 def default_lifetime_credits() -> int:
     try:
-        return max(0, int(os.environ.get("DEFAULT_LIFETIME_CREDITS", "200")))
+        return max(0, int(os.environ.get("DEFAULT_LIFETIME_CREDITS", "50")))
     except ValueError:
-        return 200
+        return 50
 
 
 def principal_for(ctx: TenantContext) -> str:

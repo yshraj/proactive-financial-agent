@@ -15,7 +15,7 @@ const costs = {
   transcript_analysis: 2,
 };
 
-function summary(remaining: number, total = 200) {
+function summary(remaining: number, total = 50) {
   return {
     total_granted: total,
     used: total - remaining,
@@ -52,7 +52,7 @@ test.describe("lifetime credit visibility", () => {
     await page.getByTestId("credit-badge").click();
     await expect(page).toHaveURL(/\/settings#ai-credits/);
     await expect(page.getByTestId("credit-widget")).toContainText(
-      "45 of 200 remaining"
+      "45 of 50 remaining"
     );
     await expect(page.getByText("Credits do not renew automatically.")).toBeVisible();
     await expect(page.getByTestId("credit-history")).toBeVisible();

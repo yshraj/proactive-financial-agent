@@ -144,9 +144,9 @@ const server = createServer((req, res) => {
     if (path === "/health") return send(res, 200, { status: "ok" });
     if (path === "/api/credits" || path === "/api/credits/") {
       return send(res, 200, {
-        total_granted: 200,
+        total_granted: 50,
         used: 0,
-        remaining: 200,
+        remaining: 50,
         version: 1,
         costs: {
           chat: 1,
@@ -173,8 +173,8 @@ const server = createServer((req, res) => {
             id: "credit-initial",
             created_at: new Date().toISOString(),
             feature: "initial_allocation",
-            delta: 200,
-            balance_after: 200,
+            delta: 50,
+            balance_after: 50,
             status: "completed",
             description: "Initial lifetime credit allocation",
           },

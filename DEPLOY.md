@@ -143,6 +143,13 @@ curl -s -H "X-Access-Code: <ACCESS_CODE>" https://<DOMAIN>/api/access/check
 Then open `https://<DOMAIN>` in a browser, enter the access code on the gate
 screen, and confirm the dashboard loads. HTTP is redirected to HTTPS.
 
+For a fuller automated pass (gate, pagination clamp, and — opt-in — the rate
+limit), plus a manual checklist for restart-survival and chat persistence:
+
+```bash
+BASE_URL=https://<DOMAIN> ACCESS_CODE=<ACCESS_CODE> ./deploy/smoke-test.sh
+```
+
 ---
 
 ## Updating to a new release

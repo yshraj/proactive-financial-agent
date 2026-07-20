@@ -1,15 +1,14 @@
-# KritiFin stack: containerized Qdrant + FastAPI backend + Next.js frontend.
+# KritiFin stack: FastAPI backend + Next.js frontend, fronted by Caddy.
 #
-# Postgres is NOT containerized — the app targets Supabase (external); set
-# DATABASE_URL in .env. Qdrant runs here with a persistent volume so the VM is
-# self-contained. Secrets come from .env (see .env.production.example); never
-# hardcode them in this file.
+# Postgres (Supabase) and Qdrant (Qdrant Cloud) are BOTH external managed
+# services — set DATABASE_URL, QDRANT_URL and QDRANT_API_KEY in .env. Secrets
+# come from .env (see .env.production.example); never hardcode them here.
 #
 # Host ports are bound to 127.0.0.1 only — the Caddy reverse proxy is the public
 # entry point (profile "proxy"). Run the public stack with:
 #     docker compose --profile proxy up -d --build
-# Plain `docker compose up` (no profile) runs backend+frontend+qdrant only, with
-# their ports on localhost — handy for a local bring-up without a domain/TLS.
+# Plain `docker compose up` (no profile) runs backend+frontend only, with their
+# ports on localhost — handy for a local bring-up without a domain/TLS.
 
 name: kritifin
 
@@ -35,30 +34,15 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
-
-  qdrant:
-    image: qdrant/qdrant:v1.12.4
-    restart: unless-stopped
-    volumes:
-      - qdrant_storage:/qdrant/storage
-    # Internal-only: reachable by the backend over the compose network as
-    # http://qdrant:6333, never published to the host. (The distroless Qdrant
-    # image has no shell/curl, so no in-container HEALTHCHECK; the backend's
-    # /health/ready reflects real Qdrant connectivity.)
-
   backend:
     build:
       context: ./backend
     restart: unless-stopped
     env_file: .env
+    # DATABASE_URL, QDRANT_URL, QDRANT_API_KEY, OPENAI_API_KEY, etc. come from
+    # .env (external managed services). Only topology-specific values here.
     environment:
-      # Deployment-topology overrides (these win over .env):
-      QDRANT_URL: http://qdrant:6333
-      QDRANT_API_KEY: ""        # local Qdrant has no auth
       INLINE_WORKER: "true"     # web process also drains the durable job queue
-    depends_on:
-      qdrant:
-        condition: service_started
     ports:
       - "127.0.0.1:8000:8000"
 
@@ -66,9 +50,9 @@ services:
     build:
       context: ./frontend
       args:
-        # NEXT_PUBLIC_* are inlined at build time. Default suits local compose
-        # (browser -> backend on localhost:8000). Behind the Phase 4 proxy, set
-        # NEXT_PUBLIC_API_URL to "" so the browser calls same-origin /api.
+        # NEXT_PUBLIC_* are inlined at build time. Default suits proxy-less local
+        # compose (browser -> backend on localhost:8000). Behind the proxy, set
+        # NEXT_PUBLIC_API_URL to the public https://DOMAIN in .env (same-origin).
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
@@ -81,6 +65,5 @@ services:
       - "127.0.0.1:3000:3000"
 
 volumes:
-  qdrant_storage:
   caddy_data:
   caddy_config:

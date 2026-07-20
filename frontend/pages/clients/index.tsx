@@ -1,9 +1,11 @@
+import { useState } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import { Upload, Users, Sparkles } from "lucide-react";
 import {
   Card,
   CardHeader,
+  Button,
   ButtonLink,
   EmptyState,
   ErrorState,
@@ -12,16 +14,26 @@ import {
   PageShell,
 } from "../../components/ui";
 import { usePageSetup } from "../../hooks/usePageSetup";
-import { useBookAnalytics, useClients } from "../../hooks/useApi";
+import {
+  useBookAnalytics,
+  useClients,
+  LIST_PAGE_SIZE,
+  MAX_LIST_PAGE,
+} from "../../hooks/useApi";
 import { errorMessage } from "../../lib/api";
 import { formatCurrency, formatDate, formatRiskScore } from "../../lib/format";
 import { clientDetail, ROUTES } from "../../lib/routes";
 import { chatWithQuery, DEMO_COPILOT_QUERY } from "../../lib/demo";
 
 export default function ClientsPage() {
-  const clientsQuery = useClients();
+  const [limit, setLimit] = useState(LIST_PAGE_SIZE);
+  const clientsQuery = useClients(limit);
   const analyticsQuery = useBookAnalytics();
   const clients = clientsQuery.data?.clients ?? [];
+  const total = clientsQuery.data?.total ?? clients.length;
+  // The server caps a page at 200; hide "Load more" once we've shown the book
+  // or hit that ceiling.
+  const hasMore = clients.length < total && limit < MAX_LIST_PAGE;
   const analytics = analyticsQuery.data;
 
   usePageSetup(
@@ -84,7 +96,9 @@ export default function ClientsPage() {
             description={
               clientsQuery.isLoading
                 ? "Loading…"
-                : `${clients.length} client${clients.length !== 1 ? "s" : ""} in your book`
+                : total > clients.length
+                  ? `Showing ${clients.length} of ${total} clients`
+                  : `${clients.length} client${clients.length !== 1 ? "s" : ""} in your book`
             }
           />
           {clientsQuery.isLoading ? (
@@ -154,6 +168,18 @@ export default function ClientsPage() {
                   ))}
                 </tbody>
               </table>
+              {hasMore && (
+                <div className="flex justify-center border-t border-gray-100 p-4">
+                  <Button
+                    variant="secondary"
+                    loading={clientsQuery.isFetching}
+                    onClick={() => setLimit((l) => Math.min(l + LIST_PAGE_SIZE, MAX_LIST_PAGE))}
+                    data-testid="clients-load-more"
+                  >
+                    Load more
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </Card>

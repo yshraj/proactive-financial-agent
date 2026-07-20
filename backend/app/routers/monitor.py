@@ -80,6 +80,17 @@ class ClientOut(BaseModel):
 
 class ClientsListResponse(BaseModel):
     clients: list[ClientOut]
+    total: int = 0
+
+
+# List pagination: a sane default page with a hard server-side ceiling so no
+# query param can pull an unbounded result set.
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 200
+
+
+def _clamp_limit(limit: int) -> int:
+    return max(1, min(limit, MAX_PAGE_SIZE))
 
 
 class AlertOut(BaseModel):
@@ -147,21 +158,33 @@ def _document_count_for_client(cur, client_id: str, org_id: str) -> int:
 
 
 @router.get("/clients", response_model=ClientsListResponse)
-def get_clients(ctx: TenantContext = Depends(current_tenant)):
-    """List all clients with key profile fields for dropdowns and client list page."""
+def get_clients(
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, description="Page size (clamped to 200)"),
+    offset: int = Query(0, ge=0, description="Rows to skip"),
+    ctx: TenantContext = Depends(current_tenant),
+):
+    """List clients with key profile fields for dropdowns and the client list page.
+
+    Paginated: ``limit`` is clamped to 200 server-side so no query can pull an
+    unbounded result set. ``total`` is the full count for the page controls.
+    """
+    limit = _clamp_limit(limit)
     with get_cursor() as cur:
         cur.execute(
             """
             SELECT c.id, c.full_name, c.last_review_date, c.total_assets, c.risk_score,
                    (SELECT COUNT(*) FROM alerts a
-                    WHERE a.client_id = c.id AND a.status = 'PENDING') AS open_alert_count
+                    WHERE a.client_id = c.id AND a.status = 'PENDING') AS open_alert_count,
+                   COUNT(*) OVER() AS total_count
             FROM clients c
             WHERE c.org_id = %s
             ORDER BY c.full_name
+            LIMIT %s OFFSET %s
             """,
-            (ctx.org_id,),
+            (ctx.org_id, limit, offset),
         )
         rows = cur.fetchall()
+    total = int(rows[0]["total_count"]) if rows else 0
     clients = [
         ClientOut(
             id=str(r["id"]),
@@ -173,7 +196,7 @@ def get_clients(ctx: TenantContext = Depends(current_tenant)):
         )
         for r in rows
     ]
-    return ClientsListResponse(clients=clients)
+    return ClientsListResponse(clients=clients, total=total)
 
 
 class BookAnalytics(BaseModel):
@@ -880,6 +903,7 @@ def get_digest(
 
 class AlertsListResponse(BaseModel):
     alerts: list[AlertOut]
+    total: int = 0
 
 
 @router.get("/alerts", response_model=AlertsListResponse)
@@ -889,12 +913,19 @@ def get_alerts(
     type_filter: Optional[str] = Query(None, alias="type", description="Filter by type"),
     priority: Optional[str] = Query(None, description="Filter by priority"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status: PENDING, COMPLETED, or omit for all"),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, description="Page size (clamped to 200)"),
+    offset: int = Query(0, ge=0, description="Rows to skip"),
     ctx: TenantContext = Depends(current_tenant),
 ):
     """
     All alerts in [simulated_date, simulated_date + days], with optional type/priority/status filters.
     Includes synthetic REVIEW_OVERDUE for clients with no review in 12+ months (PENDING only).
+
+    Paginated: real alerts (date/org-bounded by the query) are merged with the
+    synthetic review-overdue rows, sorted, then the page is sliced. ``limit`` is
+    clamped to 200 so the response is always bounded; ``total`` is the full count.
     """
+    limit = _clamp_limit(limit)
     base = _parse_simulated_date(simulated_date) if simulated_date else datetime.now().date()
     end = base + timedelta(days=days)
     review_cutoff = base - timedelta(days=365)
@@ -944,7 +975,9 @@ def get_alerts(
 
     alerts.sort(key=alert_sort_key)
 
-    return AlertsListResponse(alerts=alerts)
+    total = len(alerts)
+    page = alerts[offset : offset + limit]
+    return AlertsListResponse(alerts=page, total=total)
 
 
 @router.get("/completed", response_model=AlertsListResponse)

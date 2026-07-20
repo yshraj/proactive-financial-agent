@@ -17,7 +17,7 @@ import {
 } from "../components/ui";
 import { useDraftEmailModalState } from "../hooks/useDraftEmailModalState";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useAlerts } from "../hooks/useApi";
+import { useAlerts, LIST_PAGE_SIZE, MAX_LIST_PAGE } from "../hooks/useApi";
 import { errorMessage } from "../lib/api";
 import { formatDate, todayISO } from "../lib/format";
 import { briefForClient } from "../lib/routes";
@@ -70,16 +70,20 @@ export default function AlertsPage() {
   const [typeFilter, setTypeFilter] = useState("All");
   const [priorityFilter, setPriorityFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [limit, setLimit] = useState(LIST_PAGE_SIZE);
   const { source: draftEmailSource, openAlertDraft, closeDraft } = useDraftEmailModalState();
 
-  const { data, isLoading, isError, error, refetch } = useAlerts({
+  const { data, isLoading, isFetching, isError, error, refetch } = useAlerts({
     simulated_date: simulatedDate,
     days,
     type: typeFilter,
     priority: priorityFilter,
     status: statusFilter,
+    limit,
   });
   const alerts = data?.alerts ?? [];
+  const total = data?.total ?? alerts.length;
+  const hasMore = alerts.length < total && limit < MAX_LIST_PAGE;
 
   usePageSetup(
     "Alerts",
@@ -114,7 +118,9 @@ export default function AlertsPage() {
             description={
               isLoading
                 ? "Loading…"
-                : `${alerts.length} alert${alerts.length !== 1 ? "s" : ""} in the next ${days} days from ${formatDate(simulatedDate)}`
+                : total > alerts.length
+                  ? `Showing ${alerts.length} of ${total} alerts in the next ${days} days from ${formatDate(simulatedDate)}`
+                  : `${alerts.length} alert${alerts.length !== 1 ? "s" : ""} in the next ${days} days from ${formatDate(simulatedDate)}`
             }
           />
           {isLoading ? (
@@ -193,6 +199,18 @@ export default function AlertsPage() {
                   })}
                 </tbody>
               </table>
+              {hasMore && (
+                <div className="flex justify-center border-t border-gray-100 p-4">
+                  <Button
+                    variant="secondary"
+                    loading={isFetching}
+                    onClick={() => setLimit((l) => Math.min(l + LIST_PAGE_SIZE, MAX_LIST_PAGE))}
+                    data-testid="alerts-load-more"
+                  >
+                    Load more
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </Card>

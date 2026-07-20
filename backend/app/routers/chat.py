@@ -67,6 +67,16 @@ class ChatResponse(BaseModel):
     conversation_id: Optional[str] = None
 
 
+class ConversationMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ConversationMessagesResponse(BaseModel):
+    conversation_id: str
+    messages: list[ConversationMessage]
+
+
 class BriefRequest(BaseModel):
     client_id: str = Field(..., min_length=1, max_length=64)
     # True = regenerate: bypass the cached brief (the fresh result still
@@ -224,8 +234,24 @@ def _get_structured_context(ctx: TenantContext, client_id: Optional[str] = None)
         return "Structured data temporarily unavailable."
 
 
+@router.get("/conversations/{conversation_id}/messages", response_model=ConversationMessagesResponse)
+@limiter.limit("60/minute")
+def get_conversation_messages(
+    request: Request, conversation_id: str, ctx: TenantContext = Depends(current_tenant)
+):
+    """Return a conversation's persisted messages (oldest first) so the frontend
+    can restore the visible thread after a reload or server restart. Owner-scoped:
+    a conversation the caller doesn't own resolves to an empty list, not an error."""
+    messages = conversations.get_messages(conversation_id)
+    return ConversationMessagesResponse(
+        conversation_id=conversation_id,
+        messages=[ConversationMessage(role=m["role"], content=m["content"]) for m in messages],
+    )
+
+
 @router.post("/", response_model=ChatResponse)
 @limiter.limit("30/minute")
+@llm_daily_limit
 def chat(request: Request, body: ChatRequest, ctx: TenantContext = Depends(current_tenant)):
     """
     Ask Jarvis: embed query + structured context (parallel when cache miss), search Qdrant, synthesize with LLM.

@@ -12,12 +12,19 @@ import {
 } from "../components/ai";
 import { Card, Button, EmptyState, ErrorState, PageIntro, PageShell } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useChat, useClients } from "../hooks/useApi";
+import { useChat, useClients, MAX_LIST_PAGE } from "../hooks/useApi";
 import {
   aiErrorMessage,
   getFollowUpSuggestions,
   type ChatTurn,
 } from "../lib/ai";
+import {
+  clearConversation,
+  fetchConversationMessages,
+  getStoredConversation,
+  messagesToTurns,
+  saveConversation,
+} from "../lib/chatSession";
 import { DEMO_COPILOT_QUERY } from "../lib/demo";
 
 const BOOK_SUGGESTIONS = [
@@ -65,7 +72,7 @@ export default function AICopilotPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const autoAskRef = useRef<string | null>(null);
   const chat = useChat();
-  const clientsQuery = useClients();
+  const clientsQuery = useClients(MAX_LIST_PAGE);
   const clients = useMemo(
     () => clientsQuery.data?.clients ?? [],
     [clientsQuery.data]
@@ -106,7 +113,11 @@ export default function AICopilotPage() {
         { query: text, clientId: selectedClientId || undefined, conversationId },
         {
           onSuccess: (data) => {
-            if (data.conversation_id) setConversationId(data.conversation_id);
+            if (data.conversation_id) {
+              setConversationId(data.conversation_id);
+              // Remember the thread so a reload can restore it.
+              saveConversation(data.conversation_id, selectedClientId);
+            }
             setTurns((prev) => [
               ...prev,
               {
@@ -141,6 +152,32 @@ export default function AICopilotPage() {
     },
     [chat, selectedClientId, conversationId, scrollToBottom]
   );
+
+  // Restore the last thread on a plain reload of /chat. Deep links (?q=, ?clientId=)
+  // express fresh intent, so they win and we don't restore.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || !router.isReady) return;
+    if (queryParam || queryClientId) return;
+    restoredRef.current = true;
+    const { id, clientId } = getStoredConversation();
+    if (!id) return;
+    (async () => {
+      try {
+        const messages = await fetchConversationMessages(id);
+        const restored = messagesToTurns(messages);
+        if (restored.length === 0) {
+          clearConversation(); // stale (e.g. data was reset) — forget it
+          return;
+        }
+        setConversationId(id);
+        if (clientId) setSelectedClientId(clientId);
+        setTurns(restored);
+      } catch {
+        /* couldn't restore; start fresh */
+      }
+    })();
+  }, [router.isReady, queryParam, queryClientId]);
 
   useEffect(() => {
     if (!router.isReady || !queryParam || chat.isPending) return;
@@ -191,6 +228,7 @@ export default function AICopilotPage() {
                       setSelectedClientId(id);
                       setTurns([]);
                       setConversationId(undefined);
+                      clearConversation();
                       setFollowUps([]);
                       autoAskRef.current = null;
                     }}

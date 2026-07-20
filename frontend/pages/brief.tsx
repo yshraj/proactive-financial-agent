@@ -14,7 +14,7 @@ import {
 import { Card, Button, EmptyState, ErrorState, PageIntro, PageShell } from "../components/ui";
 import { useDraftEmailModalState } from "../hooks/useDraftEmailModalState";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useClients, useBrief } from "../hooks/useApi";
+import { useClients, useBrief, MAX_LIST_PAGE } from "../hooks/useApi";
 import { aiErrorMessage } from "../lib/ai";
 import { escapeHtml } from "../lib/sanitize";
 
@@ -35,7 +35,7 @@ export default function BriefPage() {
 
   usePageSetup("Meeting Brief");
 
-  const clientsQuery = useClients();
+  const clientsQuery = useClients(MAX_LIST_PAGE);
   const clients = useMemo(
     () => clientsQuery.data?.clients ?? [],
     [clientsQuery.data]

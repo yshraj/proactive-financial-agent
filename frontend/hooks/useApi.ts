@@ -32,22 +32,32 @@ import type {
   StoredDocument,
 } from "@/lib/types";
 
+// List pagination: default page, and the server-enforced ceiling. Dropdowns
+// that need the whole book request FULL_BOOK (still bounded at 200).
+export const LIST_PAGE_SIZE = 50;
+export const MAX_LIST_PAGE = 200;
+
 export const queryKeys = {
   pulse: (date: string) => ["pulse", date] as const,
   digest: (date: string) => ["digest", date] as const,
   completed: () => ["completed"] as const,
-  clients: () => ["clients"] as const,
+  clients: (limit: number = LIST_PAGE_SIZE) => ["clients", limit] as const,
   analytics: () => ["analytics"] as const,
   clientDetail: (id: string) => ["client", id] as const,
   alerts: (params: Record<string, string>) => ["alerts", params] as const,
   documents: () => ["documents"] as const,
 };
 
+/** Paginated client list response (total drives page controls). */
+export type ClientsPage = { clients: Client[]; total: number };
+export type AlertsPage = { alerts: Alert[]; total: number };
+
 /** Prefetch client list on nav hover to warm cache before navigation. */
 export function prefetchClients(qc: ReturnType<typeof useQueryClient>) {
   return qc.prefetchQuery({
     queryKey: queryKeys.clients(),
-    queryFn: () => api.get<{ clients: Client[] }>("/api/monitor/clients"),
+    queryFn: () =>
+      api.get<ClientsPage>(`/api/monitor/clients?limit=${LIST_PAGE_SIZE}`),
     staleTime: 5 * 60_000,
   });
 }
@@ -71,10 +81,15 @@ export function useCompleted() {
   });
 }
 
-export function useClients() {
+/**
+ * Client list. Pass a limit to grow the page ("Load more"); dropdowns that need
+ * the whole book pass MAX_LIST_PAGE. The server clamps the limit to 200.
+ */
+export function useClients(limit: number = LIST_PAGE_SIZE) {
   return useQuery({
-    queryKey: queryKeys.clients(),
-    queryFn: () => api.get<{ clients: Client[] }>("/api/monitor/clients"),
+    queryKey: queryKeys.clients(limit),
+    queryFn: () =>
+      api.get<ClientsPage>(`/api/monitor/clients?limit=${limit}`),
     staleTime: 60_000,
     gcTime: 10 * 60_000,
   });
@@ -95,10 +110,12 @@ export function useAlerts(params: {
   type?: string;
   priority?: string;
   status?: string;
+  limit?: number;
 }) {
   const search = new URLSearchParams({
     simulated_date: params.simulated_date,
     days: String(params.days),
+    limit: String(params.limit ?? LIST_PAGE_SIZE),
   });
   if (params.type && params.type !== "All") search.set("type", params.type);
   if (params.priority && params.priority !== "All")
@@ -108,7 +125,7 @@ export function useAlerts(params: {
   const key = Object.fromEntries(search.entries());
   return useQuery({
     queryKey: queryKeys.alerts(key),
-    queryFn: () => api.get<{ alerts: Alert[] }>(`/api/monitor/alerts?${search}`),
+    queryFn: () => api.get<AlertsPage>(`/api/monitor/alerts?${search}`),
     placeholderData: (prev) => prev,
   });
 }
@@ -159,9 +176,10 @@ export function useUpdateAlertStatus() {
           : old
       );
 
-      qc.setQueriesData<{ alerts: Alert[] }>({ queryKey: ["alerts"] }, (old) =>
+      qc.setQueriesData<AlertsPage>({ queryKey: ["alerts"] }, (old) =>
         old
           ? {
+              ...old,
               alerts: old.alerts.map((a) =>
                 a.id === vars.alertId ? { ...a, status: vars.status } : a
               ),

@@ -121,8 +121,12 @@ def fetch_document(file_path: str) -> bytes:
             raise RuntimeError(f"Storage download failed ({resp.status_code}) for {key}")
         return resp.content
     if file_path.startswith("uploads/"):
-        local = BACKEND_ROOT / file_path
-        return local.read_bytes()
+        # Contain reads under uploads/; reject .. and symlink escapes.
+        candidate = (BACKEND_ROOT / file_path).resolve()
+        uploads_root = UPLOADS_DIR.resolve()
+        if not (candidate == uploads_root or uploads_root in candidate.parents):
+            raise ValueError(f"Unsafe file_path reference: {file_path!r}")
+        return candidate.read_bytes()
     raise ValueError(f"Unsupported file_path reference: {file_path!r}")
 
 

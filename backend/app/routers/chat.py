@@ -66,6 +66,8 @@ class ChatResponse(BaseModel):
     answer: str
     sources: list[SourceOut]
     conversation_id: Optional[str] = None
+    # Internal: cache hits must not consume lifetime credits.
+    from_cache: bool = Field(default=False, exclude=True)
 
 
 class ConversationMessage(BaseModel):
@@ -89,6 +91,7 @@ class BriefResponse(BaseModel):
     brief: str
     talking_points: list[str] = []
     sources: list[SourceOut] = []
+    from_cache: bool = Field(default=False, exclude=True)
 
 
 def _fmt_gbp(value) -> str:
@@ -255,7 +258,10 @@ def get_conversation_messages(
 
 @router.post("/", response_model=ChatResponse)
 @limiter.limit("30/minute")
-@credits.enforce(credits.CreditFeature.CHAT)
+@credits.enforce(
+    credits.CreditFeature.CHAT,
+    release_if=lambda result: getattr(result, "from_cache", False),
+)
 def chat(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
@@ -301,7 +307,10 @@ def chat(
             conversations.add_message(conversation_id, "assistant", cached.get("answer", ""))
             sources = [SourceOut(**s) for s in (cached.get("sources") or []) if isinstance(s, dict)]
             return ChatResponse(
-                answer=cached.get("answer", ""), sources=sources, conversation_id=conversation_id
+                answer=cached.get("answer", ""),
+                sources=sources,
+                conversation_id=conversation_id,
+                from_cache=True,
             )
 
     cache_key_ctx = f"chat:structured_ctx:{scope_key}"
@@ -454,7 +463,10 @@ def _generate_brief(ctx: TenantContext, client_id: str) -> tuple[str, list[str],
 
 @router.post("/brief", response_model=BriefResponse)
 @limiter.limit("30/minute")
-@credits.enforce(credits.CreditFeature.REPORT)
+@credits.enforce(
+    credits.CreditFeature.REPORT,
+    release_if=lambda result: getattr(result, "from_cache", False),
+)
 def post_brief(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
@@ -480,6 +492,7 @@ def post_brief(
                 brief=cached.get("brief") or "",
                 talking_points=cached.get("talking_points") or [],
                 sources=sources,
+                from_cache=True,
             )
     brief_text, talking_points, source_dicts = _generate_brief(ctx, client_id)
     sources_out = [SourceOut(**s) for s in source_dicts]

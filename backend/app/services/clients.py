@@ -21,7 +21,11 @@ def get_openai_client():
             if _openai_client is None:
                 from openai import OpenAI
 
-                _openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+                timeout = float(os.environ.get("OPENAI_TIMEOUT_SECONDS", "60"))
+                _openai_client = OpenAI(
+                    api_key=os.environ.get("OPENAI_API_KEY"),
+                    timeout=timeout,
+                )
     return _openai_client
 
 

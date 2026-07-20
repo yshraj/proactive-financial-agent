@@ -33,16 +33,15 @@ class CreditFeature(str, Enum):
     TRANSCRIPT_ANALYSIS = "transcript_analysis"
 
 
+# Only list features that are enforced on a live route. Ghost prices in Settings
+# train a false mental model and invite shipping ungated LLM later.
 FEATURE_COSTS: dict[CreditFeature, int] = {
     CreditFeature.CHAT: 1,
     CreditFeature.REPORT: 5,
-    CreditFeature.IMAGE: 3,
     CreditFeature.PDF_ANALYSIS: 2,
-    CreditFeature.DEEP_RESEARCH: 10,
     CreditFeature.DRAFT_EMAIL: 2,
     CreditFeature.DIGEST: 2,
     CreditFeature.REVIEW_NOTE: 3,
-    CreditFeature.CLIENT_SUMMARY: 1,
     CreditFeature.TRANSCRIPT_ANALYSIS: 2,
 }
 

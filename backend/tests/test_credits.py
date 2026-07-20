@@ -94,13 +94,10 @@ def test_history_and_manual_request_api(api_client, org_a, monkeypatch):
         "costs": {
             "chat": 1,
             "report": 5,
-            "image": 3,
             "pdf_analysis": 2,
-            "deep_research": 10,
             "draft_email": 2,
             "digest": 2,
             "review_note": 3,
-            "client_summary": 1,
             "transcript_analysis": 2,
         },
         "contact": {
@@ -266,3 +263,35 @@ def test_passive_digest_does_not_infer_or_charge(api_client, org_a, monkeypatch)
     assert generated.json()["digest"] == "Generated digest"
     assert len(provider_calls) == 1
     assert api_client.get("/api/credits", headers=headers).json()["used"] == 2
+
+
+def test_chat_cache_hit_releases_credits_without_second_llm_call(
+    api_client, org_a, monkeypatch
+):
+    from app.routers import chat
+
+    monkeypatch.setattr(chat, "_get_structured_context", lambda ctx, client_id=None: "Book")
+    monkeypatch.setattr(chat, "retrieve_for_chat", lambda *args, **kwargs: ("", []))
+    calls = []
+
+    def complete(**kwargs):
+        calls.append(kwargs)
+        return "Cached answer body."
+
+    monkeypatch.setattr(chat, "complete_with_system", complete)
+    headers_a = {**auth_headers_for(org_a), "X-Idempotency-Key": "chat-cache-a"}
+    first = api_client.post(
+        "/api/chat/", headers=headers_a, json={"query": "Identical cacheable query"}
+    )
+    assert first.status_code == 200
+    assert len(calls) == 1
+    assert api_client.get("/api/credits", headers=auth_headers_for(org_a)).json()["used"] == 1
+
+    headers_b = {**auth_headers_for(org_a), "X-Idempotency-Key": "chat-cache-b"}
+    second = api_client.post(
+        "/api/chat/", headers=headers_b, json={"query": "Identical cacheable query"}
+    )
+    assert second.status_code == 200
+    assert second.json()["answer"] == "Cached answer body."
+    assert len(calls) == 1
+    assert api_client.get("/api/credits", headers=auth_headers_for(org_a)).json()["used"] == 1

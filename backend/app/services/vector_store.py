@@ -219,12 +219,22 @@ def index_document_text(
     if not raw_text or not raw_text.strip():
         logger.info("[ingest] Vector index skipped: no text")
         return
+    from app.services.safety import sanitize_rag_content
+
     chunks = chunk_text(raw_text)
     if not chunks:
         logger.info("[ingest] Vector index skipped: no chunks")
         return
-    logger.info("[ingest] Vector index: %d chunks for client_name=%s, doc_type=%s", len(chunks), client_name, doc_type)
-    prefixed = [_prefix_context(c, client_name, doc_date) for c in chunks]
+    logger.info(
+        "[ingest] Vector index: %d chunks for client_id=%s, doc_type=%s",
+        len(chunks),
+        client_id,
+        doc_type,
+    )
+    # Sanitize before embed so adversarial PDFs are not stored verbatim in Qdrant.
+    prefixed = [
+        _prefix_context(sanitize_rag_content(c), client_name, doc_date) for c in chunks
+    ]
     vectors = get_embeddings_openai(prefixed)
     upsert_to_qdrant(
         chunks=prefixed,

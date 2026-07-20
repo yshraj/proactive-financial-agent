@@ -151,13 +151,10 @@ const server = createServer((req, res) => {
         costs: {
           chat: 1,
           report: 5,
-          image: 3,
           pdf_analysis: 2,
-          deep_research: 10,
           draft_email: 2,
           digest: 2,
           review_note: 3,
-          client_summary: 1,
           transcript_analysis: 2,
         },
         contact: {

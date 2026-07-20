@@ -38,6 +38,26 @@ def test_validate_file_magic_docx():
 def test_validate_file_magic_text_formats():
     assert validate_file_magic(b"# Meeting notes\n\nPension discussed.", ".md") is True
     assert validate_file_magic("Caf\u00e9 review \u2014 ISA".encode("utf-8"), ".txt") is True
+
+
+def test_fetch_document_rejects_path_traversal(tmp_path, monkeypatch):
+    from app.services import storage
+
+    monkeypatch.setattr(storage, "BACKEND_ROOT", tmp_path)
+    monkeypatch.setattr(storage, "UPLOADS_DIR", tmp_path / "uploads")
+    org = "org-safe"
+    target = storage.UPLOADS_DIR / org
+    target.mkdir(parents=True)
+    (target / "ok.pdf").write_bytes(b"%PDF-1.4 ok")
+    secret = tmp_path / "secret.env"
+    secret.write_text("SECRET=1")
+
+    assert storage.fetch_document(f"uploads/{org}/ok.pdf") == b"%PDF-1.4 ok"
+    try:
+        storage.fetch_document("uploads/../secret.env")
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "Unsafe" in str(exc)
     assert validate_file_magic(b"\xef\xbb\xbfBOM prefixed text", ".txt") is True  # UTF-8 BOM
     # Binaries masquerading as text are rejected.
     assert validate_file_magic(b"MZ\x00\x00\x03\x00", ".txt") is False  # NUL bytes

@@ -56,6 +56,13 @@ echo "== KritiFin smoke test against $BASE_URL =="
 ok "health is public" "$(code "$BASE_URL/health")" "200"
 contains "health payload" "$(body "$BASE_URL/health")" '"status":"ok"'
 
+# 1b. Readiness (may be 200 or 503 depending on deps — must not be 404)
+ready_code="$(code "$BASE_URL/health/ready")"
+case "$ready_code" in
+  200|503) printf "  PASS  readiness endpoint reachable (%s)\n" "$ready_code"; pass=$((pass + 1)) ;;
+  *) printf "  FAIL  readiness endpoint (got %s, want 200 or 503)\n" "$ready_code"; fail=$((fail + 1)) ;;
+esac
+
 # 2. Front-door gate
 ok "gate blocks with no code"    "$(code "$BASE_URL/api/access/check")" "401"
 ok "gate blocks with wrong code" "$(code -H 'X-Access-Code: definitely-wrong' "$BASE_URL/api/access/check")" "401"

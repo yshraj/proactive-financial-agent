@@ -466,10 +466,6 @@ def get_client_detail(
         ]
         if bit
     )
-    alert_lines = "; ".join(
-        f"{a.title or a.type} (due {a.trigger_date})" for a in pending_alerts[:5]
-    )
-
     # Separate cursor block: an UndefinedColumn would abort the transaction, so
     # isolate it from the reads above.
     with get_cursor() as cur:
@@ -478,12 +474,10 @@ def get_client_detail(
     cache_key = f"summary:{PROMPT_VERSION}:{client_id}"
     summary = cache_get(cache_key)
     if summary is None:
-        model = resolve_model("brief")
-        try:
-            summary = _generate_client_summary(client_name, profile_bits, alert_lines, model)
-            cache_set(cache_key, summary, BRIEF_TTL)
-        except Exception:
-            summary = f"{client_name}: {profile_bits}. {len(pending_alerts)} open item(s)."
+        # Deterministic only on page load — LLM summaries must be an explicit
+        # credit-gated action (not a free side effect of GET).
+        summary = f"{client_name}: {profile_bits}. {len(pending_alerts)} open item(s)."
+        cache_set(cache_key, summary, BRIEF_TTL)
 
     overdue_follow_ups = [_alert_from_row(r) for r in overdue_rows]
 
@@ -631,13 +625,14 @@ class ReviewNoteResponse(BaseModel):
     note: str
     generated_at: str
     ai_generated: bool
+    from_cache: bool = Field(default=False, exclude=True)
 
 
 @router.post("/clients/{client_id}/review-note", response_model=ReviewNoteResponse)
 @limiter.limit("30/minute")
 @credits.enforce(
     credits.CreditFeature.REVIEW_NOTE,
-    release_if=lambda result: not result.ai_generated,
+    release_if=lambda result: (not result.ai_generated) or getattr(result, "from_cache", False),
 )
 def client_review_note(
     request: Request,
@@ -691,7 +686,7 @@ def client_review_note(
     cache_key = f"review-note:{PROMPT_VERSION}:{client_id}"
     cached = cache_get(cache_key)
     if isinstance(cached, dict) and cached.get("note"):
-        return ReviewNoteResponse(**cached)
+        return ReviewNoteResponse(**cached, from_cache=True)
 
     model = resolve_model("brief")
     try:
@@ -1133,6 +1128,7 @@ class DraftEmailRequest(BaseModel):
 class DraftEmailResponse(BaseModel):
     draft: str
     subject: Optional[str] = None
+    from_cache: bool = Field(default=False, exclude=True)
 
 
 def _call_llm_draft(client_name: str, title: str, description: str, action_payload: Optional[dict], model: str) -> str:
@@ -1173,7 +1169,10 @@ def _call_llm_brief_followup(
 
 @router.post("/draft-email", response_model=DraftEmailResponse)
 @limiter.limit("30/minute")
-@credits.enforce(credits.CreditFeature.DRAFT_EMAIL)
+@credits.enforce(
+    credits.CreditFeature.DRAFT_EMAIL,
+    release_if=lambda result: getattr(result, "from_cache", False),
+)
 def draft_email(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
@@ -1193,6 +1192,7 @@ def draft_email(
             return DraftEmailResponse(
                 draft=draft,
                 subject=f"Follow-up: {get_client_name(client_id)}",
+                from_cache=True,
             )
         try:
             client_name = require_client_name(client_id)
@@ -1214,7 +1214,7 @@ def draft_email(
     cache_key = f"draft:{PROMPT_VERSION}:{alert_id}"
     draft = None if body.refresh else cache_get(cache_key)
     if draft is not None:
-        return DraftEmailResponse(draft=draft)
+        return DraftEmailResponse(draft=draft, from_cache=True)
 
     if alert_id.startswith("review-overdue-"):
         client_id = alert_id.replace("review-overdue-", "", 1)

@@ -90,7 +90,7 @@ function AlertCard({
               leftIcon={<Mail className="h-4 w-4" aria-hidden />}
               onClick={handleDraft}
             >
-              Draft email
+              Preview email draft
             </Button>
           )}
         </div>

@@ -9,6 +9,8 @@ import { ApiError, errorMessage } from "../lib/api";
 import { uploadDocumentWithProgress } from "../lib/ingest";
 import { hasAllowedUploadExtension, isAllowedUploadMime, validateUploadMagic } from "../lib/sanitize";
 import { formatDateTime, formatFileSize } from "../lib/format";
+import { ActionCost } from "../components/credits";
+import { useCredits } from "../contexts/CreditContext";
 
 type UploadState = "processing" | "done" | "duplicate" | "error";
 interface UploadItem {
@@ -87,25 +89,25 @@ function TranscriptCard() {
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
   const ingest = useIngestTranscript();
+  const { requestAction, activeFeature, activeCost } = useCredits();
 
   const submit = () => {
-    ingest.mutate(
-      { text, title: title.trim() || undefined },
-      {
-        onSuccess: () => {
+    requestAction("transcript", async () => {
+      try {
+        await ingest.mutateAsync({ text, title: title.trim() || undefined });
           notify("Transcript ingested — extracting client and alerts.", "success");
           setText("");
           setTitle("");
-        },
-        onError: (e) =>
-          notify(
+      } catch (e) {
+        notify(
             e instanceof ApiError && e.status === 409
               ? "This transcript has already been ingested."
               : errorMessage(e, "Transcript ingestion failed."),
             "error"
-          ),
+        );
+        throw e;
       }
-    );
+    });
   };
 
   return (
@@ -149,6 +151,12 @@ function TranscriptCard() {
         >
           Ingest transcript
         </Button>
+        <ActionCost feature="transcript" className="mt-2 block" />
+        {activeFeature === "transcript" && activeCost != null && (
+          <p className="mt-1 text-xs text-ai-700" role="status">
+            Using {activeCost} credits · charged only when complete
+          </p>
+        )}
       </div>
     </Card>
   );
@@ -253,6 +261,7 @@ export default function IngestionPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docsQuery = useDocuments();
   const storedList = docsQuery.data ?? [];
+  const { requestAction, activeFeature, activeCost } = useCredits();
 
   usePageSetup("Ingestion");
 
@@ -280,47 +289,46 @@ export default function IngestionPage() {
         return;
       }
 
-      setUploads((p) => [...p, { id, name: file.name, state: "processing", progress: 2, message: "Uploading…" }]);
-      try {
-        const job = await uploadDocumentWithProgress(file, (progress, message) =>
-          patch(id, { progress, message })
-        );
-        if (job.status === "ERROR") {
-          patch(id, {
-            state: "error",
-            progress: undefined,
-            message: job.error ? `Stored, but processing had issues: ${job.error}` : "Processing failed.",
-          });
-        } else if (job.message?.startsWith("Content matches")) {
-          // Same content already ingested (e.g. the .pdf of an uploaded .md):
-          // stored, linked, but no duplicate client/alerts were created.
-          patch(id, { state: "duplicate", progress: undefined, message: job.message });
-        } else {
-          patch(id, {
-            state: "done",
-            progress: undefined,
-            message: job.message && job.message !== "Done" ? job.message : "Done — extracted and indexed.",
-          });
+      requestAction("document_upload", async () => {
+        setUploads((p) => [...p, { id, name: file.name, state: "processing", progress: 2, message: "Uploading…" }]);
+        try {
+          const job = await uploadDocumentWithProgress(file, (progress, message) =>
+            patch(id, { progress, message })
+          );
+          if (job.status === "ERROR") {
+            patch(id, {
+              state: "error",
+              progress: undefined,
+              message: job.error ? `Stored, but processing had issues: ${job.error}` : "Processing failed.",
+            });
+            throw new Error(job.error || "Document processing failed.");
+          } else if (job.message?.startsWith("Content matches")) {
+            patch(id, { state: "duplicate", progress: undefined, message: job.message });
+          } else {
+            patch(id, {
+              state: "done",
+              progress: undefined,
+              message: job.message && job.message !== "Done" ? job.message : "Done — extracted and indexed.",
+            });
+          }
+          await docsQuery.refetch();
+          return job;
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 409) {
+            const detail = e.detail as { existing_filename?: string } | undefined;
+            patch(id, { state: "duplicate", message: `Same content as "${detail?.existing_filename ?? "an existing file"}". Not stored again.` });
+          } else if (e instanceof ApiError && e.status === 413) {
+            patch(id, { state: "error", message: "File is too large — the server limit is 20 MB." });
+          } else if (e instanceof ApiError && e.status === 400) {
+            patch(id, { state: "error", message: errorMessage(e, "The server rejected this file as invalid.") });
+          } else {
+            patch(id, { state: "error", message: errorMessage(e, "Upload failed.") });
+          }
+          throw e;
         }
-        docsQuery.refetch();
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 409) {
-          const detail = e.detail as { existing_filename?: string } | undefined;
-          patch(id, { state: "duplicate", message: `Same content as "${detail?.existing_filename ?? "an existing file"}". Not stored again.` });
-          return;
-        }
-        if (e instanceof ApiError && e.status === 413) {
-          patch(id, { state: "error", message: "File is too large — the server limit is 20 MB." });
-          return;
-        }
-        if (e instanceof ApiError && e.status === 400) {
-          patch(id, { state: "error", message: errorMessage(e, "The server rejected this file as invalid.") });
-          return;
-        }
-        patch(id, { state: "error", message: errorMessage(e, "Upload failed.") });
-      }
+      }, id);
     },
-    [docsQuery]
+    [docsQuery, requestAction]
   );
 
   const onFiles = (files: FileList | null) => {
@@ -387,6 +395,12 @@ export default function IngestionPage() {
         <Button size="lg" onClick={() => fileInputRef.current?.click()} data-testid="choose-files-button">
           Choose files
         </Button>
+        <ActionCost feature="document_upload" className="mt-3 block" />
+        {activeFeature === "document_upload" && activeCost != null && (
+          <p className="mt-1 text-xs text-ai-700" role="status">
+            Using {activeCost} credits per document · charged only when complete
+          </p>
+        )}
       </div>
       </Card>
 

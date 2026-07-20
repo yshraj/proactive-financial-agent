@@ -1,18 +1,23 @@
 import { useState } from "react";
-import { Modal, Button, useToast } from "./ui";
+import { Modal, Button, ErrorState, useToast } from "./ui";
 import { AiMarkdown } from "./ai";
 import type { ReviewNoteResponse } from "../lib/types";
+import { ActionCost } from "./credits";
+import { useCredits } from "../contexts/CreditContext";
 
 interface ReviewNoteModalProps {
   data?: ReviewNoteResponse;
   loading: boolean;
+  error?: unknown;
+  onRetry: () => void;
   onClose: () => void;
 }
 
 /** Shows a generated Consumer-Duty review note with a copy-to-clipboard action. */
-export default function ReviewNoteModal({ data, loading, onClose }: ReviewNoteModalProps) {
+export default function ReviewNoteModal({ data, loading, error, onRetry, onClose }: ReviewNoteModalProps) {
   const { notify } = useToast();
   const [copied, setCopied] = useState(false);
+  const { activeFeature, activeCost } = useCredits();
 
   const copy = async () => {
     if (!data?.note) return;
@@ -42,9 +47,18 @@ export default function ReviewNoteModal({ data, loading, onClose }: ReviewNoteMo
         </>
       }
     >
-      {loading || !data ? (
+      <ActionCost feature="review_note" className="mb-3 block" />
+      {error ? (
+        <ErrorState
+          title="Couldn't generate the review note"
+          message={error instanceof Error ? error.message : "Generation failed. No credits used."}
+          onRetry={onRetry}
+        />
+      ) : loading || !data ? (
         <p className="text-sm text-slate-500" data-testid="review-note-loading">
-          Generating review note…
+          {activeFeature === "review_note" && activeCost != null
+            ? `Generating review note… Using ${activeCost} credits, charged only when complete.`
+            : "Preparing review note… Credits are charged only when complete."}
         </p>
       ) : (
         <div data-testid="review-note-content">

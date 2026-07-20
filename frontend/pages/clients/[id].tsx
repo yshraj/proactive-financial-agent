@@ -40,6 +40,8 @@ import { errorMessage } from "../../lib/api";
 import { formatCurrency, formatDate, formatRiskScore } from "../../lib/format";
 import { briefForClient, chatForClient, ROUTES } from "../../lib/routes";
 import type { AlertType } from "../../lib/types";
+import { ActionCost } from "../../components/credits";
+import { useCredits } from "../../contexts/CreditContext";
 
 export default function ClientDetailPage() {
   const router = useRouter();
@@ -51,6 +53,7 @@ export default function ClientDetailPage() {
   const [selectedPlaybook, setSelectedPlaybook] = useState("");
   const detailQuery = useClientDetail(clientId);
   const reviewNote = useClientReviewNote(clientId);
+  const { requestAction, activeFeature, getCost } = useCredits();
   const playbooksQuery = usePlaybooks();
   const applyPlaybook = useApplyPlaybook(clientId);
   const playbooks = playbooksQuery.data?.playbooks ?? [];
@@ -65,9 +68,12 @@ export default function ClientDetailPage() {
   };
 
   const openReviewNote = () => {
-    setShowReviewNote(true);
-    reviewNote.mutate();
+    requestAction("review_note", async () => {
+      setShowReviewNote(true);
+      return reviewNote.mutateAsync();
+    });
   };
+  const reviewNoteCost = getCost("review_note");
 
   usePageSetup(client?.full_name ?? "Client", null, [client?.full_name]);
 
@@ -110,7 +116,8 @@ export default function ClientDetailPage() {
                 {client.last_review_date ? formatDate(client.last_review_date) : "Not on file"}
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
               <Button
                 variant="secondary"
                 onClick={() => setIsEditing(true)}
@@ -122,10 +129,11 @@ export default function ClientDetailPage() {
               <Button
                 variant="secondary"
                 onClick={openReviewNote}
+                disabled={activeFeature === "review_note"}
                 leftIcon={<ClipboardList className="h-4 w-4" aria-hidden />}
                 data-testid="client-review-note-button"
               >
-                Review note
+                Review note · {reviewNoteCost ?? "—"} credit{reviewNoteCost === 1 ? "" : "s"}
               </Button>
               <ButtonLink
                 href={briefForClient(client.id)}
@@ -142,6 +150,8 @@ export default function ClientDetailPage() {
               >
                 Ask about this client
               </ButtonLink>
+              </div>
+              <ActionCost feature="review_note" />
             </div>
           </div>
 
@@ -394,6 +404,8 @@ export default function ClientDetailPage() {
         <ReviewNoteModal
           data={reviewNote.data}
           loading={reviewNote.isPending}
+          error={reviewNote.error}
+          onRetry={openReviewNote}
           onClose={() => setShowReviewNote(false)}
         />
       )}

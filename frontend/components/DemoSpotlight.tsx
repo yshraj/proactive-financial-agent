@@ -64,7 +64,7 @@ export function DemoSpotlight({ alert, onDraftEmail }: DemoSpotlightProps) {
             leftIcon={<Mail className="h-4 w-4" aria-hidden />}
             onClick={() => onDraftEmail(alert.id)}
           >
-            Draft email
+            Preview email draft
           </Button>
         </div>
       </div>

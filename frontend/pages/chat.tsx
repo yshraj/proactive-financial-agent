@@ -26,6 +26,8 @@ import {
   saveConversation,
 } from "../lib/chatSession";
 import { DEMO_COPILOT_QUERY } from "../lib/demo";
+import { ActionCost } from "../components/credits";
+import { useCredits } from "../contexts/CreditContext";
 
 const BOOK_SUGGESTIONS = [
   DEMO_COPILOT_QUERY,
@@ -72,6 +74,13 @@ export default function AICopilotPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const autoAskRef = useRef<string | null>(null);
   const chat = useChat();
+  const {
+    requestAction,
+    activeFeature,
+    activeCost,
+    summary: creditSummary,
+    isLoading: creditsLoading,
+  } = useCredits();
   const clientsQuery = useClients(MAX_LIST_PAGE);
   const clients = useMemo(
     () => clientsQuery.data?.clients ?? [],
@@ -105,14 +114,17 @@ export default function AICopilotPage() {
   const ask = useCallback(
     (q: string, usedChip?: string) => {
       const text = q.trim();
-      if (!text || chat.isPending) return;
-      setPendingQuery(text);
-      setLastFailedQuery(null);
-      setFollowUps([]);
-      chat.mutate(
-        { query: text, clientId: selectedClientId || undefined, conversationId },
-        {
-          onSuccess: (data) => {
+      if (!text || chat.isPending || creditsLoading || !creditSummary) return;
+      requestAction("chat", async () => {
+        setPendingQuery(text);
+        setLastFailedQuery(null);
+        setFollowUps([]);
+        try {
+          const data = await chat.mutateAsync({
+            query: text,
+            clientId: selectedClientId || undefined,
+            conversationId,
+          });
             if (data.conversation_id) {
               setConversationId(data.conversation_id);
               // Remember the thread so a reload can restore it.
@@ -142,15 +154,22 @@ export default function AICopilotPage() {
                   : prev;
               });
             }
-          },
-          onError: () => {
-            setLastFailedQuery(text);
-            setPendingQuery(null);
-          },
+        } catch (error) {
+          setLastFailedQuery(text);
+          setPendingQuery(null);
+          throw error;
         }
-      );
+      });
     },
-    [chat, selectedClientId, conversationId, scrollToBottom]
+    [
+      chat,
+      selectedClientId,
+      conversationId,
+      requestAction,
+      scrollToBottom,
+      creditsLoading,
+      creditSummary,
+    ]
   );
 
   // Restore the last thread on a plain reload of /chat. Deep links (?q=, ?clientId=)
@@ -180,7 +199,14 @@ export default function AICopilotPage() {
   }, [router.isReady, queryParam, queryClientId]);
 
   useEffect(() => {
-    if (!router.isReady || !queryParam || chat.isPending) return;
+    if (
+      !router.isReady ||
+      !queryParam ||
+      chat.isPending ||
+      creditsLoading ||
+      !creditSummary
+    )
+      return;
     if (clientsQuery.isLoading) return;
     if (queryClientId && selectedClientId !== queryClientId) return;
     const key = `${queryParam}:${selectedClientId || queryClientId}`;
@@ -195,6 +221,8 @@ export default function AICopilotPage() {
     selectedClientId,
     clientsQuery.isLoading,
     chat.isPending,
+    creditsLoading,
+    creditSummary,
     ask,
   ]);
 
@@ -294,13 +322,21 @@ export default function AICopilotPage() {
                 <Button
                   type="submit"
                   loading={chat.isPending}
-                  disabled={!query.trim()}
+                  disabled={!query.trim() || creditsLoading || !creditSummary}
                   data-testid="ai-copilot-submit"
                   leftIcon={!chat.isPending ? <Send className="h-4 w-4" aria-hidden /> : undefined}
                 >
                   {chat.isPending ? "Thinking…" : "Ask"}
                 </Button>
               </form>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <ActionCost feature="chat" />
+                {activeFeature === "chat" && activeCost != null && (
+                  <span className="text-xs text-ai-700" role="status">
+                    Using {activeCost} credits · charged only when complete
+                  </span>
+                )}
+              </div>
             </div>
             <div className="p-5">
               <p className="ui-label mb-3">
@@ -315,7 +351,7 @@ export default function AICopilotPage() {
                       setQuery(s);
                       ask(s, hasConversation ? undefined : s);
                     }}
-                    disabled={chat.isPending}
+                    disabled={chat.isPending || creditsLoading || !creditSummary}
                     className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs text-slate-600 transition-colors hover:border-ai-100 hover:bg-ai-50 hover:text-ai-700 disabled:opacity-60"
                   >
                     {s}

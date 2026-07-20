@@ -1,11 +1,14 @@
 import Head from "next/head";
 import { useState } from "react";
-import { Download, History, ShieldCheck, Trash2 } from "lucide-react";
+import { Download, History, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { Card, CardHeader, Button, ErrorState, Modal, useToast, PageIntro, PageShell } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
 import { useApproveAuditEntry, useAuditLog, useClearData, useCompliancePosture, useExportData } from "../hooks/useApi";
 import type { ExportType } from "../lib/export";
 import { formatDateTime } from "../lib/format";
+import { CreditHistoryCard, CreditWidget } from "../components/credits";
+import { useCredits } from "../contexts/CreditContext";
+import { creditCostLabel } from "../lib/credits";
 
 const AUDIT_KIND_LABELS: Record<string, string> = {
   review_note: "Review note",
@@ -50,6 +53,7 @@ export default function SettingsPage() {
   const auditEntries = auditLog.data?.entries ?? [];
   const approveEntry = useApproveAuditEntry();
   const posture = useCompliancePosture().data;
+  const { summary: credits, openContact } = useCredits();
 
   usePageSetup("Settings");
 
@@ -93,6 +97,57 @@ export default function SettingsPage() {
       </PageIntro>
 
       <div className="max-w-3xl space-y-6" data-testid="settings-page">
+        <Card id="ai-credits" data-testid="settings-credit-card">
+          <CardHeader
+            title={
+              <span className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-brand-600" aria-hidden />
+                AI credits
+              </span>
+            }
+            description="Lifetime credits for AI actions in this workspace."
+          />
+          <div className="space-y-5 px-6 py-5">
+            <CreditWidget onRequest={openContact} />
+            {credits && (
+              <>
+                <dl className="grid grid-cols-3 gap-3">
+                  {[
+                    ["Total granted", credits.total_granted],
+                    ["Used", credits.used],
+                    ["Remaining", credits.remaining],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <dt className="text-xs text-slate-500">{label}</dt>
+                      <dd className="mt-1 text-lg font-semibold text-slate-900">{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">Action costs</h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    The exact cost and remaining balance are shown before every AI action.
+                    Credits are charged only when generation completes; failed or cancelled
+                    actions use no credits.
+                  </p>
+                  <ul className="mt-3 divide-y divide-slate-100">
+                    {Object.entries(credits.costs).map(([feature, cost]) => (
+                      <li key={feature} className="flex justify-between gap-4 py-2 text-sm">
+                        <span className="text-slate-600">{creditCostLabel(feature)}</span>
+                        <span className="font-medium text-slate-900">
+                          {cost} credit{cost === 1 ? "" : "s"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+
+        <CreditHistoryCard />
+
         <Card>
           <CardHeader title="Data export" />
           <div className="divide-y divide-slate-100">

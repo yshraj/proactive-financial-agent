@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "../styles/globals.css";
 import { LayoutProvider } from "../contexts/LayoutContext";
 import { AuthProvider, AuthGuard } from "../contexts/AuthContext";
+import { CreditProvider } from "../contexts/CreditContext";
 import { AccessGate } from "../components/AccessGate";
 import AppLayout from "../components/AppLayout";
 import { ErrorBoundary, ToastProvider } from "../components/ui";
@@ -45,11 +46,17 @@ export default function App({ Component, pageProps }: AppProps) {
         <ToastProvider>
           <AuthProvider>
             <LayoutProvider>
-              <AuthGuard>
+              {isBare ? (
+                page
+              ) : (
                 <AccessGate>
-                  {isBare ? page : <AppLayout>{page}</AppLayout>}
+                  <AuthGuard>
+                    <CreditProvider>
+                      <AppLayout>{page}</AppLayout>
+                    </CreditProvider>
+                  </AuthGuard>
                 </AccessGate>
-              </AuthGuard>
+              )}
             </LayoutProvider>
           </AuthProvider>
         </ToastProvider>

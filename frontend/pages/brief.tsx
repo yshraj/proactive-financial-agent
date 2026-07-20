@@ -17,6 +17,8 @@ import { usePageSetup } from "../hooks/usePageSetup";
 import { useClients, useBrief, MAX_LIST_PAGE } from "../hooks/useApi";
 import { aiErrorMessage } from "../lib/ai";
 import { escapeHtml } from "../lib/sanitize";
+import { ActionCost } from "../components/credits";
+import { useCredits } from "../contexts/CreditContext";
 
 const BRIEF_STEPS = [
   "Loading client profile and open alerts",
@@ -41,6 +43,13 @@ export default function BriefPage() {
     [clientsQuery.data]
   );
   const brief = useBrief();
+  const {
+    requestAction,
+    activeFeature,
+    activeCost,
+    summary: creditSummary,
+    isLoading: creditsLoading,
+  } = useCredits();
 
   const queryClientId =
     typeof router.query.clientId === "string" ? router.query.clientId : "";
@@ -68,22 +77,50 @@ export default function BriefPage() {
 
   const generateBrief = useCallback(
     (refresh = false) => {
-      if (!selectedId) return;
+      if (!selectedId || creditsLoading || !creditSummary) return;
       // refresh=true (the Regenerate button) bypasses the server-side cache;
       // the initial generate keeps using it for fast repeat loads.
-      brief.mutate({ clientId: selectedId, refresh }, { onSuccess: scrollToBrief });
+      requestAction("meeting_brief", async () => {
+        const data = await brief.mutateAsync({ clientId: selectedId, refresh });
+        scrollToBrief();
+        return data;
+      });
     },
-    [selectedId, brief, scrollToBrief]
+    [
+      selectedId,
+      brief,
+      requestAction,
+      scrollToBrief,
+      creditsLoading,
+      creditSummary,
+    ]
   );
 
   useEffect(() => {
-    if (!shouldAutoGenerate || autoTriggered.current || !selectedId || brief.isPending) return;
+    if (
+      !shouldAutoGenerate ||
+      autoTriggered.current ||
+      !selectedId ||
+      brief.isPending ||
+      creditsLoading ||
+      !creditSummary
+    )
+      return;
     if (queryClientId && selectedId !== queryClientId) return;
     if (!clients.some((c) => c.id === selectedId)) return;
     autoTriggered.current = true;
-    brief.mutate({ clientId: selectedId }, { onSuccess: scrollToBrief });
+    generateBrief();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once when deep-link params are ready
-  }, [shouldAutoGenerate, selectedId, queryClientId, clients.length, brief.isPending, scrollToBrief]);
+  }, [
+    shouldAutoGenerate,
+    selectedId,
+    queryClientId,
+    clients.length,
+    brief.isPending,
+    creditsLoading,
+    creditSummary,
+    generateBrief,
+  ]);
 
   const downloadBriefPdf = () => {
     if (!printableRef.current || !brief.data?.brief) return;
@@ -130,26 +167,31 @@ export default function BriefPage() {
                 onRetry={() => clientsQuery.refetch()}
               />
             ) : (
-              <div className="flex flex-wrap items-end gap-3">
-                <ClientSelect
-                  id="client-select"
-                  value={selectedId}
-                  onChange={setSelectedId}
-                  clients={clients}
-                  isLoading={clientsQuery.isLoading}
-                  disabled={brief.isPending}
-                  testId="client-select"
-                />
-                <Button
-                  onClick={() => generateBrief()}
-                  loading={brief.isPending}
-                  disabled={!selectedId}
-                  data-testid="generate-brief-button"
-                  leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
-                >
-                  {brief.isPending ? "Generating…" : "Generate brief"}
-                </Button>
-              </div>
+              <>
+                <div className="flex flex-wrap items-end gap-3">
+                  <ClientSelect
+                    id="client-select"
+                    value={selectedId}
+                    onChange={setSelectedId}
+                    clients={clients}
+                    isLoading={clientsQuery.isLoading}
+                    disabled={brief.isPending}
+                    testId="client-select"
+                  />
+                  <Button
+                    onClick={() => generateBrief()}
+                    loading={brief.isPending}
+                    disabled={!selectedId || creditsLoading || !creditSummary}
+                    data-testid="generate-brief-button"
+                    leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
+                  >
+                    {brief.isPending ? "Generating…" : "Generate brief"}
+                  </Button>
+                </div>
+                <div className="mt-3">
+                  <ActionCost feature="meeting_brief" />
+                </div>
+              </>
             )}
           </Card>
 
@@ -164,7 +206,11 @@ export default function BriefPage() {
           {brief.isPending && (
             <Card className="p-6" aria-busy="true">
               <AiThinkingCard
-                title="Preparing your meeting brief"
+                title={
+                  activeFeature === "meeting_brief" && activeCost != null
+                    ? `Preparing your meeting brief · using ${activeCost} credits`
+                    : "Preparing your meeting brief"
+                }
                 steps={BRIEF_STEPS}
                 compact={false}
               />
@@ -221,7 +267,7 @@ export default function BriefPage() {
                       leftIcon={<Mail className="h-4 w-4" aria-hidden />}
                       data-testid="draft-follow-up-button"
                     >
-                      Draft follow-up email
+                      Preview follow-up draft
                     </Button>
                     <Button
                       variant="secondary"

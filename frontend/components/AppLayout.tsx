@@ -19,6 +19,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { ROUTES } from "../lib/routes";
 import { BrandLogo } from "./BrandLogo";
 import { prefetchClients } from "../hooks/useApi";
+import { CreditBadge, CreditWidget } from "./credits";
 
 /** Routes that benefit from client-list prefetch on hover. */
 const CLIENT_PREFETCH_ROUTES = new Set(["/clients", "/chat", "/brief"]);
@@ -107,6 +108,9 @@ function AccountMenu() {
 
   return (
     <div className="mt-auto border-t border-slate-100 pt-4">
+      <div className="mb-4">
+        <CreditWidget compact />
+      </div>
       <div className="flex items-center gap-3">
         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
           {initials}
@@ -257,11 +261,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               {pageTitle}
             </h1>
           </div>
-          {headerExtra && (
-            <div className="flex max-w-[min(100%,42rem)] flex-wrap items-center justify-end gap-2 sm:gap-3">
-              {headerExtra}
-            </div>
-          )}
+          <div className="flex max-w-[min(100%,42rem)] flex-wrap items-center justify-end gap-2 sm:gap-3">
+            {headerExtra}
+            <CreditBadge />
+          </div>
         </header>
         <main
           id="main-content"

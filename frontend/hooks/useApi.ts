@@ -6,7 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { api, ApiError } from "@/lib/api";
 import { downloadExport, type ExportType } from "@/lib/export";
 import { ingestTranscript, uploadDocument } from "@/lib/ingest";
@@ -203,34 +203,39 @@ export function useUpdateAlertStatus() {
   });
 }
 
-export function useDraftEmail(source: DraftEmailSource | null) {
-  // Incremented by regenerate(): keyed into the query so a new request fires,
-  // and any nonce > 0 sends refresh=true to bypass the server-side cache
-  // (plain refetch would otherwise get the same cached draft back).
-  const [regenNonce, setRegenNonce] = useState(0);
-  const query = useQuery({
-    queryKey: ["draft", source, regenNonce],
-    queryFn: () => {
+export function useDraftEmail(source: DraftEmailSource | null, enabled = true) {
+  const qc = useQueryClient();
+  const fetchDraft = useCallback(
+    (refresh = false) => {
       if (!source) throw new Error("No draft source");
-      const refresh = regenNonce > 0 ? { refresh: true } : {};
       if (source.type === "alert") {
         return api.post<DraftEmailResponse>("/api/monitor/draft-email", {
           alert_id: source.alertId,
-          ...refresh,
+          ...(refresh ? { refresh: true } : {}),
         });
       }
       return api.post<DraftEmailResponse>("/api/monitor/draft-email", {
         client_id: source.clientId,
         context: source.context,
         talking_points: source.talkingPoints,
-        ...refresh,
+        ...(refresh ? { refresh: true } : {}),
       });
     },
-    enabled: !!source,
+    [source]
+  );
+  const query = useQuery({
+    queryKey: ["draft", source],
+    queryFn: () => fetchDraft(false),
+    enabled: enabled && !!source,
     staleTime: 5 * 60 * 1000,
     retry: false,
+    refetchOnWindowFocus: false,
   });
-  const regenerate = useCallback(() => setRegenNonce((n) => n + 1), []);
+  const regenerate = useCallback(async () => {
+    const data = await fetchDraft(true);
+    qc.setQueryData(["draft", source], data);
+    return data;
+  }, [fetchDraft, qc, source]);
   return { ...query, regenerate };
 }
 
@@ -287,11 +292,13 @@ export function useApplyPlaybook(clientId: string | undefined) {
 }
 
 export function useClientReviewNote(clientId: string | undefined) {
+  const qc = useQueryClient();
   return useMutation<ReviewNoteResponse, ApiError, void>({
     mutationFn: () =>
       api.post<ReviewNoteResponse>(
         `/api/monitor/clients/${encodeURIComponent(clientId!)}/review-note`
       ),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["credits"] }),
   });
 }
 
@@ -312,15 +319,20 @@ export function useDigest(simulatedDate: string, enabled = true) {
       simulated_date: simulatedDate,
       refresh: "true",
     });
-    const data = await api.get<DigestResponse>(`/api/monitor/digest?${params}`);
-    qc.setQueryData(queryKeys.digest(simulatedDate), data);
-    return data;
+    try {
+      const data = await api.get<DigestResponse>(`/api/monitor/digest?${params}`);
+      qc.setQueryData(queryKeys.digest(simulatedDate), data);
+      return data;
+    } finally {
+      qc.invalidateQueries({ queryKey: ["credits"] });
+    }
   }, [qc, simulatedDate]);
 
   return { ...query, refreshDigest };
 }
 
 export function useChat() {
+  const qc = useQueryClient();
   return useMutation<
     ChatResponse,
     ApiError,
@@ -332,16 +344,19 @@ export function useChat() {
         ...(clientId ? { client_id: clientId } : {}),
         ...(conversationId ? { conversation_id: conversationId } : {}),
       }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["credits"] }),
   });
 }
 
 export function useBrief() {
+  const qc = useQueryClient();
   return useMutation<BriefResponse, ApiError, { clientId: string; refresh?: boolean }>({
     mutationFn: ({ clientId, refresh = false }) =>
       api.post<BriefResponse>("/api/chat/brief", {
         client_id: clientId,
         ...(refresh ? { refresh: true } : {}),
       }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["credits"] }),
   });
 }
 
@@ -374,6 +389,7 @@ export function useIngestTranscript() {
       qc.invalidateQueries({ queryKey: ["clients"] });
       qc.invalidateQueries({ queryKey: ["pulse"] });
     },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["credits"] }),
   });
 }
 

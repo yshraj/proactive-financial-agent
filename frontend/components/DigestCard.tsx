@@ -5,6 +5,8 @@ import { AiBadge, AiThinkingCard, AiTrustFooter } from "./ai";
 import { Card, Button, ErrorState } from "./ui";
 import { useDigest } from "../hooks/useApi";
 import { aiErrorMessage } from "../lib/ai";
+import { ActionCost } from "./credits";
+import { useCredits } from "../contexts/CreditContext";
 
 const AiMarkdown = dynamic(
   () => import("./ai/AiMarkdown").then((m) => m.AiMarkdown),
@@ -28,10 +30,13 @@ function collapseKey(date: string) {
 function DigestCard({ simulatedDate }: DigestCardProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [requested, setRequested] = useState(false);
+  const [refreshError, setRefreshError] = useState<unknown>(null);
+  const { requestAction, activeFeature, activeCost } = useCredits();
 
   const { data, isLoading, isError, error, isFetching, refreshDigest } = useDigest(
     simulatedDate,
-    !collapsed
+    !collapsed && requested
   );
 
   useEffect(() => {
@@ -50,14 +55,22 @@ function DigestCard({ simulatedDate }: DigestCardProps) {
     });
   }, [simulatedDate]);
 
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await refreshDigest();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [refreshDigest]);
+  const handleRefresh = useCallback(() => {
+    requestAction("digest", async () => {
+      setRefreshing(true);
+      setRefreshError(null);
+      try {
+        const result = await refreshDigest();
+        setRequested(true);
+        return result;
+      } catch (error) {
+        setRefreshError(error);
+        throw error;
+      } finally {
+        setRefreshing(false);
+      }
+    });
+  }, [refreshDigest, requestAction]);
 
   return (
     <Card
@@ -77,6 +90,7 @@ function DigestCard({ simulatedDate }: DigestCardProps) {
             <p className="mt-0.5 text-sm text-slate-500">
               AI summary of what deserves your attention on this date.
             </p>
+            <ActionCost feature="digest" className="mt-1 block" />
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
@@ -86,9 +100,9 @@ function DigestCard({ simulatedDate }: DigestCardProps) {
             onClick={handleRefresh}
             loading={refreshing || (isFetching && !isLoading)}
             leftIcon={<RefreshCw className="h-4 w-4" aria-hidden />}
-            aria-label="Regenerate briefing"
+            aria-label={data ? "Regenerate briefing" : "Generate briefing"}
           >
-            Refresh
+            {data ? "Refresh" : "Generate"}
           </Button>
           <Button
             variant="ghost"
@@ -113,18 +127,39 @@ function DigestCard({ simulatedDate }: DigestCardProps) {
         <div id="digest-content" className="px-5 py-5 sm:px-6">
           {isLoading && (
             <AiThinkingCard
-              title="Preparing your morning briefing"
+              title={
+                activeFeature === "digest" && activeCost != null
+                  ? `Preparing your morning briefing · using ${activeCost} credits`
+                  : "Preparing your morning briefing"
+              }
               steps={DIGEST_STEPS}
               compact
             />
           )}
-          {isError && (
+          {(isError || refreshError != null) && (
             <ErrorState
               compact
               title="Couldn't generate briefing"
-              message={aiErrorMessage(error, "digest")}
+              message={aiErrorMessage(refreshError ?? error, "digest")}
               onRetry={handleRefresh}
             />
+          )}
+          {!data && !isLoading && !isError && !refreshError && (
+            <div className="rounded-xl border border-ai-100 bg-white/70 p-4">
+              <p className="text-sm text-slate-600">
+                Generate an AI summary of today&apos;s priorities.
+              </p>
+              <Button
+                className="mt-3"
+                size="sm"
+                onClick={handleRefresh}
+                loading={refreshing}
+                leftIcon={<Sparkles className="h-4 w-4" aria-hidden />}
+                data-testid="generate-digest-button"
+              >
+                Generate briefing
+              </Button>
+            </div>
           )}
           {data?.digest && !isLoading && (
             <div className="animate-fade-in" data-testid="digest-content-text">

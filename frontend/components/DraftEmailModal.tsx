@@ -9,6 +9,8 @@ import { useDraftEmail, useUpdateAlertStatus } from "../hooks/useApi";
 import { aiErrorMessage } from "../lib/ai";
 import { isSyntheticAlert } from "../lib/labels";
 import type { DraftEmailSource } from "../lib/types";
+import { ActionCost } from "./credits";
+import { useCredits } from "../contexts/CreditContext";
 
 const DRAFT_STEPS = [
   "Reviewing client context and alert details",
@@ -29,7 +31,10 @@ export default function DraftEmailModal({
 }: DraftEmailModalProps) {
   const { notify } = useToast();
   const [copied, setCopied] = useState(false);
-  const draftQuery = useDraftEmail(source);
+  const [hasRequested, setHasRequested] = useState(false);
+  const [generationError, setGenerationError] = useState<unknown>(null);
+  const draftQuery = useDraftEmail(source, false);
+  const { requestAction, activeFeature, activeCost, getCost } = useCredits();
   const updateStatus = useUpdateAlertStatus();
 
   const alertId = source?.type === "alert" ? source.alertId : null;
@@ -38,10 +43,29 @@ export default function DraftEmailModal({
 
   useEffect(() => {
     setCopied(false);
+    setHasRequested(false);
+    setGenerationError(null);
   }, [source]);
 
-  const draft = draftQuery.data?.draft;
-  const subject = draftQuery.data?.subject;
+  const generate = (refresh = false) => {
+    requestAction("draft_email", async () => {
+      setHasRequested(true);
+      setGenerationError(null);
+      try {
+        if (refresh) return await draftQuery.regenerate();
+        const result = await draftQuery.refetch();
+        if (result.error) throw result.error;
+        return result.data;
+      } catch (error) {
+        setGenerationError(error);
+        throw error;
+      }
+    });
+  };
+
+  const draft = hasRequested ? draftQuery.data?.draft : undefined;
+  const subject = hasRequested ? draftQuery.data?.subject : undefined;
+  const draftCost = getCost("draft_email");
 
   const mailtoHref = useMemo(() => {
     if (!draft) return null;
@@ -105,11 +129,12 @@ export default function DraftEmailModal({
           {draft && (
             <Button
               variant="secondary"
-              onClick={() => draftQuery.regenerate()}
+              onClick={() => generate(true)}
+              disabled={activeFeature === "draft_email"}
               leftIcon={<RefreshCw className="h-4 w-4" aria-hidden />}
               data-testid="regenerate-draft-button"
             >
-              Regenerate
+              Regenerate · {draftCost ?? "—"} credit{draftCost === 1 ? "" : "s"}
             </Button>
           )}
           {mailtoHref && (
@@ -129,17 +154,41 @@ export default function DraftEmailModal({
         </>
       }
     >
-      {draftQuery.isLoading && (
-        <AiThinkingCard title="Drafting your email" steps={DRAFT_STEPS} compact={false} />
+      <ActionCost feature="draft_email" className="mb-3 block" />
+      {!hasRequested && activeFeature !== "draft_email" && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-5 text-center">
+          <p className="text-sm text-slate-600">
+            Review the cost before creating a client-ready email draft. Opening this preview
+            has not used any credits.
+          </p>
+          <Button
+            className="mt-4"
+            onClick={() => generate()}
+            data-testid="generate-draft-button"
+          >
+            Generate draft · {draftCost ?? "—"} credit{draftCost === 1 ? "" : "s"}
+          </Button>
+        </div>
       )}
-      {draftQuery.isError && (
-        <ErrorState
-          title="Couldn't generate the draft"
-          message={aiErrorMessage(draftQuery.error, "draft")}
-          onRetry={() => draftQuery.refetch()}
+      {(draftQuery.isFetching || activeFeature === "draft_email") && (
+        <AiThinkingCard
+          title={
+            activeFeature === "draft_email" && activeCost != null
+              ? `Drafting your email · using ${activeCost} credits`
+              : "Drafting your email"
+          }
+          steps={DRAFT_STEPS}
+          compact={false}
         />
       )}
-      {draft && !draftQuery.isLoading && (
+      {(generationError || draftQuery.isError) && (
+        <ErrorState
+          title="Couldn't generate the draft"
+          message={aiErrorMessage(generationError ?? draftQuery.error, "draft")}
+          onRetry={() => generate()}
+        />
+      )}
+      {draft && !generationError && !draftQuery.isFetching && activeFeature !== "draft_email" && (
         <div>
           <div className="mb-4 flex flex-wrap items-center gap-2">
             <AiBadge label="Draft email" />

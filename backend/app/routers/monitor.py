@@ -43,7 +43,7 @@ from app.services.cache import (
 from app.services.client_updates import validate_client_update
 from app.services import audit
 from app.services import credits
-from app.services.analytics import compute_book_analytics
+from app.services.analytics import REVIEW_OVERDUE_DAYS, compute_book_analytics
 from app.services.export import rows_to_csv
 from app.services.playbooks import build_playbook_alerts, list_playbooks
 from app.services.llm import complete_with_system, resolve_model
@@ -403,7 +403,7 @@ def get_client_detail(
     """Client 360° view: profile, open alerts, overdue follow-ups, and AI relationship summary."""
     today = datetime.now().date()
     end_90 = today + timedelta(days=90)
-    review_cutoff = today - timedelta(days=365)
+    review_cutoff = today - timedelta(days=REVIEW_OVERDUE_DAYS)
 
     with get_cursor() as cur:
         cur.execute(
@@ -642,7 +642,7 @@ def client_review_note(
 ):
     """Generate a Consumer-Duty client review note (LLM, with deterministic fallback)."""
     today = datetime.now().date()
-    review_cutoff = today - timedelta(days=365)
+    review_cutoff = today - timedelta(days=REVIEW_OVERDUE_DAYS)
     end_90 = today + timedelta(days=90)
 
     with get_cursor() as cur:
@@ -753,7 +753,7 @@ def _parse_simulated_date(simulated_date: str) -> date:
 def _build_pulse(base: date, org_id: str) -> PulseResponse:
     """Shared pulse logic for dashboard and morning digest."""
     end = base + timedelta(days=30)
-    review_cutoff = base - timedelta(days=365)
+    review_cutoff = base - timedelta(days=REVIEW_OVERDUE_DAYS)
 
     with get_cursor() as cur:
         cur.execute(
@@ -982,7 +982,7 @@ def get_alerts(
     limit = _clamp_limit(limit)
     base = _parse_simulated_date(simulated_date) if simulated_date else datetime.now().date()
     end = base + timedelta(days=days)
-    review_cutoff = base - timedelta(days=365)
+    review_cutoff = base - timedelta(days=REVIEW_OVERDUE_DAYS)
 
     with get_cursor() as cur:
         sql = f"""

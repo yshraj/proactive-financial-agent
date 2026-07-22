@@ -23,6 +23,7 @@ from app.security import limiter
 from app.services import audit
 from app.services import conversations
 from app.services import credits
+from app.services.analytics import REVIEW_OVERDUE_DAYS
 from app.services.cache import (
     BRIEF_TTL,
     CHAT_TTL,
@@ -104,7 +105,7 @@ def _get_structured_context(ctx: TenantContext, client_id: Optional[str] = None)
     """Fetch compact structured summary from Postgres for hybrid context."""
     try:
         today = datetime.now().date()
-        review_cutoff = today - timedelta(days=365)
+        review_cutoff = today - timedelta(days=REVIEW_OVERDUE_DAYS)
         end_30 = today + timedelta(days=30)
         org_id = ctx.org_id
         parts = []

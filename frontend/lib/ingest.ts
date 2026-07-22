@@ -1,13 +1,6 @@
 import { api, ApiError } from "./api";
 import type { JobStatus, StoredDocument, UploadJobResponse } from "./types";
 
-/** Upload a document to the ingest API. Throws ApiError on failure (incl. 409 duplicate). */
-export async function uploadDocument(file: File): Promise<StoredDocument> {
-  const form = new FormData();
-  form.append("file", file);
-  return api.postForm<StoredDocument>("/api/ingest/upload", form);
-}
-
 // Poll quickly while the job is fresh, then back off — long waits happen when
 // the worker trigger was lost and the 5-minute scheduled drain has to pick the
 // job up, so there is no point hammering the status endpoint meanwhile.

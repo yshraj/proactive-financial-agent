@@ -23,13 +23,10 @@ from app.db import get_cursor
 class CreditFeature(str, Enum):
     CHAT = "chat"
     REPORT = "report"
-    IMAGE = "image"
     PDF_ANALYSIS = "pdf_analysis"
-    DEEP_RESEARCH = "deep_research"
     DRAFT_EMAIL = "draft_email"
     DIGEST = "digest"
     REVIEW_NOTE = "review_note"
-    CLIENT_SUMMARY = "client_summary"
     TRANSCRIPT_ANALYSIS = "transcript_analysis"
 
 

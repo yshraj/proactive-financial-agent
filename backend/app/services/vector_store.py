@@ -158,24 +158,6 @@ def ensure_payload_indexes(collection: str = QDRANT_COLLECTION) -> None:
         logger.info("client_id payload index already present")
 
 
-def recreate_collection(collection: str = QDRANT_COLLECTION) -> None:
-    """Delete and recreate the Qdrant collection (demo reset)."""
-    from qdrant_client.models import Distance, VectorParams
-
-    from app.services.clients import get_qdrant_client
-
-    client = get_qdrant_client()
-    try:
-        client.delete_collection(collection)
-    except Exception:
-        pass
-    client.create_collection(
-        collection_name=collection,
-        vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
-    )
-    ensure_payload_indexes(collection)
-
-
 def delete_org_points(org_id: str, collection: str = QDRANT_COLLECTION) -> None:
     """Delete only this org's points (org-scoped data reset)."""
     from qdrant_client.models import FieldCondition, Filter, FilterSelector, MatchValue

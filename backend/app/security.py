@@ -166,11 +166,6 @@ def _supabase_configured() -> bool:
     return bool(url or secret)
 
 
-def auth_configured() -> bool:
-    """True when at least one auth mechanism is enabled."""
-    return api_key_configured() or _supabase_configured()
-
-
 def is_production() -> bool:
     env = os.environ.get("ENV", os.environ.get("ENVIRONMENT", "")).lower()
     return env in ("production", "prod")

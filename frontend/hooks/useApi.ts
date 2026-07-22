@@ -9,7 +9,7 @@ import {
 import { useCallback } from "react";
 import { api, ApiError } from "@/lib/api";
 import { downloadExport, type ExportType } from "@/lib/export";
-import { ingestTranscript, uploadDocument } from "@/lib/ingest";
+import { ingestTranscript } from "@/lib/ingest";
 import type {
   Alert,
   BookAnalytics,
@@ -433,14 +433,6 @@ export function useComplianceScan() {
   return useMutation<ComplianceScanResponse, ApiError, string>({
     mutationFn: (text: string) =>
       api.post<ComplianceScanResponse>("/api/compliance/scan", { text }),
-  });
-}
-
-export function useUpload() {
-  const qc = useQueryClient();
-  return useMutation<StoredDocument, ApiError, File>({
-    mutationFn: uploadDocument,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
   });
 }
 

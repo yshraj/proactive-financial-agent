@@ -100,4 +100,3 @@ export function CreditWidget({
   );
 }
 
-export const CreditMeter = CreditWidget;

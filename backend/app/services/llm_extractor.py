@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import re
-from pathlib import Path
 from typing import Any
 
 import pymupdf
@@ -65,12 +64,6 @@ def extract_text_from_bytes(content: bytes, ext: str, display_name: str = "docum
     raise ValueError(f"Unsupported file type: {ext}")
 
 
-def extract_text_from_file(file_path: Path) -> str:
-    """Extract plain text from a PDF or DOCX file on disk."""
-    path = Path(file_path)
-    return extract_text_from_bytes(path.read_bytes(), path.suffix.lower(), path.name)
-
-
 # EXTRACTION_SYSTEM lives in app.services.prompts (versioned via PROMPT_VERSION)
 
 
@@ -112,20 +105,11 @@ def _parse_llm_json(raw: str) -> dict[str, Any]:
     return json.loads(s)
 
 
-def extract_structured(file_path: Path) -> dict[str, Any]:
-    """
-    Extract text from file, call LLM, return { "client": {...}, "alerts": [...] }.
-    Results cached by content hash (EXTRACT_TTL) to reduce LLM calls for same/similar documents.
-    Raises on missing env or parse/LLM errors.
-    """
-    text = extract_text_from_file(file_path)
-    return extract_structured_from_text(text)
-
-
 def extract_structured_from_text(text: str) -> dict[str, Any]:
     """
-    Run structured extraction over already-extracted text (e.g. a pasted meeting
-    transcript). Same contract and caching as :func:`extract_structured`.
+    Run LLM structured extraction over document/transcript text, returning
+    ``{"client": {...}, "alerts": [...], "raw_text": ...}``. Results are cached
+    by content hash (EXTRACT_TTL) to reduce LLM calls for identical documents.
     """
     text = text or ""
     if len(text) < 50:

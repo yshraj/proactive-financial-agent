@@ -88,13 +88,10 @@ export const CREDIT_ACTION_LABELS: Record<CreditFeature, string> = {
 const BACKEND_COST_LABELS: Record<string, string> = {
   chat: "AI Copilot question",
   report: "Meeting brief",
-  image: "Image generation",
   pdf_analysis: "Document analysis",
-  deep_research: "Deep research",
   draft_email: "Draft email",
   digest: "Briefing generation",
   review_note: "Review note",
-  client_summary: "Client summary",
   transcript_analysis: "Transcript analysis",
 };
 

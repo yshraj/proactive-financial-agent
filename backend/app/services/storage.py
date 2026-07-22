@@ -130,26 +130,6 @@ def fetch_document(file_path: str) -> bytes:
     raise ValueError(f"Unsupported file_path reference: {file_path!r}")
 
 
-def signed_url(file_path: str, expires_seconds: int = 300) -> Optional[str]:
-    """Short-lived signed URL for a stored document (Supabase Storage only)."""
-    if not file_path.startswith("storage:") or not supabase_storage_enabled():
-        return None
-    import httpx
-
-    ref = file_path[len("storage:"):]
-    bucket, _, key = ref.partition("/")
-    resp = httpx.post(
-        f"{_storage_base_url()}/object/sign/{bucket}/{key}",
-        headers=_headers(),
-        json={"expiresIn": expires_seconds},
-        timeout=15,
-    )
-    if resp.status_code != 200:
-        return None
-    signed = (resp.json() or {}).get("signedURL")
-    return f"{_storage_base_url()}{signed}" if signed else None
-
-
 def delete_org_documents(org_id: str) -> None:
     """Best-effort removal of an org's stored files (data-reset flow)."""
     if supabase_storage_enabled():

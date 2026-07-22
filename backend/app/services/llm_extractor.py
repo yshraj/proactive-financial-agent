@@ -139,24 +139,21 @@ def extract_structured_from_text(text: str) -> dict[str, Any]:
     alerts = data.get("alerts")
     if not isinstance(alerts, list):
         alerts = []
-    # Log extracted summary (no huge payloads)
-    name = (client.get("full_name") or "Unknown Client").strip() or "Unknown Client"
+    # Log a structural summary only — never client names, financial figures,
+    # or alert titles (PII policy in app.logging_config).
     logger.info(
-        "[ingest] LLM extracted → client: %s (risk=%s, assets=%s, review=%s); alerts: %d",
-        name,
+        "[ingest] LLM extracted → client resolved (named=%s, risk=%s); alerts: %d",
+        bool((client.get("full_name") or "").strip()),
         client.get("risk_score"),
-        client.get("total_assets"),
-        client.get("last_review_date"),
         len(alerts),
     )
     for i, a in enumerate(alerts[:10]):
         logger.info(
-            "[ingest]   alert[%d] %s | %s | %s | %s",
+            "[ingest]   alert[%d] %s | %s | %s",
             i,
             a.get("trigger_date"),
             a.get("type"),
             a.get("priority"),
-            (a.get("title") or "")[:50],
         )
     if len(alerts) > 10:
         logger.info("[ingest]   ... and %d more alerts", len(alerts) - 10)

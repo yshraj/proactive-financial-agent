@@ -8,7 +8,7 @@
 # or:
 #   ./deploy/smoke-test.sh https://demo.example.com your-code
 #
-# Opt-in (consumes the day's ingestion budget for this IP):
+# Opt-in (trips the per-minute burst limit for this session; recovers in ~1 min):
 #   SMOKE_RATE_LIMIT=1 BASE_URL=... ACCESS_CODE=... ./deploy/smoke-test.sh
 #
 # Some checks (job survives restart, chat thread persists) need a shell on the
@@ -80,20 +80,22 @@ contains "clients response is paginated (has total)" \
 ok "alerts accepts huge limit (clamped)" \
   "$(code -H "X-Access-Code: $ACCESS_CODE" "$BASE_URL/api/monitor/alerts?limit=100000")" "200"
 
-# 5. Rate limit -> structured 429 (opt-in; consumes this IP's daily ingestion budget)
+# 5. Rate limit -> structured 429 (opt-in; trips the 30/minute export limit,
+#    which is cheap, read-only, and costs no AI credits; resets within a minute)
 if [ "${SMOKE_RATE_LIMIT:-0}" = "1" ]; then
-  echo "  .. hammering /api/ingest/transcript to trip the daily budget"
+  echo "  .. hammering /api/monitor/export to trip the per-minute limit"
   last=""
-  for _ in 1 2 3 4 5 6 7 8; do
-    last="$(code -H "X-Access-Code: $ACCESS_CODE" -H 'Content-Type: application/json' \
-      -X POST --data '{"text":"hi"}' "$BASE_URL/api/ingest/transcript")"
+  i=0
+  while [ $i -lt 35 ]; do
+    last="$(code -H "X-Access-Code: $ACCESS_CODE" "$BASE_URL/api/monitor/export?type=clients")"
+    i=$((i + 1))
+    [ "$last" = "429" ] && break
   done
-  ok "ingestion budget returns 429" "$last" "429"
+  ok "burst limit returns 429" "$last" "429"
   contains "429 body is structured" \
-    "$(body -H "X-Access-Code: $ACCESS_CODE" -H 'Content-Type: application/json' \
-        -X POST --data '{"text":"hi"}' "$BASE_URL/api/ingest/transcript")" '"error":"rate_limit"'
+    "$(body -H "X-Access-Code: $ACCESS_CODE" "$BASE_URL/api/monitor/export?type=clients")" '"rate_limited"'
 else
-  echo "  SKIP  rate-limit check (set SMOKE_RATE_LIMIT=1 to run; consumes daily budget)"
+  echo "  SKIP  rate-limit check (set SMOKE_RATE_LIMIT=1 to run; trips the per-minute limit)"
 fi
 
 echo

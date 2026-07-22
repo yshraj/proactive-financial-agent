@@ -166,6 +166,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: npm audit (high+)
+      - name: npm audit (high+, with explicit allowlist)
+        # next@14's EOL advisories are only fixed by the breaking next@16
+        # upgrade; scripts/check-audit.mjs allowlists exactly those so any NEW
+        # high/critical advisory still fails the build.
         working-directory: frontend
-        run: npm audit --audit-level=high
+        run: node scripts/check-audit.mjs

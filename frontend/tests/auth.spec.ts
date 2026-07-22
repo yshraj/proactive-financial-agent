@@ -36,7 +36,11 @@ test.describe("authentication", () => {
     page,
   }) => {
     for (const malicious of ["https://evil.example.com", "//evil.example.com"]) {
-      await page.goto(`/login?redirect=${encodeURIComponent(malicious)}`);
+      // Firefox can abort a goto (NS_BINDING_ABORTED) when it interrupts the
+      // previous page's in-flight work; re-navigating is always safe here.
+      await expect(async () => {
+        await page.goto(`/login?redirect=${encodeURIComponent(malicious)}`);
+      }).toPass({ timeout: 15_000 });
       const cta = page
         .getByTestId("continue-without-auth")
         .or(page.getByTestId("login-form"));

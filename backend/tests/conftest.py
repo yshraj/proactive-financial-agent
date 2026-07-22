@@ -69,12 +69,20 @@ _ALL_DATA_TABLES = (
 )
 
 
-def _with_user(url: str, user: str) -> str:
-    """Return the connection URL with a different role (trust-auth sockets)."""
+# Password given to kritifin_app for the test database. pgserver (local) uses
+# trust auth and ignores it; the CI Postgres service container uses scram over
+# TCP and requires it — without a password the app-role connection fails with
+# "fe_sendauth: no password supplied" and every DB-backed test breaks.
+_APP_ROLE_PASSWORD = "kritifin-app-test-password"
+
+
+def _with_user(url: str, user: str, password: str = _APP_ROLE_PASSWORD) -> str:
+    """Return the connection URL for a different role (with its password)."""
     parsed = urlparse(url)
     host = parsed.hostname or ""
     port = f":{parsed.port}" if parsed.port else ""
-    netloc = f"{user}@{host}{port}" if host else f"{user}@"
+    cred = f"{user}:{password}" if password else user
+    netloc = f"{cred}@{host}{port}" if host else f"{cred}@"
     return urlunparse(parsed._replace(netloc=netloc))
 
 
@@ -113,7 +121,7 @@ def migrated_db(admin_db_url):
     conn = psycopg2.connect(admin_db_url)
     conn.autocommit = True
     with conn.cursor() as cur:
-        cur.execute("ALTER ROLE kritifin_app LOGIN")
+        cur.execute(f"ALTER ROLE kritifin_app LOGIN PASSWORD '{_APP_ROLE_PASSWORD}'")
         cur.execute("GRANT SELECT ON alembic_version TO kritifin_app")
     conn.close()
 

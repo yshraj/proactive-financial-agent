@@ -11,9 +11,22 @@ export class IngestionPage {
     await expect(this.page.getByRole("heading", { level: 1, name: "Ingestion" })).toBeVisible();
     await expect(this.page.getByTestId("document-dropzone")).toBeVisible();
     await expect(this.page.getByTestId("stored-documents")).toBeVisible();
+    await this.readyForUpload();
+  }
+
+  /**
+   * Wait until uploads can actually be processed. The cost hint renders only
+   * after React has hydrated AND the credit summary query resolved — before
+   * that, a file-input change event is either lost (no listener yet) or
+   * hard-stopped by the credits gate, so tests that upload straight after
+   * goto() flake on slower engines (firefox, emulated tablet) under CI load.
+   */
+  async readyForUpload() {
+    await expect(this.page.getByTestId("credit-cost-document_upload")).toBeVisible();
   }
 
   async uploadSampleDocument() {
+    await this.readyForUpload();
     await this.page.getByTestId("document-upload-input").setInputFiles({
       name: "sample-client-note.pdf",
       mimeType: "application/pdf",

@@ -75,7 +75,9 @@ export default defineConfig({
     {
       name: "tablet-chromium",
       dependencies: ["auth"],
-      use: { ...devices["iPad (gen 7)"], storageState },
+      // iPad device descriptors default to WebKit; pin Chromium so this
+      // project matches its name and runs on CI's chromium+firefox install.
+      use: { ...devices["iPad (gen 7)"], browserName: "chromium", storageState },
     },
   ],
   webServer: skipWebServer

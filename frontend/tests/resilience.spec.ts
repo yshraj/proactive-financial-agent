@@ -130,6 +130,7 @@ test.describe("upload validation", () => {
 
   test("rejects unsupported file types", async ({ app, page }) => {
     await app.ingestion.goto();
+    await app.ingestion.readyForUpload();
     await page.getByTestId("document-upload-input").setInputFiles({
       name: "photo.png",
       mimeType: "image/png",
@@ -141,6 +142,7 @@ test.describe("upload validation", () => {
 
   test("accepts markdown and plain-text uploads", async ({ app, page }) => {
     await app.ingestion.goto();
+    await app.ingestion.readyForUpload();
     await page.getByTestId("document-upload-input").setInputFiles([
       {
         name: "meeting-notes.md",
@@ -162,6 +164,7 @@ test.describe("upload validation", () => {
 
   test("rejects a binary masquerading as a text file", async ({ app, page }) => {
     await app.ingestion.goto();
+    await app.ingestion.readyForUpload();
     await page.getByTestId("document-upload-input").setInputFiles({
       name: "innocent.txt",
       // NUL bytes: executables/binaries renamed to .txt must fail client-side.
@@ -189,6 +192,7 @@ test.describe("upload validation", () => {
     );
 
     await app.ingestion.goto();
+    await app.ingestion.readyForUpload();
     await page.getByTestId("document-upload-input").setInputFiles({
       name: "duplicate.pdf",
       mimeType: "application/pdf",
@@ -243,6 +247,7 @@ test.describe("ingestion pipeline UX", () => {
       })
     );
     await app.ingestion.goto();
+    await app.ingestion.readyForUpload();
     await page.getByTestId("document-upload-input").setInputFiles({
       name: "whitfield.pdf",
       mimeType: "application/pdf",

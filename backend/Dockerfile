@@ -30,12 +30,16 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# App code (context is ./backend — see docker-compose build.context).
-COPY . .
+# Unprivileged runtime user (created before COPY so ownership is set in the
+# same layer as the files, instead of a duplicating chown -R afterwards).
+RUN useradd --create-home --uid 10001 appuser
 
-# Run as an unprivileged user.
-RUN useradd --create-home --uid 10001 appuser \
-    && chown -R appuser:appuser /app
+# App code (context is ./backend — see docker-compose build.context).
+COPY --chown=appuser:appuser . .
+
+# The local-disk storage fallback (no SUPABASE_SERVICE_ROLE_KEY) writes to
+# uploads/, which .dockerignore keeps out of the image — pre-create it writable.
+RUN install -d -o appuser -g appuser /app/uploads
 
 # ---------------------------------------------------------------------------
 # worker: queue worker Lambda (native handler, no HTTP server).

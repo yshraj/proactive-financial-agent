@@ -1,9 +1,10 @@
 """
 Durable background-job queue (Postgres).
 
-Replaces the in-memory registry: jobs survive restarts, and a dedicated worker
-process (app/worker.py) claims work with ``FOR UPDATE SKIP LOCKED`` via the
-SECURITY DEFINER ``claim_next_job()`` function — one poll loop, no broker
+Replaces the in-memory registry: jobs survive restarts, and worker drains
+(app/worker.py — event-driven: triggered after each enqueue and by the
+scheduled safety net) claim work with ``FOR UPDATE SKIP LOCKED`` via the
+SECURITY DEFINER ``claim_next_job()`` function — no broker, no poll loop
 (production-readiness RFC, D4).
 
 Lifecycle: PENDING -> PROCESSING -> DONE | ERROR. A PROCESSING job whose lock
@@ -49,6 +50,7 @@ def _job_from_row(r: dict[str, Any]) -> dict[str, Any]:
         "document_id": str(r["document_id"]) if r.get("document_id") else None,
         "error": r.get("error"),
         "attempts": int(r.get("attempts") or 0),
+        "max_attempts": int(r.get("max_attempts") or 3),
         "payload": payload or {},
     }
 
@@ -170,3 +172,20 @@ def sweep_exhausted() -> int:
         cur.execute("SELECT fail_exhausted_jobs(%s) AS n", (STALE_LOCK_SECONDS,))
         row = cur.fetchone()
     return int(row["n"] or 0) if row else 0
+
+
+def has_runnable() -> bool:
+    """True when any job is claimable (PENDING, or PROCESSING with a stale,
+    retryable lock).
+
+    Lets a budget-exhausted drain decide whether handing off to a fresh
+    invocation is actually needed. SECURITY DEFINER (like claim_next) because
+    the worker runs without a tenant context.
+    """
+    from app.db import get_cursor
+
+    bootstrap = system_context("")
+    with get_cursor(ctx=bootstrap) as cur:
+        cur.execute("SELECT runnable_jobs_exist(%s) AS has_work", (STALE_LOCK_SECONDS,))
+        row = cur.fetchone()
+    return bool(row and row["has_work"])

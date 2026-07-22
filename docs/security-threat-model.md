@@ -2,18 +2,18 @@
 
 _Last updated: 17 Jul 2026. Companion to [security-audit.md](security-audit.md)
 and the production-readiness RFC. STRIDE-lite, scoped to the current
-architecture (Vercel + Render + Supabase + Qdrant + OpenAI)._
+architecture (Vercel + AWS Lambda + Supabase + Qdrant + OpenAI)._
 
 ## Data flow
 
 ```mermaid
 flowchart LR
-  Browser["Next.js app (Vercel)"] -->|"HTTPS + Supabase JWT"| API["FastAPI (Render)"]
+  Browser["Next.js app (Vercel)"] -->|"HTTPS + Supabase JWT"| API["FastAPI (AWS Lambda)"]
   API -->|"kritifin_app role, RLS + org GUCs"| PG[("Supabase Postgres")]
   API -->|"org_id-filtered search"| QD[("Qdrant Cloud")]
   API -->|"prompts (no training)"| OAI["OpenAI API"]
   API -->|"service-role key, org-prefixed keys"| ST[("Supabase Storage")]
-  Worker["Queue worker (Render)"] --> PG
+  Worker["Queue worker (AWS Lambda)"] --> PG
   Worker --> QD
   Worker --> OAI
   Worker --> ST
@@ -63,8 +63,8 @@ data, AI outputs (derived PII), operational telemetry (scrubbed, no PII).
   vectors) each covered by CI-blocking tests; logs and Sentry scrub PII;
   public error messages are generic.
 - **Denial of service** — per-org rate limits, bounded uploads/reads, LLM
-  input clamps, statement-level caps on extraction; Render Starter removes
-  cold-start amplification.
+  input clamps, statement-level caps on extraction; Lambda scales per-request
+  and the worker's reserved concurrency caps queue-driven compute.
 - **Elevation of privilege** — single non-admin DB role; SECURITY DEFINER
   functions limited to provisioning and queue claiming with pinned
   search_path; no dynamic role grants; break-glass admin URL confined to

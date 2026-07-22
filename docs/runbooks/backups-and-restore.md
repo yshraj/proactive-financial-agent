@@ -12,14 +12,15 @@
 | Postgres (clients, alerts, documents metadata, audit_log, jobs, conversations, tenancy) | Supabase **Pro** daily backups + PITR add-on | Enable Pro + PITR on the production project (required before real client data) |
 | Documents (originals) | Supabase Storage `documents` bucket | Included in Supabase infra durability; NOT in DB backups — do not assume a DB restore restores files |
 | Qdrant vectors | Weekly snapshot via Qdrant snapshot API (worker cron — Phase 2), plus full rebuild path | Vectors are derivable: re-ingestion from stored originals can rebuild the index |
-| Config/secrets | Render env group + Vercel envs | Export a copy to the password manager on every change |
+| Config/secrets | GitHub Actions secrets + Vercel envs | Export a copy to the password manager on every change |
 
 ## Restore drill (quarterly; first one before design-partner beta)
 
 1. Supabase → production project → Backups → restore to a **new** project
    (never in place) at a chosen point in time.
-2. Create a scratch Render service (or run locally) pointed at the restored DB:
-   set `DATABASE_URL`/`DATABASE_ADMIN_URL`, run `alembic upgrade head`
+2. Deploy a scratch SAM stack (`sam deploy --stack-name kritifin-restore-drill`,
+   or run locally) pointed at the restored DB: set
+   `DATABASE_URL`/`DATABASE_ADMIN_URL`, run `alembic upgrade head`
    (should be a no-op), start the API.
 3. Verify: `/health/ready` green; sign in; pulse renders; a Client 360 loads;
    `SELECT COUNT(*) FROM audit_log` matches expectation for the restore point.

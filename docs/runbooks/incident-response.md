@@ -4,8 +4,9 @@
 
 - **SEV1** — data exposure across tenants, data loss, or full outage.
   Response: immediate, drop everything. If client data is exposed: suspend the
-  API first (Render → Suspend), assess second. FCA/ICO notification duties may
-  apply (see escalation).
+  API first (set the Lambda's reserved concurrency to 0 — see
+  [deploy-and-rollback.md](deploy-and-rollback.md)), assess second. FCA/ICO
+  notification duties may apply (see escalation).
 - **SEV2** — a core flow broken for all users (ingestion, chat, dashboard) or
   the worker dead with a growing queue. Response: within 1 hour.
 - **SEV3** — degraded (slow AI responses, single-feature bug, elevated error
@@ -24,10 +25,10 @@
 1. Acknowledge the alert; note the time (incident log starts now).
 2. Check `/health/ready` — it names the failing dependency (database, qdrant,
    llm_configured) and the running migration version.
-3. Check Sentry for the triggering release; check Render deploy history for a
-   correlated deploy.
-4. Correlate with providers: Supabase status, Render status, Qdrant Cloud
-   status, OpenAI status.
+3. Check Sentry for the triggering release; check the deploy workflow history
+   (GitHub Actions) and CloudFormation stack events for a correlated deploy.
+4. Correlate with providers: Supabase status, AWS Health Dashboard, Qdrant
+   Cloud status, OpenAI status.
 5. If a deploy caused it → rollback per
    [deploy-and-rollback.md](deploy-and-rollback.md). If a provider caused it →
    communicate and wait; do not thrash.

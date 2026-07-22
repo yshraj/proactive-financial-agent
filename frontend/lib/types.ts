@@ -224,3 +224,12 @@ export interface JobStatus {
   document_id?: string | null;
   error?: string | null;
 }
+
+/** Upload constraints from GET /api/ingest/limits — shown before upload and
+ * used for client-side validation, so the UI always matches the deployment
+ * (20 MB locally, 4 MB on AWS Lambda). */
+export interface UploadLimits {
+  max_upload_bytes: number;
+  max_upload_mb: number;
+  allowed_extensions: string[];
+}

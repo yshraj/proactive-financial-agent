@@ -40,7 +40,7 @@ from app.services.prompts import (
     chat_user_message,
 )
 from app.services.rag_context import retrieve_for_brief, retrieve_for_chat
-from app.services.safety import sanitize_user_query
+from app.services.safety import public_error_message, sanitize_user_query
 
 _executor = ThreadPoolExecutor(max_workers=4)
 
@@ -315,16 +315,23 @@ def chat(
 
     cache_key_ctx = f"chat:structured_ctx:{scope_key}"
     structured_cached = cache_get(cache_key_ctx)
-    if isinstance(structured_cached, str) and structured_cached:
-        structured_context = structured_cached
-        rag_context, source_dicts = retrieve_for_chat(query, org_id=ctx.org_id, client_id=client_id)
-    else:
-        # Pass ctx explicitly: contextvars do not cross into executor threads.
-        fut_ctx = _executor.submit(_get_structured_context, ctx, client_id)
-        fut_rag = _executor.submit(retrieve_for_chat, query, org_id=ctx.org_id, client_id=client_id)
-        structured_context = fut_ctx.result()
-        cache_set(cache_key_ctx, structured_context, STRUCTURED_CTX_TTL)
-        rag_context, source_dicts = fut_rag.result()
+    try:
+        if isinstance(structured_cached, str) and structured_cached:
+            structured_context = structured_cached
+            rag_context, source_dicts = retrieve_for_chat(query, org_id=ctx.org_id, client_id=client_id)
+        else:
+            # Pass ctx explicitly: contextvars do not cross into executor threads.
+            fut_ctx = _executor.submit(_get_structured_context, ctx, client_id)
+            fut_rag = _executor.submit(retrieve_for_chat, query, org_id=ctx.org_id, client_id=client_id)
+            structured_context = fut_ctx.result()
+            cache_set(cache_key_ctx, structured_context, STRUCTURED_CTX_TTL)
+            rag_context, source_dicts = fut_rag.result()
+    except Exception as e:
+        # Vector search (embedding or Qdrant) is down: clean 503, keep the
+        # provider/cluster details in the logs only.
+        raise HTTPException(
+            status_code=503, detail=public_error_message("search_unavailable", e)
+        ) from None
 
     model = resolve_model("chat")
     answer = complete_with_system(

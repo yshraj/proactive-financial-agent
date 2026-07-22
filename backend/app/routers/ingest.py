@@ -3,10 +3,10 @@ Ingestion API: upload PDFs and Word (DOCX), duplicate check, then dual-path inge
 Path A = LLM extraction -> clients + alerts (Postgres); Path B = chunk + embed -> Qdrant client_memory.
 
 Production posture:
-- Originals persist to Supabase Storage under org-prefixed keys (Render disk is
-  ephemeral); see services/storage.py.
-- Async processing goes through the durable Postgres job queue (services/jobs)
-  and is executed by the worker (app/worker.py) — restarts lose nothing.
+- Originals persist to Supabase Storage under org-prefixed keys (the app
+  server's disk — Lambda/containers — is ephemeral); see services/storage.py.
+- Async processing goes through the durable Postgres job queue (services/jobs),
+  drained event-driven by the worker (app/worker.py) — restarts lose nothing.
 - Duplicate detection is per-org (UNIQUE(org_id, content_hash)); another
   tenant's identical document is invisible.
 """
@@ -22,7 +22,16 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 import psycopg2
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from pydantic import BaseModel, Field
 
 from app.context import TenantContext
@@ -37,13 +46,27 @@ from app.services import llm_extractor
 from app.services import note_templates
 from app.services import storage
 from app.services import vector_store
+from app.services import worker_trigger
 from app.services.safety import public_error_message, validate_docx_zip, validate_file_magic
 
 logger = logging.getLogger("jarvis.ingest")
 
 # Reject oversized uploads before buffering the whole file in memory (DoS guard).
+# On AWS Lambda this is set to 4 MB (Function URL payload constraint); the UI
+# reads GET /limits so the number shown always matches this deployment.
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
 _READ_CHUNK = 1024 * 1024
+
+
+def _upload_limit_mb() -> int:
+    return max(1, MAX_UPLOAD_BYTES // (1024 * 1024))
+
+
+def _too_large_message() -> str:
+    return (
+        f"This file exceeds the current upload limit ({_upload_limit_mb()} MB). "
+        "Please upload a smaller file. Larger file support is coming soon."
+    )
 
 # Message when the ingested_documents table has not been created yet
 TABLE_MISSING_MSG = (
@@ -130,7 +153,7 @@ async def _read_validated_upload(request: Request, file: UploadFile) -> tuple[by
     # Fast-path reject using Content-Length when present.
     content_length = request.headers.get("content-length")
     if content_length and content_length.isdigit() and int(content_length) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.")
+        raise HTTPException(status_code=413, detail=_too_large_message())
 
     # Read in bounded chunks so a huge upload can't exhaust memory.
     buffer = bytearray()
@@ -140,7 +163,7 @@ async def _read_validated_upload(request: Request, file: UploadFile) -> tuple[by
             break
         buffer.extend(chunk)
         if len(buffer) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.")
+            raise HTTPException(status_code=413, detail=_too_large_message())
     content = bytes(buffer)
     if not content:
         raise HTTPException(status_code=400, detail="File is empty.")
@@ -450,8 +473,9 @@ def _persist_extraction(
             last_review,
         )
     except psycopg2.Error as e:
+        # Full psycopg2 detail stays in the logs; job.error is user-visible.
         logger.exception("[ingest] Failed to insert client: %s", e)
-        return IngestOutcome(error=f"Failed to insert client: {e!s}")
+        return IngestOutcome(error=public_error_message("ingest_persist"))
 
     alert_rows: list[tuple] = []
     for a in alerts_data:
@@ -504,7 +528,7 @@ def _persist_extraction(
             len(alert_rows),
         )
 
-    progress(85, "Indexing for search…")
+    progress(85, "Generating embeddings…")
     try:
         doc_type, source_type = doc_type_for_ext(ext)
         vector_store.index_document_text(
@@ -520,8 +544,13 @@ def _persist_extraction(
         )
         logger.info("[ingest] -------- ingestion done: document_id=%s, client_id=%s --------", document_id, client_id)
     except Exception as e:
+        # Provider/cluster detail stays in the logs; job.error is user-visible.
         logger.exception("[ingest] Qdrant indexing failed: %s", e)
-        return IngestOutcome(error=f"Qdrant indexing failed: {e!s}", client_id=client_id, client_name=full_name)
+        return IngestOutcome(
+            error=public_error_message("ingest_vector"),
+            client_id=client_id,
+            client_name=full_name,
+        )
 
     invalidate_client_ai_caches(client_id)
     audit.record_event(
@@ -663,6 +692,24 @@ async def upload_document(
     )
 
 
+class UploadLimits(BaseModel):
+    max_upload_bytes: int
+    max_upload_mb: int
+    allowed_extensions: list[str]
+
+
+@router.get("/limits", response_model=UploadLimits)
+def get_upload_limits():
+    """Upload constraints for the UI: shown next to the picker and used for
+    client-side validation, so the number always matches this deployment
+    (20 MB locally, 4 MB on Lambda)."""
+    return UploadLimits(
+        max_upload_bytes=MAX_UPLOAD_BYTES,
+        max_upload_mb=_upload_limit_mb(),
+        allowed_extensions=list(ALLOWED_EXTENSIONS),
+    )
+
+
 class UploadJobResponse(BaseModel):
     job_id: str
     document_id: str
@@ -685,13 +732,15 @@ class JobStatusResponse(BaseModel):
 async def upload_document_async(
     request: Request,
     response: Response,  # slowapi injects X-RateLimit headers (headers_enabled)
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     ctx: TenantContext = Depends(current_tenant),
 ):
     """
     Upload a PDF/DOCX and process it via the durable job queue (Postgres-backed;
-    executed by the worker process, survives restarts). Returns a job id
-    immediately; poll GET /api/ingest/jobs/{job_id} for status.
+    drained by the worker Lambda in AWS or a background task locally — survives
+    restarts either way). Returns a job id immediately; poll
+    GET /api/ingest/jobs/{job_id} for status.
     """
     content, ext = await _read_validated_upload(request, file)
 
@@ -752,6 +801,9 @@ async def upload_document_async(
         resource_id=file_id,
         metadata={"filename": display_filename, "bytes": len(content), "job_id": job["id"]},
     )
+    # Event-driven drain: the job row is committed, so kick the worker now
+    # (worker Lambda on AWS; post-response background task locally).
+    worker_trigger.trigger_drain(background_tasks, reason="upload-enqueued")
     return UploadJobResponse(job_id=job["id"], document_id=file_id, status=job["status"])
 
 

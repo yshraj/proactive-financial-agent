@@ -9,6 +9,7 @@ import { AuthProvider, AuthGuard } from "../contexts/AuthContext";
 import { CreditProvider } from "../contexts/CreditContext";
 import { AccessGate } from "../components/AccessGate";
 import AppLayout from "../components/AppLayout";
+import { SystemBanners } from "../components/SystemBanners";
 import { ErrorBoundary, ToastProvider } from "../components/ui";
 import { BARE_ROUTES } from "../lib/routes";
 
@@ -23,6 +24,9 @@ export default function App({ Component, pageProps }: AppProps) {
           queries: {
             retry: 1,
             refetchOnWindowFocus: false,
+            // Recover automatically when connectivity returns (pairs with the
+            // offline banner in SystemBanners).
+            refetchOnReconnect: true,
             staleTime: 30_000,
             gcTime: 5 * 60_000,
           },
@@ -43,6 +47,7 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <div className={`${inter.variable} font-sans`}>
       <QueryClientProvider client={queryClient}>
+        <SystemBanners />
         <ToastProvider>
           <AuthProvider>
             <LayoutProvider>

@@ -30,6 +30,7 @@ import type {
   RenderedTemplate,
   ReviewNoteResponse,
   StoredDocument,
+  UploadLimits,
 } from "@/lib/types";
 
 // List pagination: default page, and the server-enforced ceiling. Dropdowns
@@ -136,6 +137,16 @@ export function useDocuments() {
     queryFn: () => api.get<StoredDocument[]>("/api/ingest/documents"),
     staleTime: 60_000,
     gcTime: 10 * 60_000,
+  });
+}
+
+export function useUploadLimits() {
+  return useQuery({
+    queryKey: ["upload-limits"],
+    queryFn: () => api.get<UploadLimits>("/api/ingest/limits"),
+    // Deployment constants: fetch once per session.
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 }
 

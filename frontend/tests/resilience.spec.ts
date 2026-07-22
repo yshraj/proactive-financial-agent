@@ -87,7 +87,14 @@ test.describe("API failure states", () => {
       route.fulfill({
         status: 401,
         contentType: "application/json",
-        body: JSON.stringify({ detail: "Authentication required. Send a Supabase bearer token." }),
+        body: JSON.stringify({
+          detail: "Authentication required. Please sign in to continue.",
+          error: {
+            code: "unauthorized",
+            message: "Authentication required. Please sign in to continue.",
+            retryable: false,
+          },
+        }),
       })
     );
 

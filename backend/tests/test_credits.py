@@ -162,10 +162,14 @@ def test_chat_endpoint_is_guarded_and_retry_is_not_double_charged(
     retry = api_client.post("/api/chat/", headers=headers, json={"query": "What changed?"})
     assert retry.status_code == 409
     assert retry.json() == {
-        "error": "duplicate_credit_action",
+        "error": {
+            "code": "duplicate_credit_action",
+            "message": "This idempotent AI action has already been processed.",
+            "retryable": False,
+        },
+        "detail": "This idempotent AI action has already been processed.",
         "feature": "chat",
         "status": "committed",
-        "detail": "This idempotent AI action has already been processed.",
     }
     assert len(calls) == 1
     summary = api_client.get("/api/credits", headers=auth_headers_for(org_a)).json()
@@ -189,7 +193,12 @@ def test_guarded_chat_returns_structured_insufficient_error_without_inference(
     )
     assert response.status_code == 409
     assert response.json() == {
-        "error": "insufficient_credits",
+        "error": {
+            "code": "insufficient_credits",
+            "message": "You don't have enough AI credits for this action.",
+            "retryable": False,
+        },
+        "detail": "You don't have enough AI credits for this action.",
         "required": 1,
         "remaining": 0,
         "feature": "chat",
@@ -231,7 +240,11 @@ def test_credit_balance_unavailable_has_structured_shape(
     response = api_client.get("/api/credits", headers=auth_headers_for(org_a))
     assert response.status_code == 503
     assert response.json() == {
-        "error": "credit_balance_unavailable",
+        "error": {
+            "code": "credit_balance_unavailable",
+            "message": "Credit balance is temporarily unavailable. Please try again.",
+            "retryable": True,
+        },
         "detail": "Credit balance is temporarily unavailable. Please try again.",
     }
 

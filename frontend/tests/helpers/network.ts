@@ -9,7 +9,7 @@ import type { Page, Route } from "@playwright/test";
 
 /** Exact detail string the FastAPI backend puts in its structured 429 body. */
 export const RATE_LIMIT_DETAIL =
-  "Too many requests in a short period. Wait a moment and try again.";
+  "Too many requests. Please wait a moment and try again.";
 
 /** Short-window abuse protection is distinct from lifetime AI credits. */
 export type LimitType = "request";
@@ -23,7 +23,8 @@ type RateLimitOptions = {
 
 /**
  * Body + headers mirroring backend/app/main.py `rate_limit_handler`:
- * {error, limit_type, reset_at, detail} plus Retry-After / X-RateLimit-*.
+ * {error: {code, message, retryable}, limit_type, reset_at, detail} plus
+ * Retry-After / X-RateLimit-*.
  */
 export function rateLimitResponse(
   limitType: LimitType,
@@ -31,7 +32,11 @@ export function rateLimitResponse(
 ) {
   const resetAt = new Date(Date.now() + retryAfterSeconds * 1000).toISOString();
   const body: Record<string, unknown> = {
-    error: "rate_limit",
+    error: {
+      code: "rate_limited",
+      message: RATE_LIMIT_DETAIL,
+      retryable: true,
+    },
     limit_type: limitType,
     reset_at: resetAt,
   };

@@ -13,15 +13,84 @@ export const API_BASE =
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
+/** Structured envelope every backend error response carries. */
+export interface ApiErrorEnvelope {
+  code: string;
+  message: string;
+  retryable: boolean;
+}
+
 export class ApiError extends Error {
   status: number;
   detail: unknown;
-  constructor(message: string, status: number, detail?: unknown) {
+  /** Machine-readable code from the backend envelope (e.g. "rate_limited"). */
+  code?: string;
+  /** Whether the backend considers retrying worthwhile. */
+  retryable?: boolean;
+  /** Seconds until a rate limit resets (from the Retry-After header). */
+  retryAfterSeconds?: number;
+  /** Full parsed response body (envelope + handler extras like credit counts). */
+  body?: unknown;
+  constructor(
+    message: string,
+    status: number,
+    detail?: unknown,
+    extras?: {
+      code?: string;
+      retryable?: boolean;
+      retryAfterSeconds?: number;
+      body?: unknown;
+    }
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.code = extras?.code;
+    this.retryable = extras?.retryable;
+    this.retryAfterSeconds = extras?.retryAfterSeconds;
+    this.body = extras?.body;
   }
+}
+
+export const OFFLINE_MESSAGE = "You're offline. Please check your internet connection.";
+
+// ---------------------------------------------------------------------------
+// Cold-start signal. The first request after the app loads can take several
+// seconds while the serverless backend spins up; subscribers (SystemBanners)
+// show "Starting the service…" instead of appearing frozen. Once any response
+// has arrived the service is warm and the signal never fires again.
+// ---------------------------------------------------------------------------
+const SLOW_START_NOTICE_MS = 2_500;
+type SlowStartListener = (state: "slow" | "settled") => void;
+const slowStartListeners = new Set<SlowStartListener>();
+let backendResponded = false;
+let slowStartAnnounced = false;
+
+export function onSlowStart(listener: SlowStartListener): () => void {
+  slowStartListeners.add(listener);
+  return () => slowStartListeners.delete(listener);
+}
+
+function emitSlowStart(state: "slow" | "settled") {
+  slowStartListeners.forEach((listener) => listener(state));
+}
+
+function trackColdStart(): () => void {
+  if (backendResponded || typeof window === "undefined") return () => {};
+  const timer = setTimeout(() => {
+    if (!backendResponded && !slowStartAnnounced) {
+      slowStartAnnounced = true;
+      emitSlowStart("slow");
+    }
+  }, SLOW_START_NOTICE_MS);
+  return () => {
+    clearTimeout(timer);
+    if (!backendResponded) {
+      backendResponded = true;
+      if (slowStartAnnounced) emitSlowStart("settled");
+    }
+  };
 }
 
 /** Extract a user-facing message from an unknown caught error. */
@@ -97,6 +166,15 @@ interface RequestOptions extends Omit<RequestInit, "body"> {
   isForm?: boolean;
 }
 
+function parseEnvelope(payload: unknown): ApiErrorEnvelope | null {
+  if (!payload || typeof payload !== "object") return null;
+  const raw = (payload as { error?: unknown }).error;
+  if (!raw || typeof raw !== "object") return null;
+  const env = raw as Partial<ApiErrorEnvelope>;
+  if (typeof env.code !== "string" || typeof env.message !== "string") return null;
+  return { code: env.code, message: env.message, retryable: env.retryable === true };
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {}
@@ -104,8 +182,18 @@ export async function apiRequest<T>(
   const { body, timeoutMs = DEFAULT_TIMEOUT_MS, isForm, headers, ...rest } =
     options;
 
+  // Fail fast when the browser knows it is offline: an immediate, honest
+  // message beats a 60s timeout. Queries refetch automatically on reconnect.
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    throw new ApiError(OFFLINE_MESSAGE, 0, undefined, {
+      code: "offline",
+      retryable: true,
+    });
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const settleColdStart = trackColdStart();
 
   try {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -118,6 +206,7 @@ export async function apiRequest<T>(
       },
       body: isForm ? (body as BodyInit) : body ? JSON.stringify(body) : undefined,
     });
+    settleColdStart();
 
     let payload: unknown = null;
     const text = await res.text();
@@ -130,30 +219,54 @@ export async function apiRequest<T>(
     }
 
     if (!res.ok) {
+      const envelope = parseEnvelope(payload);
       const detail =
         payload && typeof payload === "object" && "detail" in (payload as object)
           ? (payload as { detail: unknown }).detail
           : payload;
       const message = extractDetailMessage(
         detail,
-        res.status === 404
-          ? "Not found. Is the backend running?"
-          : res.status >= 500 && process.env.NODE_ENV === "production"
-            ? "Something went wrong on the server. Please try again."
-            : `Request failed (${res.status})`
+        envelope?.message ??
+          (res.status === 404
+            ? "Not found. Is the backend running?"
+            : res.status >= 500 && process.env.NODE_ENV === "production"
+              ? "Something went wrong on the server. Please try again."
+              : `Request failed (${res.status})`)
       );
-      throw new ApiError(message, res.status, detail);
+      const retryAfterRaw = res.headers.get("Retry-After");
+      const retryAfterSeconds =
+        retryAfterRaw && /^\d+$/.test(retryAfterRaw)
+          ? parseInt(retryAfterRaw, 10)
+          : undefined;
+      throw new ApiError(message, res.status, detail, {
+        code: envelope?.code,
+        retryable: envelope?.retryable,
+        retryAfterSeconds,
+        body: payload,
+      });
     }
 
     return payload as T;
   } catch (err) {
+    settleColdStart();
     if (err instanceof ApiError) throw err;
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError("The request timed out. Please try again.", 0);
+      throw new ApiError("The request timed out. Please try again.", 0, undefined, {
+        code: "timeout",
+        retryable: true,
+      });
+    }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw new ApiError(OFFLINE_MESSAGE, 0, undefined, {
+        code: "offline",
+        retryable: true,
+      });
     }
     throw new ApiError(
       "Network error. Please check your connection and that the backend is running.",
-      0
+      0,
+      undefined,
+      { code: "network", retryable: true }
     );
   } finally {
     clearTimeout(timeout);

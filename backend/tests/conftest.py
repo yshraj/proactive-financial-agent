@@ -40,7 +40,9 @@ os.environ.setdefault("API_KEY", "")
 os.environ.setdefault("SENTRY_DSN", "")
 os.environ.setdefault("AUTH_MODE", "required")
 os.environ.setdefault("ALLOW_DATA_RESET", "true")
-os.environ.setdefault("INLINE_WORKER", "false")
+# No WORKER_FUNCTION_NAME: upload-async falls back to the in-process
+# background-task drain, which TestClient only runs after the response.
+os.environ.setdefault("WORKER_FUNCTION_NAME", "")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("DB_POOL_MAX", "5")
 os.environ.setdefault("LOG_FORMAT", "text")

@@ -102,6 +102,34 @@ def test_stale_processing_job_is_reclaimed(bind_org_a, clean_db, org_a):
     assert reclaimed["attempts"] == 2
 
 
+def test_has_runnable_tracks_claimable_work(bind_org_a, clean_db):
+    """The drain's backlog probe: PENDING or stale-retryable PROCESSING only."""
+    import psycopg2
+
+    assert jobs.has_runnable() is False  # empty queue
+
+    job_id = _new_id()
+    jobs.create(job_id, kind="upload")
+    assert jobs.has_runnable() is True  # PENDING
+
+    jobs.claim_next("worker-1")
+    assert jobs.has_runnable() is False  # PROCESSING with a fresh lock
+
+    # Age the lock beyond the stale window -> claimable again.
+    conn = psycopg2.connect(clean_db["admin"])
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE jobs SET locked_at = NOW() - INTERVAL '1 hour' WHERE id = %s", (job_id,)
+        )
+    conn.close()
+    assert jobs.has_runnable() is True
+
+    jobs.claim_next("worker-2")
+    jobs.update(job_id, status=jobs.DONE, progress=100)
+    assert jobs.has_runnable() is False  # finished work is not runnable
+
+
 def test_exhausted_stale_jobs_are_swept_to_error(bind_org_a, clean_db):
     import psycopg2
 

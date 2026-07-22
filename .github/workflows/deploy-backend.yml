@@ -1,0 +1,158 @@
+# Deploys the backend to AWS Lambda (SAM stack in deploy/aws/).
+#
+# Triggers:
+# - automatically after the CI workflow succeeds for a *push to master in this
+#   repository* (parity with the old Render "Wait for CI" gate). The job-level
+#   `if` requires event == push AND head_repository == this repo: CI also runs
+#   for pull_request events, and a fork PR from a branch named "master" would
+#   otherwise pass the `branches` filter and deploy attacker-controlled code
+#   with production secrets.
+# - manually via workflow_dispatch — also the rollback path: dispatch with
+#   `ref` set to the last good tag/SHA. Tick `skip_migrations` when rolling
+#   back across a release that added a migration (the DB is then ahead of the
+#   target ref and `alembic upgrade head` from the old tree would abort with
+#   "Can't locate revision"; skipping is safe because schema changes are
+#   expand-contract).
+#
+# Order matters: Alembic migrations run first (expand-contract schema — the
+# still-running old release keeps working mid-deploy), then sam build/deploy.
+#
+# One-time AWS setup (OIDC role, ECR repo) and the full secret/variable list:
+# see DEPLOYMENT.md.
+name: Deploy backend (AWS Lambda)
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy (branch/tag/SHA); empty = current branch
+        required: false
+        default: ''
+      skip_migrations:
+        description: Skip Alembic (use when rolling back across a migration)
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write # GitHub OIDC federation into the AWS deploy role
+  contents: read
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false # never cancel a half-finished deploy
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-2' }}
+
+jobs:
+  deploy:
+    # Deploy only green CI runs of pushes to master IN THIS REPO (see header),
+    # or an explicit manual dispatch (write access required for dispatch).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Deploy exactly the commit CI validated (or the dispatched ref).
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.ref || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Configure AWS credentials (GitHub OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Run database migrations (Alembic, admin role)
+        # Skipped only on an explicit rollback dispatch (see header comment).
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_migrations) }}
+        working-directory: backend
+        env:
+          DATABASE_ADMIN_URL: ${{ secrets.DATABASE_ADMIN_URL }}
+        run: |
+          pip install -r requirements.txt
+          alembic upgrade head
+
+      - name: Build Lambda container images
+        working-directory: deploy/aws
+        run: sam build
+
+      - name: Deploy stack
+        working-directory: deploy/aws
+        env:
+          ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }}
+          ENV_NAME: ${{ vars.BACKEND_ENV_NAME || 'production' }}
+          AUTH_MODE: ${{ vars.BACKEND_AUTH_MODE || 'required' }}
+          ACCESS_CODE: ${{ secrets.ACCESS_CODE }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+          # Concurrency caps (see DEPLOYMENT.md): set the repo variables to -1
+          # on accounts whose total Lambda concurrency limit is below ~120.
+          API_RESERVED_CONCURRENCY: ${{ vars.API_RESERVED_CONCURRENCY || '10' }}
+          WORKER_RESERVED_CONCURRENCY: ${{ vars.WORKER_RESERVED_CONCURRENCY || '1' }}
+          # Email for CloudWatch alarm notifications (empty = alarms only).
+          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
+        run: |
+          sam deploy \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --region "$AWS_REGION" \
+            --image-repository "$ECR_REPOSITORY" \
+            --parameter-overrides \
+              "EnvName=$ENV_NAME" \
+              "AuthMode=$AUTH_MODE" \
+              "AccessCode=$ACCESS_CODE" \
+              "DatabaseUrl=$DATABASE_URL" \
+              "QdrantUrl=$QDRANT_URL" \
+              "QdrantApiKey=$QDRANT_API_KEY" \
+              "OpenAiApiKey=$OPENAI_API_KEY" \
+              "SupabaseUrl=$SUPABASE_URL" \
+              "SupabaseServiceRoleKey=$SUPABASE_SERVICE_ROLE_KEY" \
+              "SentryDsn=$SENTRY_DSN" \
+              "CorsOrigins=$CORS_ORIGINS" \
+              "ApiReservedConcurrency=$API_RESERVED_CONCURRENCY" \
+              "WorkerReservedConcurrency=$WORKER_RESERVED_CONCURRENCY" \
+              "AlertEmail=$ALERT_EMAIL"
+
+      - name: Show stack outputs (API URL)
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name kritifin-backend \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs' \
+            --output table
+
+      - name: Smoke check /health
+        run: |
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name kritifin-backend \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' \
+            --output text)
+          curl --fail --silent --show-error --max-time 30 "${API_URL%/}/health"

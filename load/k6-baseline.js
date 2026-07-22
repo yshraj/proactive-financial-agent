@@ -1,7 +1,7 @@
 // k6 load baseline for KritiFin (run against STAGING, never production).
 //
 //   k6 run load/k6-baseline.js \
-//     -e API_URL=https://kritifin-api-staging.onrender.com \
+//     -e API_URL=https://<staging-function-url>.lambda-url.eu-west-2.on.aws \
 //     -e TOKEN="$SUPABASE_ACCESS_TOKEN"
 //
 // Targets (from the production-readiness RFC):

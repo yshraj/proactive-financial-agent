@@ -168,7 +168,7 @@ def check_presence() -> dict:
         ok("SUPABASE_SERVICE_ROLE_KEY set — documents persist to Supabase Storage")
     else:
         warn("SUPABASE_SERVICE_ROLE_KEY not set — uploads fall back to local disk "
-             "(EPHEMERAL on Render; originals are lost on deploy).")
+             "(EPHEMERAL on Lambda/containers; originals are lost on deploy).")
     if env["SENTRY_DSN"]:
         ok("SENTRY_DSN set — error reporting enabled")
     else:

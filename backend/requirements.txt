@@ -27,6 +27,10 @@ openai>=1.0.0
 # HTTP
 httpx>=0.26.0
 
+# AWS (async invoke of the worker Lambda; unused locally where
+# WORKER_FUNCTION_NAME is not set)
+boto3>=1.34.0
+
 # Auth (Supabase JWT verification; only used when Supabase auth is configured).
 # [crypto] pulls in `cryptography` for ES256/RS256 (asymmetric) token verification.
 PyJWT[crypto]>=2.8.0

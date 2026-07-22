@@ -409,6 +409,12 @@ const server = createServer((req, res) => {
       const jobId = `job-async-${++asyncJobCounter}`;
       return send(res, 202, { job_id: jobId, document_id: jobId, status: "PENDING" });
     }
+    if (path === "/api/ingest/limits")
+      return send(res, 200, {
+        max_upload_bytes: 20 * 1024 * 1024,
+        max_upload_mb: 20,
+        allowed_extensions: [".pdf", ".docx", ".md", ".txt"],
+      });
     if (path === "/api/compliance/scan") {
       let body = {};
       try {

@@ -30,12 +30,30 @@ export interface CreditRequestResponse {
   message: string;
 }
 
+/** Structured envelope on credit error responses (backend app/main.py). */
 export interface CreditErrorDetail {
-  error: "insufficient_credits" | "credit_balance_unavailable";
+  error: {
+    code: "insufficient_credits" | "credit_balance_unavailable" | string;
+    message: string;
+    retryable: boolean;
+  };
+  detail?: string;
   required?: number;
   remaining?: number;
   feature?: string;
   contact_available?: boolean;
+}
+
+/** Read the error code from a credit error payload (tolerates the legacy
+ * string form so a stale cached bundle can't crash against an old backend). */
+export function creditErrorCode(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const raw = (payload as { error?: unknown }).error;
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object" && typeof (raw as { code?: unknown }).code === "string") {
+    return (raw as { code: string }).code;
+  }
+  return null;
 }
 
 export type CreditFeature =

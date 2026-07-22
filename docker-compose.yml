@@ -37,12 +37,13 @@ services:
   backend:
     build:
       context: ./backend
+      target: api
     restart: unless-stopped
     env_file: .env
     # DATABASE_URL, QDRANT_URL, QDRANT_API_KEY, OPENAI_API_KEY, etc. come from
-    # .env (external managed services). Only topology-specific values here.
-    environment:
-      INLINE_WORKER: "true"     # web process also drains the durable job queue
+    # .env (external managed services). Queued ingestion jobs are drained
+    # event-driven in-process after each upload (no WORKER_FUNCTION_NAME set),
+    # so no separate worker service is needed here.
     ports:
       - "127.0.0.1:8000:8000"
 

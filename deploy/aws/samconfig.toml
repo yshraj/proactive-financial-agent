@@ -1,0 +1,19 @@
+# SAM CLI defaults for the KritiFin backend stack.
+# Run from this directory:  sam build && sam deploy --image-repository <ECR URI> \
+#     --parameter-overrides "DatabaseUrl=..." ...
+# (GitHub Actions does exactly this — see .github/workflows/deploy-backend.yml.
+#  Parameter values are secrets and are never stored in this file.)
+version = 0.1
+
+[default.global.parameters]
+stack_name = "kritifin-backend"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+resolve_s3 = true
+region = "eu-west-2"

@@ -12,6 +12,7 @@ import {
   type CreditErrorDetail,
   type CreditFeature,
   type CreditSummary,
+  creditErrorCode,
   getFeatureCost,
 } from "@/lib/credits";
 import { useCreditSummary } from "@/hooks/useCreditsApi";
@@ -107,18 +108,27 @@ export function CreditProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         await query.refetch();
-        const detail =
-          error instanceof ApiError && error.detail && typeof error.detail === "object"
-            ? (error.detail as CreditErrorDetail)
+        // Credit extras (required/remaining/contact) live top-level in the
+        // response body, next to the {code, message, retryable} envelope.
+        const payload =
+          error instanceof ApiError
+            ? ((error.body && typeof error.body === "object"
+                ? error.body
+                : error.detail && typeof error.detail === "object"
+                  ? error.detail
+                  : null) as CreditErrorDetail | null)
             : null;
-        if (detail?.error === "insufficient_credits") {
+        const code =
+          creditErrorCode(payload) ??
+          (error instanceof ApiError ? error.code ?? null : null);
+        if (code === "insufficient_credits") {
           setHardStop({
             kind: "insufficient",
-            required: detail.required,
-            remaining: detail.remaining,
-            contactAvailable: detail.contact_available,
+            required: payload?.required,
+            remaining: payload?.remaining,
+            contactAvailable: payload?.contact_available,
           });
-        } else if (detail?.error === "credit_balance_unavailable" || (error instanceof ApiError && error.status === 503)) {
+        } else if (code === "credit_balance_unavailable" || (error instanceof ApiError && error.status === 503 && code !== "ai_unavailable")) {
           setHardStop({ kind: "unavailable" });
         }
       } finally {

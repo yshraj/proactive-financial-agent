@@ -80,7 +80,7 @@ const FAQS = [
   },
   {
     q: "Which files can advisers upload?",
-    a: "The current workspace supports PDF and Word documents up to 20 MB, including fact-finds, meeting notes, and client records.",
+    a: "The current workspace supports PDF, Word, Markdown, and text documents — fact-finds, meeting notes, and client records. The exact size limit for your deployment is shown on the upload screen.",
   },
   {
     q: "How are answers grounded?",

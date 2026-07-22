@@ -1,3 +1,4 @@
+import { ApiError, OFFLINE_MESSAGE } from "./api";
 import type { ChatSource } from "./types";
 
 /** Turn inline [1] citations into markdown anchor links for source scroll. */
@@ -23,12 +24,26 @@ export function relevanceBadgeClass(label: "High" | "Medium" | "Low"): string {
 export function aiErrorMessage(error: unknown, context: "chat" | "brief" | "digest" | "draft" | "summary"): string {
   const base =
     error instanceof Error ? error.message : "Something went wrong generating the response.";
+  const apiError = error instanceof ApiError ? error : null;
 
+  // Offline beats everything: the honest state, already actionable.
+  if (apiError?.code === "offline") return OFFLINE_MESSAGE;
+
+  // Backend envelope codes are authoritative when present.
+  if (apiError?.code === "ai_unavailable") {
+    return "The AI assistant is temporarily unavailable. Please try again in a few minutes.";
+  }
+  if (apiError?.status === 503 && /search is temporarily unavailable/i.test(base)) {
+    return "Search is temporarily unavailable. Please try again shortly.";
+  }
+  if (apiError?.status === 429 || apiError?.code === "rate_limited" || /429|rate limit/i.test(base)) {
+    const wait = apiError?.retryAfterSeconds;
+    return wait && wait > 0
+      ? `Too many requests. Please wait a moment and try again. You can retry in about ${wait} seconds.`
+      : "Too many requests. Please wait a moment and try again.";
+  }
   if (/timed out|timeout/i.test(base)) {
     return "The request took too long. Your book may be large — try scoping to a single client or asking a narrower question.";
-  }
-  if (/429|rate limit/i.test(base)) {
-    return "Too many AI requests in a short period. Please wait a moment and try again.";
   }
   if (/404|not found/i.test(base)) {
     return context === "chat"

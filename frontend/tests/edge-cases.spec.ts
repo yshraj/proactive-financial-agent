@@ -122,13 +122,22 @@ test.describe("upload extremes", () => {
     const row = page
       .getByTestId("upload-status-item")
       .filter({ hasText: "huge-factfind.pdf" });
-    await expect(row).toContainText("File is larger than 20 MB.");
+    await expect(row).toContainText(
+      "This file exceeds the current upload limit (20 MB). Please upload a smaller file."
+    );
     expect(uploadRequests()).toBe(0);
   });
 
-  test("a server-side 413 maps to the size-limit message", async ({ app, page }) => {
+  test("a server-side 413 shows the backend's size-limit copy", async ({ app, page }) => {
+    // Mirror the real backend 413 body (detail + structured envelope) — on
+    // Lambda the limit is 4 MB, and this copy is what the user must see.
+    const detail =
+      "This file exceeds the current upload limit (4 MB). Please upload a smaller file. Larger file support is coming soon.";
     await page.route("**/api/ingest/upload-async", (route) =>
-      fulfillJson(route, 413, { detail: "File too large" })
+      fulfillJson(route, 413, {
+        detail,
+        error: { code: "upload_too_large", message: detail, retryable: false },
+      })
     );
 
     await app.ingestion.goto();
@@ -138,7 +147,7 @@ test.describe("upload extremes", () => {
     const row = page
       .getByTestId("upload-status-item")
       .filter({ hasText: "borderline.pdf" });
-    await expect(row).toContainText("File is too large — the server limit is 20 MB.");
+    await expect(row).toContainText("This file exceeds the current upload limit (4 MB)");
   });
 
   test("three simultaneous uploads each track to completion", async ({

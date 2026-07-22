@@ -5,7 +5,7 @@ backend) on one Linux VM. Postgres (Supabase), Qdrant (Qdrant Cloud), and the
 LLM (OpenAI/Gemini) are **external managed services**.
 
 Following this file from a clean VM gets the stack running end to end. For the
-managed-PaaS path (Vercel + Render) see [DEPLOYMENT.md](DEPLOYMENT.md) instead.
+managed path (Vercel + AWS Lambda) see [DEPLOYMENT.md](DEPLOYMENT.md) instead.
 
 ---
 
@@ -207,5 +207,7 @@ renew automatically.
 - **Browser API calls fail with CORS / wrong host** — `NEXT_PUBLIC_API_URL` must
   be `https://<DOMAIN>` (it's inlined at build time; rebuild the frontend after
   changing it: `docker compose --profile proxy up -d --build frontend`).
-- **Ingestion job stuck** — jobs are durable in Postgres; a job interrupted by a
-  restart is reclaimed or failed by the sweeper. Check `docker compose logs backend`.
+- **Ingestion job stuck** — jobs are durable in Postgres and drained right
+  after each upload; a job interrupted by a restart is reclaimed (or failed by
+  the sweeper) on the next drain — trigger one by uploading any small file.
+  Check `docker compose logs backend`.

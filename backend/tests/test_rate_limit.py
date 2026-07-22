@@ -100,5 +100,9 @@ def test_ingestion_per_minute_limit_remains_structured(
             "/api/ingest/transcript", json=body, headers=headers
         )
     assert blocked.status_code == 429
-    assert blocked.json()["error"] == "rate_limit"
+    assert blocked.json()["error"] == {
+        "code": "rate_limited",
+        "message": "Too many requests. Please wait a moment and try again.",
+        "retryable": True,
+    }
     assert blocked.json()["limit_type"] == "request"

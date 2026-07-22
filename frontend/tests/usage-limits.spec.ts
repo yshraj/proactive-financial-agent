@@ -62,7 +62,7 @@ test.describe("AI endpoint burst protection", () => {
     await app.aiCopilot.askExpectingFailure("Which clients need a review?");
 
     await expect(app.aiCopilot.errorState).toContainText(
-      "Too many AI requests in a short period. Please wait a moment and try again."
+      "Too many requests. Please wait a moment and try again."
     );
   });
 
@@ -85,7 +85,10 @@ test.describe("AI endpoint burst protection", () => {
     expect(response.headers()["retry-after"]).toBe("120");
     expect(response.headers()["x-ratelimit-remaining"]).toBe("0");
     const body = await response.json();
-    expect(body).toMatchObject({ error: "rate_limit", limit_type: "request" });
+    expect(body).toMatchObject({
+      error: { code: "rate_limited", retryable: true },
+      limit_type: "request",
+    });
     expect(new Date(body.reset_at).getTime()).toBeGreaterThan(Date.now());
   });
 
@@ -308,7 +311,11 @@ test.describe("rate limit response contract", () => {
       "limit_type",
       "reset_at",
     ]);
-    expect(parsed.error).toBe("rate_limit");
+    expect(parsed.error).toEqual({
+      code: "rate_limited",
+      message: "Too many requests. Please wait a moment and try again.",
+      retryable: true,
+    });
     expect(parsed.limit_type).toBe("request");
   });
 });

@@ -17,9 +17,12 @@ from fastapi.responses import JSONResponse
 # Load .env from project root (parent of backend/)
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from datetime import datetime, timedelta, timezone
@@ -36,7 +39,12 @@ from app.services.credits import (
     DuplicateCreditAction,
     InsufficientCredits,
 )
-from app.services.safety import public_error_message
+from app.services.llm import AIUnavailableError
+from app.services.safety import (
+    detail_to_message,
+    error_envelope,
+    public_error_message,
+)
 
 configure_logging()
 init_sentry()
@@ -55,16 +63,9 @@ async def lifespan(app: FastAPI):
     from app.observability import log_startup_config
 
     log_startup_config(logger)
-    # Single-service deployments process queued jobs in-process; render.yaml
-    # disables this (INLINE_WORKER=false) once the dedicated worker exists.
-    inline_worker_stop = None
-    if os.environ.get("INLINE_WORKER", "true").lower() in ("1", "true", "yes"):
-        from app.worker import start_inline_worker
-
-        inline_worker_stop = start_inline_worker()
+    # Queued jobs are drained event-driven (services/worker_trigger.py): the
+    # worker Lambda in AWS, or a background task locally. No polling loop.
     yield
-    if inline_worker_stop is not None:
-        inline_worker_stop.set()
     from app.db import close_pool
 
     close_pool()
@@ -79,6 +80,63 @@ app = FastAPI(
 
 # Rate limiting (per org/user, per-session in demo, IP fallback).
 app.state.limiter = limiter
+
+# ---------------------------------------------------------------------------
+# Error responses. Every error carries BOTH:
+# - "detail": the FastAPI-native payload (string / dict / validation list) that
+#   existing clients and tests already consume, and
+# - "error": {code, message, retryable} — one machine-readable envelope so the
+#   frontend can branch on codes instead of matching message strings.
+# Messages are always fixed, friendly copy — never str(exc) (see
+# app.services.safety.public_error_message for the leak policy).
+# ---------------------------------------------------------------------------
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Wrap every HTTPException with the structured error envelope."""
+    message = detail_to_message(exc.detail, exc.status_code)
+    code = None
+    if isinstance(exc.detail, dict):
+        raw_code = exc.detail.get("code")
+        if isinstance(raw_code, str) and raw_code:
+            code = raw_code.lower()
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=jsonable_encoder(
+            {
+                "detail": exc.detail,
+                "error": error_envelope(exc.status_code, message, code=code),
+            }
+        ),
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Structured 422: keep FastAPI's field details, add a friendly envelope."""
+    message = "Some fields are invalid. Please review and try again."
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": jsonable_encoder(exc.errors()),
+            "error": error_envelope(422, message),
+        },
+    )
+
+
+@app.exception_handler(AIUnavailableError)
+async def ai_unavailable_handler(request: Request, exc: AIUnavailableError):
+    """LLM provider failure: clean 503, provider error stays in the logs."""
+    message = str(exc) or public_error_message("ai_unavailable")
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": message,
+            "error": error_envelope(503, message, code="ai_unavailable"),
+        },
+    )
 
 
 @app.exception_handler(RateLimitExceeded)
@@ -119,13 +177,14 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         },
     )
 
+    message = "Too many requests. Please wait a moment and try again."
     response = JSONResponse(
         status_code=429,
         content={
-            "error": "rate_limit",
+            "error": error_envelope(429, message, code="rate_limited", retryable=True),
             "limit_type": limit_type,
             "reset_at": reset_at,
-            "detail": "Too many requests in a short period. Wait a moment and try again.",
+            "detail": message,
         },
     )
     # Preserve rate-limit headers slowapi computed on the default response.
@@ -137,10 +196,14 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 
 @app.exception_handler(InsufficientCredits)
 async def insufficient_credits_handler(request: Request, exc: InsufficientCredits):
+    message = "You don't have enough AI credits for this action."
     return JSONResponse(
         status_code=409,
         content={
-            "error": "insufficient_credits",
+            "error": error_envelope(
+                409, message, code="insufficient_credits", retryable=False
+            ),
+            "detail": message,
             "required": exc.required,
             "remaining": exc.remaining,
             "feature": exc.feature,
@@ -157,11 +220,14 @@ async def insufficient_credits_handler(request: Request, exc: InsufficientCredit
 async def credit_balance_unavailable_handler(
     request: Request, exc: CreditBalanceUnavailable
 ):
+    message = "Credit balance is temporarily unavailable. Please try again."
     return JSONResponse(
         status_code=503,
         content={
-            "error": "credit_balance_unavailable",
-            "detail": "Credit balance is temporarily unavailable. Please try again.",
+            "error": error_envelope(
+                503, message, code="credit_balance_unavailable", retryable=True
+            ),
+            "detail": message,
         },
     )
 
@@ -170,13 +236,16 @@ async def credit_balance_unavailable_handler(
 async def duplicate_credit_action_handler(
     request: Request, exc: DuplicateCreditAction
 ):
+    message = "This idempotent AI action has already been processed."
     return JSONResponse(
         status_code=409,
         content={
-            "error": "duplicate_credit_action",
+            "error": error_envelope(
+                409, message, code="duplicate_credit_action", retryable=False
+            ),
+            "detail": message,
             "feature": exc.feature,
             "status": exc.status,
-            "detail": "This idempotent AI action has already been processed.",
         },
     )
 
@@ -191,9 +260,13 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.exception(
         "Unhandled error on %s %s: %s", request.method, request.url.path, exc
     )
+    message = public_error_message("internal", exc)
     return JSONResponse(
         status_code=500,
-        content={"detail": public_error_message("internal", exc)},
+        content={
+            "detail": message,
+            "error": error_envelope(500, message, retryable=True),
+        },
         headers={"X-Request-ID": getattr(request.state, "request_id", "")},
     )
 

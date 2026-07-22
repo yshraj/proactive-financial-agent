@@ -1,0 +1,283 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  KritiFin backend on AWS Lambda: FastAPI API (container image + Lambda Web
+  Adapter, public Function URL) and an event-driven queue worker (async-invoked
+  by the API after each enqueue, plus an EventBridge Scheduler safety net).
+  No VPC, no NAT, no API Gateway — Postgres (Supabase), Qdrant Cloud, and
+  OpenAI are reached over the public internet. Sized for the Lambda free tier.
+
+# ---------------------------------------------------------------------------
+# Parameters. Secrets are NoEcho and supplied per deploy (GitHub Actions
+# passes them from repository secrets — see .github/workflows/deploy-backend.yml).
+# DATABASE_ADMIN_URL is deliberately NOT here: migrations run in CI only.
+# ---------------------------------------------------------------------------
+Parameters:
+  EnvName:
+    Type: String
+    Default: production
+    Description: Runtime posture tag (ENV). Use "demo"/"staging" for gated demo deploys.
+  AuthMode:
+    Type: String
+    Default: required
+    AllowedValues: [required, demo]
+    Description: AUTH_MODE. "demo" is refused by the app when EnvName=production.
+  AccessCode:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Shared front-door code (demo posture). Empty disables the gate.
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: Supabase Postgres, transaction-mode pooler URI, kritifin_app role.
+  QdrantUrl:
+    Type: String
+    NoEcho: true
+    Description: Qdrant Cloud cluster URL.
+  QdrantApiKey:
+    Type: String
+    NoEcho: true
+    Description: Qdrant Cloud API key.
+  OpenAiApiKey:
+    Type: String
+    NoEcho: true
+    Description: OpenAI API key (LLM + embeddings).
+  SupabaseUrl:
+    Type: String
+    Default: ''
+    Description: Supabase project URL (JWT verification when AuthMode=required).
+  SupabaseServiceRoleKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Supabase service role key (Storage; server-side only).
+  SentryDsn:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: Backend Sentry DSN (empty = stdout logs only).
+  CorsOrigins:
+    Type: String
+    Default: 'http://localhost:3000'
+    Description: Comma-separated allowed browser origins (the Vercel URL in production).
+  ApiReservedConcurrency:
+    Type: Number
+    Default: 10
+    Description: >-
+      Hard cap on concurrent API executions — bounds worst-case request cost,
+      DB connections, and DoS blast radius (in-memory rate limits are
+      per-environment on Lambda). Set to -1 to disable on accounts whose total
+      Lambda concurrency limit is below ~120 (reservations must leave 100
+      unreserved, and new accounts often start at 10 — see DEPLOYMENT.md).
+  WorkerReservedConcurrency:
+    Type: Number
+    Default: 1
+    Description: >-
+      Serialises worker drains (duplicate-invocation protection + queue-driven
+      compute cap). Overlap would still be safe (claims are FOR UPDATE SKIP
+      LOCKED); this is a cost/ordering optimisation. Set to -1 to disable on
+      concurrency-constrained accounts.
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: >-
+      Email for CloudWatch alarm notifications via SNS (free tier). Empty
+      creates the alarms without notifications (console-visible only).
+
+Conditions:
+  HasApiReservedConcurrency: !Not [!Equals [!Ref ApiReservedConcurrency, -1]]
+  HasWorkerReservedConcurrency: !Not [!Equals [!Ref WorkerReservedConcurrency, -1]]
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
+
+# ---------------------------------------------------------------------------
+# Shared function configuration. Function-level Environment entries below are
+# merged on top of (and override) these.
+# ---------------------------------------------------------------------------
+Globals:
+  Function:
+    Architectures: [x86_64]
+    Environment:
+      Variables:
+        ENV: !Ref EnvName
+        AUTH_MODE: !Ref AuthMode
+        ACCESS_CODE: !Ref AccessCode
+        DATABASE_URL: !Ref DatabaseUrl
+        QDRANT_URL: !Ref QdrantUrl
+        QDRANT_API_KEY: !Ref QdrantApiKey
+        OPENAI_API_KEY: !Ref OpenAiApiKey
+        SUPABASE_URL: !Ref SupabaseUrl
+        SUPABASE_SERVICE_ROLE_KEY: !Ref SupabaseServiceRoleKey
+        SENTRY_DSN: !Ref SentryDsn
+        SENTRY_TRACES_SAMPLE_RATE: '0.1'
+        LOG_FORMAT: json
+        ALLOW_DATA_RESET: 'false'
+        # Small pool per execution environment: each env serves one request at
+        # a time, and Supabase's transaction pooler multiplexes server side.
+        DB_POOL_MIN: '0'
+        DB_POOL_MAX: '4'
+
+Resources:
+  # --- Log groups created ahead of the functions so retention is enforced
+  # --- (Lambda would otherwise auto-create them with retention = never expire).
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-api
+      RetentionInDays: 14
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-worker
+      RetentionInDays: 14
+
+  # --- API: FastAPI behind the Lambda Web Adapter, public Function URL.
+  # App-level auth (access code / Supabase JWT) guards every /api route, so
+  # the URL itself is public (AuthType NONE), same as the old Render URL.
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: ApiLogGroup
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-api
+      PackageType: Image
+      MemorySize: 1024
+      Timeout: 180  # long copilot/brief LLM calls; Function URL allows up to 15 min
+      ReservedConcurrentExecutions:
+        !If [HasApiReservedConcurrency, !Ref ApiReservedConcurrency, !Ref AWS::NoValue]
+      ImageConfig:
+        # Override the image CMD: one uvicorn worker — a Lambda execution
+        # environment handles a single request at a time.
+        Command:
+          - uvicorn
+          - app.main:app
+          - --host
+          - 0.0.0.0
+          - --port
+          - '8000'
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: BUFFERED
+        # CORS intentionally not configured here: FastAPI's CORSMiddleware
+        # owns it (configuring both duplicates response headers).
+      Environment:
+        Variables:
+          CORS_ORIGINS: !Ref CorsOrigins
+          # Function URLs cap request/response payloads at ~6 MB (body is
+          # base64-encoded in the event). 4 MB keeps oversized uploads on the
+          # app's clean 413 path instead of an opaque gateway error.
+          MAX_UPLOAD_BYTES: '4194304'
+          # Event-driven drain: invoked async right after each job enqueue.
+          WORKER_FUNCTION_NAME: !Sub ${AWS::StackName}-worker
+      Policies:
+        # SAM also attaches AWSLambdaBasicExecutionRole (CloudWatch Logs).
+        - Version: '2012-10-17'
+          Statement:
+            - Sid: InvokeWorker
+              Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-worker
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: ../../backend
+      DockerBuildTarget: api
+      DockerTag: api
+
+  # --- Worker: drains the Postgres job queue (claim_next_job, SKIP LOCKED).
+  # Reserved concurrency 1 = duplicate-invocation protection and a hard cost
+  # cap; throttled async invokes wait in Lambda's internal async queue and
+  # are retried automatically, so no trigger is lost.
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: WorkerLogGroup
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-worker
+      PackageType: Image
+      MemorySize: 1024
+      Timeout: 900  # 15 min; drain hands off to a fresh invocation near the deadline
+      ReservedConcurrentExecutions:
+        !If [HasWorkerReservedConcurrency, !Ref WorkerReservedConcurrency, !Ref AWS::NoValue]
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Sid: ReinvokeSelfOnBacklog
+              Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-worker
+      Events:
+        SafetyNetSchedule:
+          Type: ScheduleV2
+          Properties:
+            # Safety net for missed triggers + stale-lock retries + sweeps.
+            # A no-op drain is a sub-second invocation — ~8,640/month, well
+            # inside the Lambda and EventBridge Scheduler free tiers.
+            ScheduleExpression: rate(5 minutes)
+            Input: '{"reason": "schedule"}'
+            RetryPolicy:
+              # The next tick is the retry; don't let Scheduler pile up more.
+              MaximumRetryAttempts: 0
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: ../../backend
+      DockerBuildTarget: worker
+      DockerTag: worker
+
+  # --- Operational alarms (CloudWatch free tier: 10 alarms; SNS email
+  # --- notifications are free-tier too). Worker throttles are deliberately
+  # --- NOT alarmed: with reserved concurrency 1 they are expected and benign
+  # --- (throttled async invokes queue and retry).
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasAlertEmail
+    Properties:
+      Subscription:
+        - Endpoint: !Ref AlertEmail
+          Protocol: email
+
+  WorkerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: >-
+        KritiFin worker Lambda reported an invocation error (handler-level
+        failure — job-level failures are recorded on the jobs table instead).
+        Check the worker log group.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref WorkerFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlertEmail, [!Ref AlertTopic], !Ref AWS::NoValue]
+
+  ApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: >-
+        KritiFin API Lambda error rate is elevated (5+ invocation errors in
+        5 minutes). Check the API log group and Sentry.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlertEmail, [!Ref AlertTopic], !Ref AWS::NoValue]
+
+Outputs:
+  ApiUrl:
+    Description: Public base URL of the API (set NEXT_PUBLIC_API_URL on Vercel to this, without trailing slash).
+    Value: !GetAtt ApiFunctionUrl.FunctionUrl
+  ApiFunctionName:
+    Value: !Ref ApiFunction
+  WorkerFunctionName:
+    Value: !Ref WorkerFunction

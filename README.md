@@ -2,7 +2,7 @@
 
 **KritiFin** is a proactive AI workspace for UK financial advisers: a morning dashboard of priorities, AI Copilot over your client book and ingested documents, pre-meeting briefs with citations, overdue follow-ups, and draft emails — so advisers spend less time reactive and more time adding value.
 
-**Live demo:** The frontend deploys on [Vercel](https://vercel.com) and the backend on [Render](https://render.com). If the backend is slow to respond, Render may be spinning up after inactivity.
+**Live demo:** The frontend deploys on [Vercel](https://vercel.com) and the backend on [AWS Lambda](https://aws.amazon.com/lambda/) (container images behind a Function URL — see [DEPLOYMENT.md](DEPLOYMENT.md)). The first request after a quiet period may take a few seconds while a Lambda environment cold-starts.
 
 **Presenter guide:** See [docs/live-demo-script.md](docs/live-demo-script.md) for a 5–10 minute walkthrough.
 
@@ -168,7 +168,7 @@ npm run sync-env   # copies API + Supabase URL from root .env
 
 Then add `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `frontend/.env.local` (Supabase Dashboard → API → anon public key) if not already in root `.env`.
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for Vercel + Render production config.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Vercel + AWS Lambda production config.
 
 ### 4. Frontend
 
@@ -237,14 +237,15 @@ proactive-financial-agent/
 ├── .env.example
 ├── FEATURES_AND_IMPLEMENTATION.md
 ├── DEPLOYMENT.md
-├── render.yaml                # Render blueprint: API web service + queue worker
-├── .github/workflows/         # CI (lint, tests, migrations, e2e, security) + nightly staging e2e
+├── deploy/aws/                # SAM stack: API + worker Lambdas, schedule, IAM
+├── .github/workflows/         # CI (lint, tests, migrations, e2e, security) + Lambda deploy + nightly staging e2e
 ├── load/                      # k6 load-test baseline (staging only)
 ├── docs/                      # Guides, threat model, runbooks, planning archive
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
-│   │   ├── worker.py          # durable job-queue worker (python -m app.worker)
+│   │   ├── worker.py          # durable job-queue drain (event-driven, no polling)
+│   │   ├── lambda_worker.py   # AWS Lambda handler wrapping the drain
 │   │   ├── auth.py / tenancy.py / context.py   # JWT -> workspace resolution
 │   │   ├── routers/           # ingest, monitor, chat, settings, compliance
 │   │   └── services/          # llm, prompts, rag_context, safety, cache, audit, jobs, storage, …

@@ -123,15 +123,85 @@ def validate_docx_zip(content: bytes) -> tuple[bool, str]:
 
 
 def public_error_message(context: str, exc: Exception | None = None) -> str:
-    """Return a safe client-facing error string; log full detail server-side."""
+    """Return a safe client-facing error string; log full detail server-side.
+
+    Never put ``str(exc)`` (SQL, provider errors, hostnames, file paths) into
+    anything a client can see — pass the exception here so it lands in the
+    server logs, and hand the caller a fixed, friendly string instead.
+    """
     if exc is not None:
         logger.exception("[%s] %s", context, exc)
     messages = {
-        "postgres_clear": "Failed to clear database records. Check server logs.",
-        "qdrant_clear": "Failed to clear vector index. Check server logs.",
+        "postgres_clear": "We couldn't clear your workspace data. Please try again.",
+        "qdrant_clear": "We couldn't clear the search index. Please try again.",
         "ingest_extraction": "Document extraction failed. The file was stored but could not be processed.",
-        "ingest_vector": "Document indexing failed. The file was stored but search may be incomplete.",
+        "ingest_vector": (
+            "The document was stored, but search indexing is temporarily "
+            "unavailable. Try re-uploading it later."
+        ),
+        "ingest_persist": (
+            "The document was stored, but we couldn't save the extracted "
+            "details. Please try the upload again."
+        ),
         "ingest_storage": "Document storage failed. Please try the upload again.",
+        "ai_unavailable": "We couldn't generate AI results right now. Please try again in a few minutes.",
+        "search_unavailable": "Search is temporarily unavailable. Please try again shortly.",
+        "job_failed": "Processing failed after several attempts. Please try uploading the document again.",
+        "load_sample_data": "Loading sample data failed. Please try again.",
         "internal": "An unexpected error occurred. The team has been notified.",
     }
-    return messages.get(context, "An internal error occurred. Check server logs.")
+    return messages.get(context, "Something went wrong. Please try again.")
+
+
+# ---------------------------------------------------------------------------
+# Structured error envelope (attached to every error response by the handlers
+# in app.main): {"error": {"code", "message", "retryable"}}. The legacy
+# "detail" key is preserved alongside for existing clients and tests.
+# ---------------------------------------------------------------------------
+
+_ERROR_CODE_BY_STATUS = {
+    400: "invalid_request",
+    401: "unauthorized",
+    403: "forbidden",
+    404: "not_found",
+    409: "conflict",
+    413: "upload_too_large",
+    422: "validation_error",
+    429: "rate_limited",
+    500: "internal_error",
+    502: "upstream_unavailable",
+    503: "service_unavailable",
+    504: "timeout",
+}
+
+_RETRYABLE_STATUSES = {408, 425, 429, 500, 502, 503, 504}
+
+
+def error_envelope(
+    status_code: int,
+    message: str,
+    *,
+    code: str | None = None,
+    retryable: bool | None = None,
+) -> dict:
+    """Build the machine-readable error object for an error response."""
+    return {
+        "code": code or _ERROR_CODE_BY_STATUS.get(status_code, "error"),
+        "message": message,
+        "retryable": (
+            retryable if retryable is not None else status_code in _RETRYABLE_STATUSES
+        ),
+    }
+
+
+def detail_to_message(detail: object, status_code: int) -> str:
+    """Extract a human-readable message from an HTTPException detail."""
+    if isinstance(detail, str) and detail:
+        return detail
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        if isinstance(message, str) and message:
+            return message
+    if status_code == 422:
+        return "Some fields are invalid. Please review and try again."
+    return "Something went wrong. Please try again."

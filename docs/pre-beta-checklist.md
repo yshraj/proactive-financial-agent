@@ -8,7 +8,8 @@ named sign-off and a date. "Verified" means demonstrated, not believed.
 - [ ] RLS isolation suite green against **production configuration** (runtime
       role + policies): `cd backend && pytest tests/test_tenancy_isolation.py tests/test_api_integration.py`
 - [ ] `DATABASE_URL` in production points at `kritifin_app` (not postgres);
-      `DATABASE_ADMIN_URL` restricted to Render pre-deploy + password manager
+      `DATABASE_ADMIN_URL` restricted to the CI migration step + password
+      manager (never set on Lambda)
 - [ ] Manual IDOR probe on production: org B token against org A client id
       returns 404 (clients, alerts, documents, jobs, conversations, audit)
 - [ ] Supabase Data API verified inert: anon-key REST request to

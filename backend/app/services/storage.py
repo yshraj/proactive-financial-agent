@@ -1,7 +1,7 @@
 """
 Document storage: private Supabase Storage bucket with org-prefixed keys.
 
-Render's filesystem is ephemeral — anything written to backend/uploads/ is lost
+The app server's filesystem (Lambda/containers) is ephemeral — anything written to backend/uploads/ is lost
 on every deploy — so originals live in Supabase Storage (RFC decision D6):
 
 - bucket: STORAGE_BUCKET (default "documents"), private

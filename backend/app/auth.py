@@ -76,9 +76,11 @@ def verify_jwt_token(token: str) -> dict[str, Any]:
 
         if alg.startswith(("ES", "RS", "PS")):
             if not url:
+                # Config specifics stay in the logs; users get generic copy.
+                logger.error("Asymmetric token received but SUPABASE_URL is not configured.")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Asymmetric token but SUPABASE_URL is not configured.",
+                    detail="Sign-in isn't available right now. Please try again shortly.",
                 )
             signing_key = _jwk_client(
                 f"{url}/auth/v1/.well-known/jwks.json"
@@ -86,15 +88,17 @@ def verify_jwt_token(token: str) -> dict[str, Any]:
             payload = jwt.decode(token, signing_key.key, algorithms=[alg], **common)
         elif alg == "HS256":
             if not secret:
+                logger.error("HS256 token received but SUPABASE_JWT_SECRET is not configured.")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="HS256 token but SUPABASE_JWT_SECRET is not configured.",
+                    detail="Sign-in isn't available right now. Please try again shortly.",
                 )
             payload = jwt.decode(token, secret, algorithms=["HS256"], **common)
         else:
+            logger.warning("Rejected Supabase JWT with unsupported algorithm %r", alg)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Unsupported token algorithm.",
+                detail="Your session has expired. Please sign in again.",
             )
     except HTTPException:
         raise
@@ -102,13 +106,13 @@ def verify_jwt_token(token: str) -> dict[str, Any]:
         logger.warning("Rejected Supabase JWT: %s: %s", type(exc).__name__, exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token.",
+            detail="Your session has expired. Please sign in again.",
         ) from None
 
     if not payload.get("sub"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has no subject.",
+            detail="Your session has expired. Please sign in again.",
         )
     return payload
 
@@ -180,7 +184,7 @@ async def authenticate_request(
     if ctx is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required. Send a Supabase bearer token.",
+            detail="Authentication required. Please sign in to continue.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

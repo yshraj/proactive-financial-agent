@@ -1,18 +1,18 @@
 import Head from "next/head";
 import { useCallback, useRef, useState } from "react";
-import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Copy, Loader2, ShieldCheck, MessagesSquare, NotebookPen } from "lucide-react";
+import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Copy, Loader2, Clock, ShieldCheck, MessagesSquare, NotebookPen } from "lucide-react";
 import { Card, CardHeader, Button, EmptyState, ErrorState, TableSkeleton, PageIntro, PageShell, Badge, useToast } from "../components/ui";
 import { AiMarkdown } from "../components/ai";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useComplianceScan, useDocuments, useIngestTranscript, useNoteTemplate, useNoteTemplates } from "../hooks/useApi";
+import { useComplianceScan, useDocuments, useIngestTranscript, useNoteTemplate, useNoteTemplates, useUploadLimits } from "../hooks/useApi";
 import { ApiError, errorMessage } from "../lib/api";
-import { uploadDocumentWithProgress } from "../lib/ingest";
+import { fetchJobStatus, STILL_PROCESSING_MESSAGE, uploadDocumentWithProgress } from "../lib/ingest";
 import { hasAllowedUploadExtension, isAllowedUploadMime, validateUploadMagic } from "../lib/sanitize";
 import { formatDateTime, formatFileSize } from "../lib/format";
 import { ActionCost } from "../components/credits";
 import { useCredits } from "../contexts/CreditContext";
 
-type UploadState = "processing" | "done" | "duplicate" | "error";
+type UploadState = "processing" | "done" | "duplicate" | "error" | "stalled";
 interface UploadItem {
   id: string;
   name: string;
@@ -20,9 +20,17 @@ interface UploadItem {
   message?: string;
   /** 0-100 pipeline progress while state === "processing". */
   progress?: number;
+  /** Retained for the "Try again" action on retryable failures. */
+  file?: File;
+  /** Job id for "Check status" on stalled (still-processing) uploads. */
+  jobId?: string;
 }
 
-const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20 MB client-side guard
+// Fallback while GET /api/ingest/limits loads (matches the local default).
+const FALLBACK_MAX_UPLOAD_MB = 20;
+
+const tooLargeMessage = (maxMb: number) =>
+  `This file exceeds the current upload limit (${maxMb} MB). Please upload a smaller file. Larger file support is coming soon.`;
 
 /** Browse and copy structured adviser note templates. */
 function NoteTemplatesCard() {
@@ -261,6 +269,9 @@ export default function IngestionPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docsQuery = useDocuments();
   const storedList = docsQuery.data ?? [];
+  const limitsQuery = useUploadLimits();
+  const maxUploadMb = limitsQuery.data?.max_upload_mb ?? FALLBACK_MAX_UPLOAD_MB;
+  const maxUploadBytes = limitsQuery.data?.max_upload_bytes ?? maxUploadMb * 1024 * 1024;
   const { requestAction, activeFeature, activeCost } = useCredits();
 
   usePageSetup("Ingestion");
@@ -275,8 +286,8 @@ export default function IngestionPage() {
         setUploads((p) => [...p, { id, name: file.name, state: "error", message: "Only PDF, Word (.docx), Markdown (.md), and text (.txt) files are accepted." }]);
         return;
       }
-      if (file.size > MAX_FILE_BYTES) {
-        setUploads((p) => [...p, { id, name: file.name, state: "error", message: "File is larger than 20 MB." }]);
+      if (file.size > maxUploadBytes) {
+        setUploads((p) => [...p, { id, name: file.name, state: "error", message: tooLargeMessage(maxUploadMb) }]);
         return;
       }
       if (file.type && !isAllowedUploadMime(file.type)) {
@@ -295,7 +306,15 @@ export default function IngestionPage() {
           const job = await uploadDocumentWithProgress(file, (progress, message) =>
             patch(id, { progress, message })
           );
-          if (job.status === "ERROR") {
+          if (job.stalled) {
+            // Not an error: the durable queue keeps working server-side.
+            patch(id, {
+              state: "stalled",
+              progress: undefined,
+              message: STILL_PROCESSING_MESSAGE,
+              jobId: job.id,
+            });
+          } else if (job.status === "ERROR") {
             patch(id, {
               state: "error",
               progress: undefined,
@@ -318,17 +337,49 @@ export default function IngestionPage() {
             const detail = e.detail as { existing_filename?: string } | undefined;
             patch(id, { state: "duplicate", message: `Same content as "${detail?.existing_filename ?? "an existing file"}". Not stored again.` });
           } else if (e instanceof ApiError && e.status === 413) {
-            patch(id, { state: "error", message: "File is too large — the server limit is 20 MB." });
+            // Backend copy carries the deployment's real limit.
+            patch(id, { state: "error", message: errorMessage(e, tooLargeMessage(maxUploadMb)) });
           } else if (e instanceof ApiError && e.status === 400) {
             patch(id, { state: "error", message: errorMessage(e, "The server rejected this file as invalid.") });
           } else {
-            patch(id, { state: "error", message: errorMessage(e, "Upload failed.") });
+            // Network / timeout / offline / server failures are retryable:
+            // keep the file so "Try again" can re-run the upload.
+            patch(id, { state: "error", message: errorMessage(e, "Upload failed. Please try again."), file });
           }
           throw e;
         }
       }, id);
     },
-    [docsQuery, requestAction]
+    [docsQuery, maxUploadBytes, maxUploadMb, requestAction]
+  );
+
+  const retryUpload = useCallback(
+    (item: UploadItem) => {
+      if (!item.file) return;
+      setUploads((prev) => prev.filter((u) => u.id !== item.id));
+      void processFile(item.file);
+    },
+    [processFile]
+  );
+
+  const checkStalledStatus = useCallback(
+    async (item: UploadItem) => {
+      if (!item.jobId) return;
+      try {
+        const job = await fetchJobStatus(item.jobId);
+        if (job.status === "DONE") {
+          patch(item.id, { state: "done", message: "Done — extracted and indexed.", jobId: undefined });
+          await docsQuery.refetch();
+        } else if (job.status === "ERROR") {
+          patch(item.id, { state: "error", message: job.error || "Processing failed.", jobId: undefined });
+        } else {
+          patch(item.id, { message: `${STILL_PROCESSING_MESSAGE} (${Math.round(job.progress)}% complete)` });
+        }
+      } catch {
+        patch(item.id, { message: STILL_PROCESSING_MESSAGE });
+      }
+    },
+    [docsQuery]
   );
 
   const onFiles = (files: FileList | null) => {
@@ -389,8 +440,8 @@ export default function IngestionPage() {
           </span>
         </div>
         <h2 className="mb-1.5 text-base font-semibold text-slate-950">Drop PDFs or Word docs here</h2>
-        <p className="mb-6 text-sm text-slate-500">
-          Supports PDF, .docx, .md, and .txt, up to 20 MB. Duplicates (same content) are detected and skipped.
+        <p className="mb-6 text-sm text-slate-500" data-testid="upload-limit-hint">
+          Supports PDF, .docx, .md, and .txt, up to {maxUploadMb} MB. Duplicates (same content) are detected and skipped.
         </p>
         <Button size="lg" onClick={() => fileInputRef.current?.click()} data-testid="choose-files-button">
           Choose files
@@ -419,6 +470,8 @@ export default function IngestionPage() {
                     ? "border-red-200 bg-red-50/50"
                     : f.state === "done"
                     ? "border-emerald-200 bg-emerald-50/40"
+                    : f.state === "stalled"
+                    ? "border-sky-200 bg-sky-50/50"
                     : "border-slate-200 bg-white"
                 }`}
               >
@@ -427,6 +480,7 @@ export default function IngestionPage() {
                   {f.state === "done" && <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />}
                   {f.state === "duplicate" && <Copy className="h-4 w-4 text-amber-600" aria-hidden />}
                   {f.state === "error" && <AlertTriangle className="h-4 w-4 text-red-600" aria-hidden />}
+                  {f.state === "stalled" && <Clock className="h-4 w-4 text-sky-600" aria-hidden />}
                   <span className="flex-1 text-sm font-medium text-slate-950">{f.name}</span>
                   {f.state === "processing" && f.progress != null && (
                     <span className="text-xs font-semibold tabular-nums text-brand-700">
@@ -434,6 +488,8 @@ export default function IngestionPage() {
                     </span>
                   )}
                   <span
+                    // Announce terminal failures assertively, quieter states politely.
+                    role={f.state === "error" ? "alert" : "status"}
                     className={`text-xs font-medium ${
                       f.state === "duplicate"
                         ? "text-amber-800"
@@ -441,11 +497,33 @@ export default function IngestionPage() {
                         ? "text-red-700"
                         : f.state === "done"
                         ? "text-emerald-800"
+                        : f.state === "stalled"
+                        ? "text-sky-800"
                         : "text-brand-700"
                     }`}
                   >
                     {f.message}
                   </span>
+                  {f.state === "error" && f.file && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => retryUpload(f)}
+                      data-testid="upload-retry-button"
+                    >
+                      Try again
+                    </Button>
+                  )}
+                  {f.state === "stalled" && f.jobId && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void checkStalledStatus(f)}
+                      data-testid="upload-check-status-button"
+                    >
+                      Check status
+                    </Button>
+                  )}
                 </div>
                 {f.state === "processing" && f.progress != null && (
                   <div

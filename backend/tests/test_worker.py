@@ -106,6 +106,15 @@ def test_worker_requeues_crash_until_attempts_exhausted(clean_db, org_a, monkeyp
     assert calls["n"] == 3
     assert jobs.claim_next("worker-test") is None  # nothing left to run
 
+    # The user-visible job error is fixed copy — the raw exception ("hard
+    # crash") stays in the logs only.
+    failed = jobs.get(job_id, ctx=org_a)
+    assert "hard crash" not in (failed["error"] or "")
+    assert failed["error"] == (
+        "Processing failed after several attempts. "
+        "Please try uploading the document again."
+    )
+
 
 def test_unknown_job_kind_fails_cleanly(clean_db, org_a):
     job_id = str(uuid.uuid4())

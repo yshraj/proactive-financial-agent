@@ -152,7 +152,12 @@ test.describe("hard backend-enforced credit stops", () => {
     await mockBalance(page, 20);
     await page.route("**/api/chat", (route) =>
       fulfillJson(route, 409, {
-        error: "insufficient_credits",
+        error: {
+          code: "insufficient_credits",
+          message: "You don't have enough AI credits for this action.",
+          retryable: false,
+        },
+        detail: "You don't have enough AI credits for this action.",
         required: 1,
         remaining: 0,
         feature: "chat",

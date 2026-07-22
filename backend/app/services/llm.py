@@ -10,6 +10,17 @@ Purpose = Literal["brief", "chat", "draft"]
 DEFAULT_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0"))
 
 
+class AIUnavailableError(RuntimeError):
+    """LLM provider call failed (outage, timeout, quota).
+
+    Carries only the fixed public message — the provider's error text is
+    logged by public_error_message, never surfaced. Endpoints that don't
+    catch it get a clean 503 from the handler in app.main; features with
+    deterministic fallbacks (digest, review note) catch Exception and keep
+    their fallback behaviour.
+    """
+
+
 def resolve_model(purpose: Purpose = "chat") -> str:
     if purpose == "brief":
         return os.environ.get("BRIEF_LLM_MODEL") or os.environ.get("LLM_MODEL") or "gpt-4o-mini"
@@ -27,14 +38,19 @@ def complete(
     temperature: Optional[float] = None,
 ) -> str:
     from app.services.clients import get_openai_client
+    from app.services.safety import public_error_message
 
     client = get_openai_client()
-    response = client.chat.completions.create(
-        model=model or resolve_model(purpose),
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=DEFAULT_TEMPERATURE if temperature is None else temperature,
-    )
+    try:
+        response = client.chat.completions.create(
+            model=model or resolve_model(purpose),
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=DEFAULT_TEMPERATURE if temperature is None else temperature,
+        )
+    except Exception as exc:
+        # Full provider error goes to the logs; clients get fixed copy only.
+        raise AIUnavailableError(public_error_message("ai_unavailable", exc)) from exc
     return (response.choices[0].message.content or "").strip()
 
 

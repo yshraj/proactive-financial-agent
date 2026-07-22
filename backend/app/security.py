@@ -7,7 +7,7 @@ Auth posture is fail-closed by default:
   Supabase JWT verification is configured (``SUPABASE_URL`` and/or
   ``SUPABASE_JWT_SECRET``). Browsers authenticate with a Supabase JWT only.
 - ``AUTH_MODE=demo``: anonymous access is allowed (single shared demo
-  workspace). Refused outright when ``ENV``/``ENVIRONMENT`` is production.
+  workspace). Refused outright when ``ENV`` is production.
 
 ``API_KEY`` is an optional *service-to-service* credential (scripts, uptime
 probes). It is never shipped to the browser; see app.auth.authenticate_request
@@ -167,7 +167,7 @@ def _supabase_configured() -> bool:
 
 
 def is_production() -> bool:
-    env = os.environ.get("ENV", os.environ.get("ENVIRONMENT", "")).lower()
+    env = os.environ.get("ENV", "").lower()
     return env in ("production", "prod")
 
 
@@ -196,7 +196,7 @@ def enforce_auth_mode() -> None:
     if mode == AUTH_MODE_DEMO:
         if is_production():
             raise RuntimeError(
-                "AUTH_MODE=demo is not allowed when ENV/ENVIRONMENT is production. "
+                "AUTH_MODE=demo is not allowed when ENV is production. "
                 "Configure Supabase auth (SUPABASE_URL) and set AUTH_MODE=required."
             )
         logger.warning(

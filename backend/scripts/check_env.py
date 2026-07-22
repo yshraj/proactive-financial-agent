@@ -77,15 +77,14 @@ def check_presence() -> dict:
 
     env = {k: (os.environ.get(k) or "").strip() for k in (
         "DATABASE_URL", "DATABASE_ADMIN_URL", "QDRANT_URL", "QDRANT_API_KEY",
-        "OPENAI_API_KEY", "LLM_PROVIDER", "EMBEDDING_PROVIDER", "EMBEDDING_MODEL",
-        "GEMINI_API_KEY", "GOOGLE_API_KEY", "COHERE_API_KEY",
+        "OPENAI_API_KEY", "LLM_PROVIDER", "EMBEDDING_MODEL",
+        "GEMINI_API_KEY", "GOOGLE_API_KEY",
         "API_KEY", "ALLOW_DATA_RESET", "QDRANT_COLLECTION",
         "AUTH_MODE", "SUPABASE_URL", "SUPABASE_JWT_SECRET",
-        "SUPABASE_SERVICE_ROLE_KEY", "SENTRY_DSN", "ENV", "ENVIRONMENT",
+        "SUPABASE_SERVICE_ROLE_KEY", "SENTRY_DSN", "ENV",
     )}
 
     llm = (env["LLM_PROVIDER"] or "openai").lower()
-    emb = (env["EMBEDDING_PROVIDER"] or "openai").lower()
 
     section("Required variables")
     # DATABASE_URL
@@ -121,25 +120,21 @@ def check_presence() -> dict:
         elif env["QDRANT_API_KEY"]:
             ok(f"QDRANT_API_KEY present ({mask(env['QDRANT_API_KEY'])})")
 
-    # LLM provider keys
-    section(f"Provider keys (LLM_PROVIDER={llm}, EMBEDDING_PROVIDER={emb})")
-    needs_openai = llm == "openai" or emb == "openai"
-    if needs_openai:
-        key = env["OPENAI_API_KEY"]
-        if not key:
-            fail("OPENAI_API_KEY is required (openai is used for LLM and/or embeddings) but missing")
-        elif is_placeholder(key) or not key.startswith("sk-"):
-            fail("OPENAI_API_KEY looks invalid (should start with 'sk-')")
-        else:
-            ok(f"OPENAI_API_KEY present ({mask(key)})")
+    # LLM provider keys (embeddings always use OpenAI)
+    section(f"Provider keys (LLM_PROVIDER={llm})")
+    key = env["OPENAI_API_KEY"]
+    if not key:
+        fail("OPENAI_API_KEY is required (embeddings always use OpenAI) but missing")
+    elif is_placeholder(key) or not key.startswith("sk-"):
+        fail("OPENAI_API_KEY looks invalid (should start with 'sk-')")
+    else:
+        ok(f"OPENAI_API_KEY present ({mask(key)})")
     if llm == "gemini" and not (env["GEMINI_API_KEY"] or env["GOOGLE_API_KEY"]):
         fail("LLM_PROVIDER=gemini but neither GEMINI_API_KEY nor GOOGLE_API_KEY is set")
-    if emb == "cohere" and not env["COHERE_API_KEY"]:
-        fail("EMBEDDING_PROVIDER=cohere but COHERE_API_KEY is missing")
 
     # Embedding dimension sanity (Qdrant collection is created at 1536)
     model = env["EMBEDDING_MODEL"] or "text-embedding-3-small"
-    if emb == "openai" and model not in ("text-embedding-3-small", "text-embedding-ada-002"):
+    if model not in ("text-embedding-3-small", "text-embedding-ada-002"):
         warn(f"EMBEDDING_MODEL='{model}' may not be 1536-dim; the Qdrant collection is created at 1536. Mismatch will break RAG upserts/search.")
     else:
         ok(f"EMBEDDING_MODEL={model}")
@@ -148,7 +143,7 @@ def check_presence() -> dict:
     section("Auth posture")
     auth_mode = (env["AUTH_MODE"] or "required").lower()
     supabase_auth = bool(env["SUPABASE_URL"] or env["SUPABASE_JWT_SECRET"])
-    is_prod = (env["ENV"] or env["ENVIRONMENT"] or "").lower() in ("production", "prod")
+    is_prod = (env["ENV"] or "").lower() in ("production", "prod")
     if auth_mode == "demo":
         if is_prod:
             fail("AUTH_MODE=demo with ENV=production — the app will refuse to boot.")
@@ -240,25 +235,23 @@ def check_connectivity(env: dict) -> None:
     except Exception as e:  # noqa: BLE001
         fail(f"Qdrant: connection failed — {type(e).__name__}: {e}")
 
-    # OpenAI (free metadata call, no token spend)
-    if (env.get("LLM_PROVIDER") or "openai").lower() == "openai" or (
-        env.get("EMBEDDING_PROVIDER") or "openai"
-    ).lower() == "openai":
-        try:
-            import httpx
-            r = httpx.get(
-                "https://api.openai.com/v1/models",
-                headers={"Authorization": f"Bearer {env['OPENAI_API_KEY']}"},
-                timeout=10,
-            )
-            if r.status_code == 200:
-                ok("OpenAI: API key valid (models endpoint reachable)")
-            elif r.status_code == 401:
-                fail("OpenAI: 401 Unauthorized — API key is invalid or revoked")
-            else:
-                warn(f"OpenAI: unexpected HTTP {r.status_code}")
-        except Exception as e:  # noqa: BLE001
-            fail(f"OpenAI: request failed — {type(e).__name__}: {e}")
+    # OpenAI (free metadata call, no token spend). Always relevant: embeddings
+    # use OpenAI even when LLM_PROVIDER=gemini.
+    try:
+        import httpx
+        r = httpx.get(
+            "https://api.openai.com/v1/models",
+            headers={"Authorization": f"Bearer {env['OPENAI_API_KEY']}"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            ok("OpenAI: API key valid (models endpoint reachable)")
+        elif r.status_code == 401:
+            fail("OpenAI: 401 Unauthorized — API key is invalid or revoked")
+        else:
+            warn(f"OpenAI: unexpected HTTP {r.status_code}")
+    except Exception as e:  # noqa: BLE001
+        fail(f"OpenAI: request failed — {type(e).__name__}: {e}")
 
 
 def main() -> int:

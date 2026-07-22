@@ -42,7 +42,7 @@ def init_sentry() -> bool:
 
         sentry_sdk.init(
             dsn=dsn,
-            environment=os.environ.get("ENV", os.environ.get("ENVIRONMENT", "development")),
+            environment=os.environ.get("ENV", "development"),
             release=os.environ.get("RELEASE_SHA") or None,
             send_default_pii=False,
             traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
@@ -80,10 +80,14 @@ def startup_config_warnings() -> list[str]:
     if _unset("QDRANT_URL"):
         warnings.append("QDRANT_URL is not set — RAG/semantic search will be unavailable.")
 
-    # LLM provider.
+    # LLM provider. Embeddings always use OpenAI, so the key matters even
+    # when the chat/extraction provider is Gemini.
     provider = (os.environ.get("LLM_PROVIDER") or "openai").strip().lower()
-    if provider == "openai" and _unset("OPENAI_API_KEY"):
-        warnings.append("OPENAI_API_KEY is not set — AI features fall back to deterministic stubs.")
+    if _unset("OPENAI_API_KEY"):
+        if provider == "openai":
+            warnings.append("OPENAI_API_KEY is not set — AI features fall back to deterministic stubs.")
+        else:
+            warnings.append("OPENAI_API_KEY is not set — embeddings/RAG need it even with LLM_PROVIDER=gemini.")
     if provider == "gemini" and _unset("GEMINI_API_KEY") and _unset("GOOGLE_API_KEY"):
         warnings.append("LLM_PROVIDER=gemini but neither GEMINI_API_KEY nor GOOGLE_API_KEY is set.")
 

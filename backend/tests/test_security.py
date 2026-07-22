@@ -12,7 +12,7 @@ from app import security
 
 
 def _clear_auth_env(monkeypatch):
-    for var in ("AUTH_MODE", "SUPABASE_URL", "SUPABASE_JWT_SECRET", "API_KEY", "ENV", "ENVIRONMENT"):
+    for var in ("AUTH_MODE", "SUPABASE_URL", "SUPABASE_JWT_SECRET", "API_KEY", "ENV"):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -76,14 +76,6 @@ def test_demo_mode_refused_in_production(monkeypatch, env_value):
         security.enforce_auth_mode()
 
 
-def test_demo_mode_refused_via_environment_variable(monkeypatch):
-    _clear_auth_env(monkeypatch)
-    monkeypatch.setenv("AUTH_MODE", "demo")
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    with pytest.raises(RuntimeError):
-        security.enforce_auth_mode()
-
-
 # ---------------------------------------------------------------------------
 # Service API key
 # ---------------------------------------------------------------------------
@@ -110,14 +102,12 @@ def test_api_key_never_matches_when_unset(monkeypatch):
 def test_data_reset_disabled_by_default(monkeypatch):
     monkeypatch.delenv("ALLOW_DATA_RESET", raising=False)
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.delenv("ENVIRONMENT", raising=False)
     assert security.data_reset_enabled() is False
 
 
 @pytest.mark.parametrize("val", ["1", "true", "TRUE", "yes"])
 def test_data_reset_enabled_truthy(monkeypatch, val):
     monkeypatch.delenv("ENV", raising=False)
-    monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.setenv("ALLOW_DATA_RESET", val)
     assert security.data_reset_enabled() is True
 

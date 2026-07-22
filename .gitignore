@@ -33,6 +33,12 @@ frontend/build/
 .DS_Store
 Thumbs.db
 
+# AI-assistant tooling (local skills/config; not part of the product)
+.agents/
+.claude/
+.cursor/
+skills-lock.json
+
 # Logs and temp
 *.log
 *.tmp

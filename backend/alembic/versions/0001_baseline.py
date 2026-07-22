@@ -1,8 +1,8 @@
 """Baseline: pre-tenancy schema (clients, alerts, ingested_documents).
 
-Reproduces backend/supabase_schema.sql exactly (including migrations 001/002,
-which the consolidated schema already contains). Idempotent (IF NOT EXISTS) so
-existing databases can either run it as a no-op or be stamped:
+Reproduces the legacy hand-applied Supabase schema exactly. Idempotent
+(IF NOT EXISTS) so existing databases can either run it as a no-op or be
+stamped:
 
     alembic stamp 0001   # database already has the legacy schema
     alembic upgrade head

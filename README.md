@@ -106,7 +106,7 @@ See [Setting up Supabase](#setting-up-supabase-database) and [Setting up Qdrant]
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. **Connection string:** Project Settings → Database → URI → Connection pooling (Transaction mode). Set as `DATABASE_URL`.
-3. **Schema:** run migrations — `cd backend && alembic upgrade head`. This creates the domain tables, tenancy model (organizations/users/memberships), row-level-security policies, durable audit/jobs/conversations tables, and the least-privilege `kritifin_app` runtime role. (`backend/supabase_schema.sql` is kept only as the legacy pre-tenancy reference.)
+3. **Schema:** run migrations — `cd backend && alembic upgrade head`. This creates the domain tables, tenancy model (organizations/users/memberships), row-level-security policies, durable audit/jobs/conversations tables, and the least-privilege `kritifin_app` runtime role.
 4. **Auth:** Project Settings → API → copy URL and anon key to `frontend/.env.local`; set `SUPABASE_URL` in the root `.env` (or use `AUTH_MODE=demo` for open local dev).
 
 ---
@@ -251,8 +251,7 @@ proactive-financial-agent/
 │   │   └── services/          # llm, prompts, rag_context, safety, cache, audit, jobs, storage, …
 │   ├── alembic/               # database migrations (schema, tenancy, RLS)
 │   ├── scripts/
-│   ├── tests/                 # unit + integration + RLS isolation suites
-│   └── supabase_schema.sql    # legacy pre-tenancy reference (see alembic/)
+│   └── tests/                 # unit + integration + RLS isolation suites
 └── frontend/
     ├── pages/                 # dashboard, chat, brief, clients, admin, …
     ├── components/            # UI library, AI components, layout

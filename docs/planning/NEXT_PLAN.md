@@ -11,11 +11,11 @@ _Last updated: 17 Jul 2026_
 > limits, Qdrant filters and per-org duplicate detection; Sentry + JSON logs +
 > request IDs + `/health/ready`; Alembic migrations; GitHub Actions CI with an
 > RLS isolation suite (177 backend tests). Deployment cutover steps live in
-> [DEPLOYMENT.md](DEPLOYMENT.md); the release gate is
-> [docs/pre-beta-checklist.md](docs/pre-beta-checklist.md). Sections below
+> [DEPLOYMENT.md](../../DEPLOYMENT.md); the release gate is
+> [docs/pre-beta-checklist.md](../pre-beta-checklist.md). Sections below
 > predate this work and are kept for historical context.
 
-This is the living planning document for **KritiFin (Proactive Financial Agent)** — a proactive AI workspace for UK financial advisers. It captures current status, what's done, what remains, priorities, technical debt, known issues, risks, and the implementation roadmap. Historical milestone context lives in [`docs/planning/`](docs/planning/).
+This was the living planning document for **KritiFin (Proactive Financial Agent)** — a proactive AI workspace for UK financial advisers. It captures the status, priorities, technical debt, known issues, risks, and roadmap as of mid-July 2026, and is kept in this archive alongside the other milestone documents.
 
 ---
 

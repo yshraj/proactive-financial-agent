@@ -1,7 +1,7 @@
 # KritiFin production-readiness audit — July 2026
 
 _Principal engineer + QA + AI architect + security + release review. Companion
-to the earlier RFC ([NEXT_PLAN.md](../NEXT_PLAN.md)); this document records the
+to the earlier RFC ([NEXT_PLAN.md](planning/NEXT_PLAN.md)); this document records the
 audit findings, the changes made in this pass, and the forward roadmap._
 
 ---

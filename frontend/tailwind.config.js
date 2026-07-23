@@ -9,19 +9,40 @@ module.exports = {
     extend: {
       fontFamily: {
         sans: ["var(--font-inter)", "Inter", "system-ui", "sans-serif"],
+        // Shared oblivioX studio fonts — the display grotesque and mono are
+        // inherited verbatim from the parent design system so KritiFin reads
+        // as part of the family even though it wears a light theme.
+        display: [
+          "var(--font-display)",
+          "var(--font-inter)",
+          "Inter",
+          "system-ui",
+          "sans-serif",
+        ],
+        mono: [
+          "var(--font-mono)",
+          "ui-monospace",
+          "SFMono-Regular",
+          "Menlo",
+          "monospace",
+        ],
       },
       colors: {
+        // Brand blue is anchored on the oblivioX accent glow (#3B6FFF at 500).
+        // The single hue is the shared thread across obliviox / refineIQ /
+        // KritiFin; 600 is a touch deeper only so white button text clears
+        // WCAG AA on this light surface.
         brand: {
-          50: "#EFF6FF",
-          100: "#DBEAFE",
-          200: "#BFDBFE",
-          300: "#93C5FD",
-          400: "#60A5FA",
-          500: "#3B82F6",
-          600: "#2563EB",
-          700: "#1D4ED8",
-          800: "#1E40AF",
-          900: "#1E3A8A",
+          50: "#EEF3FF",
+          100: "#DCE6FF",
+          200: "#BECDFF",
+          300: "#93AEFF",
+          400: "#6685FF",
+          500: "#3B6FFF",
+          600: "#2F5CF0",
+          700: "#2348D6",
+          800: "#1E3AAD",
+          900: "#1B3289",
         },
         ai: {
           50: "#F5F3FF",

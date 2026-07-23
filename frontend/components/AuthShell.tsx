@@ -22,7 +22,7 @@ export function AuthShell({
   return (
     <div className="grid min-h-screen bg-[#F8FAFC] font-sans lg:grid-cols-2">
       <div className="relative hidden flex-col justify-between overflow-hidden bg-slate-950 p-12 text-white xl:p-16 lg:flex">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_24%_20%,rgba(37,99,235,0.42),transparent_34%),radial-gradient(circle_at_76%_72%,rgba(124,58,237,0.24),transparent_30%),linear-gradient(135deg,#020617_0%,#0F172A_58%,#111827_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_24%_20%,rgba(59,111,255,0.42),transparent_34%),radial-gradient(circle_at_76%_72%,rgba(124,58,237,0.24),transparent_30%),linear-gradient(135deg,#020617_0%,#0F172A_58%,#111827_100%)]" />
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-300/50 to-transparent" />
         <Link href="/" className="relative flex items-center gap-3">
           <BrandLogo size="md" wordmarkClassName="text-white text-base" />
@@ -86,7 +86,7 @@ export function AuthShell({
       </div>
 
       <div className="relative flex flex-col items-center justify-center overflow-hidden px-6 py-12">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(37,99,235,0.08),transparent_32%),linear-gradient(180deg,#FFFFFF_0%,#F8FAFC_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(59,111,255,0.08),transparent_32%),linear-gradient(180deg,#FFFFFF_0%,#F8FAFC_100%)]" />
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}

@@ -1,5 +1,5 @@
 import type { AppProps } from "next/app";
-import { Inter } from "next/font/google";
+import { Inter, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import { useState } from "react";
 import { useRouter } from "next/router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,6 +14,22 @@ import { ErrorBoundary, ToastProvider } from "../components/ui";
 import { BARE_ROUTES } from "../lib/routes";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+
+// Shared oblivioX studio type: Space Grotesk for display headings and
+// JetBrains Mono for the studio-signature eyebrow labels. Same faces as the
+// parent site and refineIQ — the family thread that survives the light theme.
+const display = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  weight: ["400", "500"],
+  display: "swap",
+});
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
@@ -45,7 +61,7 @@ export default function App({ Component, pageProps }: AppProps) {
   );
 
   return (
-    <div className={`${inter.variable} font-sans`}>
+    <div className={`${inter.variable} ${display.variable} ${mono.variable} font-sans`}>
       <QueryClientProvider client={queryClient}>
         <SystemBanners />
         <ToastProvider>

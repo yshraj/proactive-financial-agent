@@ -204,7 +204,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Desktop sidebar */}
       <aside className="hidden w-64 flex-shrink-0 flex-col gap-8 border-r border-slate-200 bg-white/85 p-6 backdrop-blur-xl md:flex">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <BrandLogo size="sm" />
+          <BrandLogo size="sm" byline />
         </Link>
         <NavLinks />
         <AccountMenu />
@@ -257,7 +257,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <Menu className="h-5 w-5" aria-hidden />
             </button>
-            <h1 className="truncate text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">
+            <h1 className="truncate font-display text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">
               {pageTitle}
             </h1>
           </div>

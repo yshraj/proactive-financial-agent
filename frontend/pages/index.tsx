@@ -103,8 +103,8 @@ function SectionHeading({
 }) {
   return (
     <div className="mx-auto max-w-2xl text-center">
-      <p className="ui-label text-brand-600">{eyebrow}</p>
-      <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
+      <p className="eyebrow">{eyebrow}</p>
+      <h2 className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
         {title}
       </h2>
       {text && <p className="mt-4 text-base leading-7 text-slate-500">{text}</p>}
@@ -266,7 +266,7 @@ export default function LandingPage() {
       <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-700">
         <header className="sticky top-0 z-40 border-b border-white/70 bg-white/75 backdrop-blur-xl">
           <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-            <BrandLogo size="sm" />
+            <BrandLogo size="sm" byline />
             <nav className="hidden items-center gap-7 md:flex" aria-label="Marketing">
               {NAV_LINKS.map((l) => (
                 <a
@@ -351,7 +351,7 @@ export default function LandingPage() {
 
         <main data-testid="landing-page">
           <section className="relative overflow-hidden" data-testid="landing-hero">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(37,99,235,0.13),transparent_38%),linear-gradient(180deg,#FFFFFF_0%,#F8FAFC_72%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(59,111,255,0.13),transparent_38%),linear-gradient(180deg,#FFFFFF_0%,#F8FAFC_72%)]" />
             <div className="relative mx-auto max-w-7xl px-6 pb-20 pt-20 text-center sm:pt-28">
               <motion.span
                 initial={{ opacity: 0, y: 8 }}
@@ -361,7 +361,7 @@ export default function LandingPage() {
                 <Sparkles className="h-3.5 w-3.5" aria-hidden />
                 The AI operating system for financial advisers
               </motion.span>
-              <h1 className="mx-auto mt-6 max-w-4xl text-5xl font-semibold tracking-[-0.06em] text-slate-950 sm:text-7xl sm:leading-[0.98]">
+              <h1 className="mx-auto mt-6 max-w-4xl font-display text-5xl font-semibold tracking-[-0.06em] text-slate-950 sm:text-7xl sm:leading-[0.98]">
                 Know who to contact. What to review. What to do next.
               </h1>
               <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-slate-500 sm:text-lg">
@@ -415,8 +415,8 @@ export default function LandingPage() {
           <section className="border-t border-slate-200/70 py-20 sm:py-24">
             <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-6 lg:grid-cols-[0.85fr_1.15fr] lg:items-center">
               <div>
-                <p className="ui-label text-brand-600">Problem statement</p>
-                <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
+                <p className="eyebrow">Problem statement</p>
+                <h2 className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
                   Advice teams do not need more noise. They need priority.
                 </h2>
                 <p className="mt-4 text-base leading-7 text-slate-500">
@@ -446,8 +446,10 @@ export default function LandingPage() {
               <div className="mt-12 grid gap-4 lg:grid-cols-4">
                 {SHOWCASE.map((item, index) => (
                   <div key={item.title} className="rounded-3xl border border-slate-200 bg-slate-50/60 p-6">
-                    <span className="text-xs font-semibold text-brand-600">0{index + 1}</span>
-                    <h3 className="mt-4 text-lg font-semibold tracking-tight text-slate-950">{item.title}</h3>
+                    <span className="font-mono text-xs font-medium tracking-[0.18em] text-brand-600">
+                      0{index + 1}
+                    </span>
+                    <h3 className="mt-4 font-display text-lg font-semibold tracking-tight text-slate-950">{item.title}</h3>
                     <p className="mt-2 text-sm leading-6 text-slate-500">{item.text}</p>
                   </div>
                 ))}
@@ -480,8 +482,10 @@ export default function LandingPage() {
           <section id="security" className="scroll-mt-20 border-t border-slate-200/70 bg-slate-950 py-20 text-white sm:py-24">
             <div className="mx-auto grid max-w-7xl grid-cols-1 gap-10 px-6 lg:grid-cols-2 lg:items-center">
               <div>
-                <p className="ui-label text-blue-200">Security & privacy</p>
-                <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">
+                <p className="font-mono text-xs font-medium uppercase tracking-[0.22em] text-brand-300">
+                  Security &amp; privacy
+                </p>
+                <h2 className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">
                   Built for sensitive client work.
                 </h2>
                 <p className="mt-4 text-base leading-7 text-slate-300">
@@ -510,8 +514,8 @@ export default function LandingPage() {
 
           <section className="border-t border-slate-200/70 bg-white py-20 sm:py-24">
             <div className="mx-auto max-w-4xl px-6 text-center">
-              <p className="ui-label text-brand-600">Brand story</p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
+              <p className="eyebrow">Brand story</p>
+              <h2 className="mt-3 font-display text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl">
                 Inspired by meaningful work.
               </h2>
               <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-500">
@@ -563,7 +567,7 @@ export default function LandingPage() {
 
           <section className="border-t border-slate-200/70 py-20 sm:py-24">
             <div className="mx-auto max-w-4xl px-6 text-center">
-              <h2 className="text-4xl font-semibold tracking-[-0.05em] text-slate-950 sm:text-5xl">
+              <h2 className="font-display text-4xl font-semibold tracking-[-0.05em] text-slate-950 sm:text-5xl">
                 Stay ahead of every client.
               </h2>
               <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-500">
@@ -601,7 +605,16 @@ export default function LandingPage() {
               </a>
             </nav>
             <p className="text-xs text-slate-500">
-              (c) {new Date().getFullYear()} KritiFin. All rights reserved.
+              (c) {new Date().getFullYear()} KritiFin — a product of{" "}
+              <a
+                href="https://obliviox.in"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-slate-600 transition-colors hover:text-brand-600"
+              >
+                oblivioX
+              </a>
+              . All rights reserved.
             </p>
           </div>
         </footer>

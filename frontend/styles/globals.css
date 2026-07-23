@@ -32,6 +32,13 @@
     @apply text-sm font-medium normal-case tracking-normal text-slate-500;
   }
 
+  /* Studio-signature eyebrow — the oblivioX mono/uppercase/wide-tracked label,
+     inherited verbatim so KritiFin's section markers read as the same family.
+     Distinct from .ui-label (which stays sentence-case for in-app form labels). */
+  .eyebrow {
+    @apply font-mono text-xs font-medium uppercase tracking-[0.22em] text-brand-600;
+  }
+
   .skeleton {
     @apply relative overflow-hidden rounded-md bg-slate-200/70;
   }

@@ -38,12 +38,14 @@ def complete(
     temperature: Optional[float] = None,
 ) -> str:
     from app.services.clients import get_openai_client
+    from app.services.llm_usage import record_usage
     from app.services.safety import public_error_message
 
     client = get_openai_client()
+    resolved_model = model or resolve_model(purpose)
     try:
         response = client.chat.completions.create(
-            model=model or resolve_model(purpose),
+            model=resolved_model,
             messages=messages,
             max_tokens=max_tokens,
             temperature=DEFAULT_TEMPERATURE if temperature is None else temperature,
@@ -51,6 +53,7 @@ def complete(
     except Exception as exc:
         # Full provider error goes to the logs; clients get fixed copy only.
         raise AIUnavailableError(public_error_message("ai_unavailable", exc)) from exc
+    record_usage(model=resolved_model, purpose=purpose, usage=getattr(response, "usage", None))
     return (response.choices[0].message.content or "").strip()
 
 

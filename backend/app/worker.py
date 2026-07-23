@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -91,6 +92,8 @@ def process_one(job: dict[str, Any]) -> None:
     ctx = system_context(job["org_id"], request_id=f"job-{job['id'][:8]}")
     set_current_tenant(ctx)
     set_request_id(ctx.request_id)
+    started = time.monotonic()
+    outcome = "done"
     try:
         handler = _HANDLERS.get(job["kind"])
         if handler is None:
@@ -102,6 +105,7 @@ def process_one(job: dict[str, Any]) -> None:
             return
         handler(job)
     except Exception as exc:  # noqa: BLE001 - job errors must not kill the drain
+        outcome = "error"
         logger.exception("Job %s failed: %s", job["id"], exc)
         attempts, max_attempts = int(job.get("attempts") or 1), 3
         try:
@@ -120,8 +124,24 @@ def process_one(job: dict[str, Any]) -> None:
                         message="Failed", error=public_error_message("job_failed"))
         else:
             # Release for retry: back to PENDING, keeping the attempt count.
+            outcome = "retry"
             jobs.update(job["id"], status=jobs.PENDING, message="Retry queued")
     finally:
+        # Per-job duration: log-only (queryable via CloudWatch Logs Insights),
+        # deliberately not a custom metric — see template.yaml metric filters.
+        duration_ms = round((time.monotonic() - started) * 1000)
+        logger.info(
+            "Job %s finished: kind=%s outcome=%s duration_ms=%d attempt=%s",
+            job["id"], job["kind"], outcome, duration_ms, job.get("attempts"),
+            extra={
+                "event": "job_done",
+                "job_id": job["id"],
+                "kind": job["kind"],
+                "outcome": outcome,
+                "duration_ms": duration_ms,
+                "attempts": job.get("attempts"),
+            },
+        )
         set_current_tenant(None)
         set_request_id(None)
 
@@ -191,14 +211,22 @@ def drain_queue(
             # Keep draining — the next claim will surface a real DB outage.
             logger.exception("Job %s escaped its handler; continuing drain", job["id"])
         stats.processed += 1
+    # Queue depth after the drain: 0 in steady state. Sustained non-zero
+    # (KritiFin/QueueDepth metric) is the agreed trigger for the SQS move.
+    queue_depth = -1  # -1 = probe failed; filters ignore negative samples
+    try:
+        queue_depth = jobs.count_runnable()
+    except Exception:
+        logger.exception("Queue-depth probe failed")
     logger.info(
-        "Drain finished: processed=%d swept=%d backlog=%s",
-        stats.processed, stats.swept, stats.backlog,
+        "Drain finished: processed=%d swept=%d backlog=%s queue_depth=%d",
+        stats.processed, stats.swept, stats.backlog, queue_depth,
         extra={
             "event": "worker_drain",
             "processed": stats.processed,
             "swept": stats.swept,
             "backlog": stats.backlog,
+            "queue_depth": queue_depth,
         },
     )
     return stats

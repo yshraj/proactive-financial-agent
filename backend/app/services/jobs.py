@@ -189,3 +189,19 @@ def has_runnable() -> bool:
         cur.execute("SELECT runnable_jobs_exist(%s) AS has_work", (STALE_LOCK_SECONDS,))
         row = cur.fetchone()
     return bool(row and row["has_work"])
+
+
+def count_runnable() -> int:
+    """Current queue depth (PENDING + stale-but-retryable PROCESSING).
+
+    Logged after each drain and surfaced as the KritiFin/QueueDepth CloudWatch
+    metric — the agreed signal for when the Postgres queue needs replacing
+    with SQS (sustained depth > ~10). SECURITY DEFINER like claim_next().
+    """
+    from app.db import get_cursor
+
+    bootstrap = system_context("")
+    with get_cursor(ctx=bootstrap) as cur:
+        cur.execute("SELECT runnable_jobs_count(%s) AS depth", (STALE_LOCK_SECONDS,))
+        row = cur.fetchone()
+    return int(row["depth"] or 0) if row else 0

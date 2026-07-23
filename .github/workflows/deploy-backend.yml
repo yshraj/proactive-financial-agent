@@ -93,6 +93,43 @@ jobs:
           pip install -r requirements.txt
           alembic upgrade head
 
+      - name: Sync secrets to SSM Parameter Store
+        # GitHub repository secrets stay the source of truth; this pushes them
+        # to SecureStrings under /kritifin/<env>/ where both Lambdas load them
+        # at cold start (backend/app/secrets_loader.py). Rotation = update the
+        # GitHub secret and redeploy. SSM standard parameters are free.
+        # NOTE: currently-warm execution environments keep their old values
+        # until they recycle; the sam deploy below refreshes both functions,
+        # so a normal deploy always picks up new values.
+        env:
+          ENV_NAME: ${{ vars.BACKEND_ENV_NAME || 'production' }}
+          ACCESS_CODE: ${{ secrets.ACCESS_CODE }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: |
+          put_secret() {
+            local name="$1" value="$2"
+            if [ -z "$value" ]; then
+              echo "skip $name (unset)"
+              return 0
+            fi
+            aws ssm put-parameter \
+              --name "/kritifin/${ENV_NAME}/${name}" \
+              --type SecureString \
+              --value "$value" \
+              --overwrite >/dev/null
+            echo "synced $name"
+          }
+          put_secret ACCESS_CODE "$ACCESS_CODE"
+          put_secret DATABASE_URL "$DATABASE_URL"
+          put_secret QDRANT_API_KEY "$QDRANT_API_KEY"
+          put_secret OPENAI_API_KEY "$OPENAI_API_KEY"
+          put_secret SUPABASE_SERVICE_ROLE_KEY "$SUPABASE_SERVICE_ROLE_KEY"
+          put_secret SENTRY_DSN "$SENTRY_DSN"
+
       - name: Build Lambda container images
         working-directory: deploy/aws
         run: sam build
@@ -103,14 +140,10 @@ jobs:
           ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }}
           ENV_NAME: ${{ vars.BACKEND_ENV_NAME || 'production' }}
           AUTH_MODE: ${{ vars.BACKEND_AUTH_MODE || 'required' }}
-          ACCESS_CODE: ${{ secrets.ACCESS_CODE }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Secrets are NOT passed to CloudFormation — they were synced to SSM
+          # in the step above and load at Lambda cold start.
           QDRANT_URL: ${{ secrets.QDRANT_URL }}
-          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
           # Concurrency caps (see DEPLOYMENT.md): set the repo variables to -1
           # on accounts whose total Lambda concurrency limit is below ~120.
@@ -127,14 +160,8 @@ jobs:
             --parameter-overrides \
               "EnvName=$ENV_NAME" \
               "AuthMode=$AUTH_MODE" \
-              "AccessCode=$ACCESS_CODE" \
-              "DatabaseUrl=$DATABASE_URL" \
               "QdrantUrl=$QDRANT_URL" \
-              "QdrantApiKey=$QDRANT_API_KEY" \
-              "OpenAiApiKey=$OPENAI_API_KEY" \
               "SupabaseUrl=$SUPABASE_URL" \
-              "SupabaseServiceRoleKey=$SUPABASE_SERVICE_ROLE_KEY" \
-              "SentryDsn=$SENTRY_DSN" \
               "CorsOrigins=$CORS_ORIGINS" \
               "ApiReservedConcurrency=$API_RESERVED_CONCURRENCY" \
               "WorkerReservedConcurrency=$WORKER_RESERVED_CONCURRENCY" \

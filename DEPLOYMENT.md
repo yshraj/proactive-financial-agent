@@ -179,6 +179,12 @@ missing action — add it here rather than widening a wildcard):
                  "sns:Subscribe", "sns:Unsubscribe", "sns:ListSubscriptionsByTopic",
                  "sns:TagResource", "sns:ListTagsForResource"],
      "Resource": "arn:aws:sns:*:<ACCOUNT_ID>:kritifin-backend-*"},
+    {"Sid": "SecretsSync", "Effect": "Allow",
+     "Action": ["ssm:PutParameter", "ssm:GetParameter", "ssm:DeleteParameter"],
+     "Resource": "arn:aws:ssm:*:<ACCOUNT_ID>:parameter/kritifin/*"},
+    {"Sid": "SpendBudget", "Effect": "Allow",
+     "Action": ["budgets:ModifyBudget", "budgets:ViewBudget"],
+     "Resource": "arn:aws:budgets::<ACCOUNT_ID>:budget/kritifin-backend-*"},
     {"Sid": "FunctionRoles", "Effect": "Allow",
      "Action": ["iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:PassRole",
                  "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PutRolePolicy",
@@ -196,8 +202,9 @@ The role ARN becomes the `AWS_DEPLOY_ROLE_ARN` GitHub secret.
 
 For reference, the **runtime** IAM the stack creates for itself is minimal:
 the API function may only `lambda:InvokeFunction` the worker; the worker may
-only re-invoke itself; both write CloudWatch Logs. No other AWS access exists
-(Supabase/Qdrant/OpenAI are plain HTTPS).
+only re-invoke itself; both may read SSM parameters under
+`/kritifin/<env>/` (cold-start secrets — see below) and write CloudWatch
+Logs. No other AWS access exists (Supabase/Qdrant/OpenAI are plain HTTPS).
 
 ### 3. GitHub secrets and variables
 
@@ -215,6 +222,16 @@ Repository **secrets** (Settings → Secrets and variables → Actions):
 | `OPENAI_API_KEY` | LLM + embeddings |
 | `SENTRY_DSN` | backend Sentry project (optional) |
 | `ACCESS_CODE` | only for demo-posture deploys (optional) |
+
+GitHub secrets remain the **source of truth**, but they are not passed to
+CloudFormation or set as Lambda environment variables (env vars are readable
+via `lambda:GetFunctionConfiguration` and parameter values persist in
+CloudFormation history). Instead, each deploy syncs `ACCESS_CODE`,
+`DATABASE_URL`, `QDRANT_API_KEY`, `OPENAI_API_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY` and `SENTRY_DSN` to **SSM SecureString
+parameters** under `/kritifin/<env>/`, and both Lambdas load them once per
+cold start (`backend/app/secrets_loader.py`). Rotation = update the GitHub
+secret and redeploy. SSM standard parameters are free.
 
 Repository **variables**:
 
@@ -281,6 +298,26 @@ Repository **variables**:
    AWS sends after the first deploy, or notifications stay silent. Worker
    *throttles* are intentionally not alarmed: with reserved concurrency 1
    they are routine (throttled triggers queue and retry automatically).
+4. Spend guardrails: when `ALERT_EMAIL` is set the stack also creates an
+   **AWS Budget** that emails at $5 and $20 of *account-wide* monthly spend
+   — expected steady state is ~$0, so any alert means something unexpected.
+   **Manual, required:** set a hard monthly usage limit in the OpenAI
+   dashboard (Settings → Limits) — OpenAI, not AWS, is the real cost risk
+   and no template can configure it.
+5. Day-one scaling metrics (CloudWatch namespace `KritiFin`, from structured
+   log events via metric filters — 3 custom metrics, inside the 10-metric
+   perpetual free tier): `LlmTokens` and `LlmEstCostUsd` per call
+   (`llm_usage` events), and `QueueDepth` after every worker drain
+   (`worker_drain` events). Sustained `QueueDepth` above ~10 is the agreed
+   trigger for moving the job transport to SQS. Per-job duration and
+   cold-start times are deliberately log-only — query with Logs Insights
+   (`event = "job_done"` / Lambda `REPORT` lines) instead of burning metric
+   quota.
+6. Supabase free-tier auto-pause (7 idle days) is a non-issue **while the
+   stack is deployed**: the worker's 5-minute EventBridge safety-net drain
+   queries Postgres on every tick, which counts as activity. It only becomes
+   a risk if the schedule is disabled or the stack is torn down between
+   demos — warm the project manually before a demo in that case.
 
 ---
 
@@ -293,14 +330,19 @@ head` (expand-contract — the still-running old release keeps working), then
 Deploy from a laptop instead (uses your local AWS credentials):
 
 ```bash
+# One-time (or on rotation): secrets live in SSM, not template parameters.
+for s in ACCESS_CODE DATABASE_URL QDRANT_API_KEY OPENAI_API_KEY \
+         SUPABASE_SERVICE_ROLE_KEY SENTRY_DSN; do
+  [ -n "${!s}" ] && aws ssm put-parameter --name "/kritifin/production/$s" \
+    --type SecureString --value "${!s}" --overwrite
+done
+
 cd deploy/aws
 sam build
 sam deploy \
   --image-repository <ACCOUNT_ID>.dkr.ecr.eu-west-2.amazonaws.com/kritifin-backend \
   --parameter-overrides \
-    "DatabaseUrl=$DATABASE_URL" "QdrantUrl=$QDRANT_URL" "QdrantApiKey=$QDRANT_API_KEY" \
-    "OpenAiApiKey=$OPENAI_API_KEY" "SupabaseUrl=$SUPABASE_URL" \
-    "SupabaseServiceRoleKey=$SUPABASE_SERVICE_ROLE_KEY" "SentryDsn=$SENTRY_DSN" \
+    "QdrantUrl=$QDRANT_URL" "SupabaseUrl=$SUPABASE_URL" \
     "CorsOrigins=https://your-app.vercel.app"
 ```
 

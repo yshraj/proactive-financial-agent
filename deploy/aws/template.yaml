@@ -8,8 +8,12 @@ Description: >-
   OpenAI are reached over the public internet. Sized for the Lambda free tier.
 
 # ---------------------------------------------------------------------------
-# Parameters. Secrets are NoEcho and supplied per deploy (GitHub Actions
-# passes them from repository secrets — see .github/workflows/deploy-backend.yml).
+# Parameters. Secrets are NOT template parameters (they would persist in
+# CloudFormation history and land in Lambda env vars, readable via
+# lambda:GetFunctionConfiguration). The deploy workflow writes them to SSM
+# SecureString parameters under /kritifin/<EnvName>/ and the app loads them
+# once per cold start (backend/app/secrets_loader.py). SSM standard
+# parameters + API calls are free.
 # DATABASE_ADMIN_URL is deliberately NOT here: migrations run in CI only.
 # ---------------------------------------------------------------------------
 Parameters:
@@ -22,41 +26,14 @@ Parameters:
     Default: required
     AllowedValues: [required, demo]
     Description: AUTH_MODE. "demo" is refused by the app when EnvName=production.
-  AccessCode:
-    Type: String
-    Default: ''
-    NoEcho: true
-    Description: Shared front-door code (demo posture). Empty disables the gate.
-  DatabaseUrl:
-    Type: String
-    NoEcho: true
-    Description: Supabase Postgres, transaction-mode pooler URI, kritifin_app role.
   QdrantUrl:
     Type: String
     NoEcho: true
-    Description: Qdrant Cloud cluster URL.
-  QdrantApiKey:
-    Type: String
-    NoEcho: true
-    Description: Qdrant Cloud API key.
-  OpenAiApiKey:
-    Type: String
-    NoEcho: true
-    Description: OpenAI API key (LLM + embeddings).
+    Description: Qdrant Cloud cluster URL (config, not a credential).
   SupabaseUrl:
     Type: String
     Default: ''
     Description: Supabase project URL (JWT verification when AuthMode=required).
-  SupabaseServiceRoleKey:
-    Type: String
-    Default: ''
-    NoEcho: true
-    Description: Supabase service role key (Storage; server-side only).
-  SentryDsn:
-    Type: String
-    Default: ''
-    NoEcho: true
-    Description: Backend Sentry DSN (empty = stdout logs only).
   CorsOrigins:
     Type: String
     Default: 'http://localhost:3000'
@@ -101,14 +78,12 @@ Globals:
       Variables:
         ENV: !Ref EnvName
         AUTH_MODE: !Ref AuthMode
-        ACCESS_CODE: !Ref AccessCode
-        DATABASE_URL: !Ref DatabaseUrl
+        # Secrets (ACCESS_CODE, DATABASE_URL, QDRANT_API_KEY, OPENAI_API_KEY,
+        # SUPABASE_SERVICE_ROLE_KEY, SENTRY_DSN) are loaded at cold start from
+        # SSM SecureStrings under this prefix — see app/secrets_loader.py.
+        SECRETS_SSM_PREFIX: !Sub /kritifin/${EnvName}
         QDRANT_URL: !Ref QdrantUrl
-        QDRANT_API_KEY: !Ref QdrantApiKey
-        OPENAI_API_KEY: !Ref OpenAiApiKey
         SUPABASE_URL: !Ref SupabaseUrl
-        SUPABASE_SERVICE_ROLE_KEY: !Ref SupabaseServiceRoleKey
-        SENTRY_DSN: !Ref SentryDsn
         SENTRY_TRACES_SAMPLE_RATE: '0.1'
         LOG_FORMAT: json
         ALLOW_DATA_RESET: 'false'
@@ -177,6 +152,13 @@ Resources:
               Effect: Allow
               Action: lambda:InvokeFunction
               Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-worker
+            # Cold-start secrets fetch (app/secrets_loader.py). SecureStrings
+            # use the AWS-managed aws/ssm key, whose key policy already allows
+            # in-account decrypt via SSM — no explicit kms:Decrypt needed.
+            - Sid: ReadSecrets
+              Effect: Allow
+              Action: ssm:GetParametersByPath
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/kritifin/${EnvName}
     Metadata:
       Dockerfile: Dockerfile
       DockerContext: ../../backend
@@ -204,6 +186,10 @@ Resources:
               Effect: Allow
               Action: lambda:InvokeFunction
               Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-worker
+            - Sid: ReadSecrets
+              Effect: Allow
+              Action: ssm:GetParametersByPath
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/kritifin/${EnvName}
       Events:
         SafetyNetSchedule:
           Type: ScheduleV2
@@ -272,6 +258,102 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: !If [HasAlertEmail, [!Ref AlertTopic], !Ref AWS::NoValue]
+
+  # --- Cost guardrail: alert at $5 (25%) and $20 (100%) of ACCOUNT-WIDE
+  # --- monthly spend. Expected steady state is ~$0 (Lambda/SSM/CloudWatch
+  # --- free tiers), so any alert means something unexpected. First two
+  # --- budgets per account are free. The deploy role needs budgets:*Budget*
+  # --- permissions — see DEPLOYMENT.md. The OpenAI spend cap cannot be set
+  # --- here: configure it in the OpenAI dashboard (documented alongside).
+  MonthlySpendBudget:
+    Type: AWS::Budgets::Budget
+    Condition: HasAlertEmail
+    Properties:
+      Budget:
+        BudgetName: !Sub ${AWS::StackName}-monthly-spend
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: 20
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 25   # $5 — early warning
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100  # $20 — investigate immediately
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+
+  # --- Day-one metrics from structured JSON logs. Deliberately capped at 3
+  # --- custom metrics (perpetual free tier: 10) — the scaling signals from
+  # --- the roadmap: LLM tokens, LLM est. cost, queue depth after each drain.
+  # --- Job duration and cold starts stay log-only (Logs Insights / Lambda
+  # --- REPORT lines) so they don't consume metric quota.
+  ApiLlmTokensFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogGroup
+      FilterPattern: '{ $.event = "llm_usage" }'
+      MetricTransformations:
+        - MetricNamespace: KritiFin
+          MetricName: LlmTokens
+          MetricValue: $.total_tokens
+          Unit: Count
+
+  WorkerLlmTokensFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref WorkerLogGroup
+      FilterPattern: '{ $.event = "llm_usage" }'
+      MetricTransformations:
+        - MetricNamespace: KritiFin
+          MetricName: LlmTokens
+          MetricValue: $.total_tokens
+          Unit: Count
+
+  ApiLlmCostFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogGroup
+      FilterPattern: '{ $.event = "llm_usage" }'
+      MetricTransformations:
+        - MetricNamespace: KritiFin
+          MetricName: LlmEstCostUsd
+          MetricValue: $.est_cost_usd
+          Unit: None
+
+  WorkerLlmCostFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref WorkerLogGroup
+      FilterPattern: '{ $.event = "llm_usage" }'
+      MetricTransformations:
+        - MetricNamespace: KritiFin
+          MetricName: LlmEstCostUsd
+          MetricValue: $.est_cost_usd
+          Unit: None
+
+  QueueDepthFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref WorkerLogGroup
+      # queue_depth = -1 means the probe failed — exclude those samples.
+      FilterPattern: '{ $.event = "worker_drain" && $.queue_depth >= 0 }'
+      MetricTransformations:
+        - MetricNamespace: KritiFin
+          MetricName: QueueDepth
+          MetricValue: $.queue_depth
+          Unit: Count
 
 Outputs:
   ApiUrl:

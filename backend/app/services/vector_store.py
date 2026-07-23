@@ -46,9 +46,11 @@ def _prefix_context(chunk: str, client_name: str, doc_date: Optional[str]) -> st
 def get_embeddings_openai(texts: list[str], model: Optional[str] = None) -> list[list[float]]:
     """Batch embed texts with OpenAI. Returns list of vectors."""
     from app.services.clients import get_openai_client
+    from app.services.llm_usage import record_usage
     model = model or os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
     client = get_openai_client()
     r = client.embeddings.create(input=texts, model=model)
+    record_usage(model=model, purpose="embedding", usage=getattr(r, "usage", None))
     return [d.embedding for d in r.data]
 
 

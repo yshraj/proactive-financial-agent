@@ -17,6 +17,12 @@ from fastapi.responses import JSONResponse
 # Load .env from project root (parent of backend/)
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
+# On Lambda, secrets live in SSM Parameter Store, not function env vars.
+# Must run before Sentry/DB/LLM clients read the environment. No-op locally.
+from app.secrets_loader import load_secrets
+
+load_secrets()
+
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware

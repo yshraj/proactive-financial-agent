@@ -150,3 +150,21 @@ def test_exhausted_stale_jobs_are_swept_to_error(bind_org_a, clean_db):
     swept = jobs.sweep_exhausted()
     assert swept == 1
     assert jobs.get(job_id)["status"] == jobs.ERROR
+
+
+def test_count_runnable_tracks_queue_depth(bind_org_a, clean_db):
+    """Queue-depth metric (migration 0011): counts PENDING + stale PROCESSING."""
+    assert jobs.count_runnable() == 0  # empty queue
+
+    first, second = _new_id(), _new_id()
+    jobs.create(first, kind="upload")
+    jobs.create(second, kind="upload")
+    assert jobs.count_runnable() == 2
+
+    jobs.claim_next("worker-1")  # first -> PROCESSING with a fresh lock
+    assert jobs.count_runnable() == 1
+
+    jobs.update(first, status=jobs.DONE, progress=100)
+    jobs.claim_next("worker-1")
+    jobs.update(second, status=jobs.DONE, progress=100)
+    assert jobs.count_runnable() == 0

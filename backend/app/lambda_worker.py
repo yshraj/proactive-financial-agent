@@ -25,9 +25,12 @@ from typing import Any, Optional
 
 from app.logging_config import configure_logging
 from app.observability import init_sentry
+from app.secrets_loader import load_secrets
 
-# Cold-start initialisation: once per execution environment.
+# Cold-start initialisation: once per execution environment. Secrets first —
+# Sentry needs SENTRY_DSN and everything downstream needs DB/API keys.
 configure_logging()
+load_secrets()
 init_sentry()
 
 logger = logging.getLogger("jarvis.worker.lambda")

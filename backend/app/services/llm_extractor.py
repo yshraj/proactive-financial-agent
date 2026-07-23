@@ -69,6 +69,7 @@ def extract_text_from_bytes(content: bytes, ext: str, display_name: str = "docum
 
 def _call_llm_openai(text: str, model: str) -> str:
     from app.services.clients import get_openai_client
+    from app.services.llm_usage import record_usage
     client = get_openai_client()
     r = client.chat.completions.create(
         model=model,
@@ -79,6 +80,7 @@ def _call_llm_openai(text: str, model: str) -> str:
         max_tokens=4096,
         temperature=0,
     )
+    record_usage(model=model, purpose="extraction", usage=getattr(r, "usage", None))
     return (r.choices[0].message.content or "").strip()
 
 

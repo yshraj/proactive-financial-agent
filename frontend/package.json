@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -30,15 +30,16 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.61.1",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.5.4",
-    "eslint": "^10.7.0",
+    "eslint": "^9.39.5",
     "eslint-config-next": "^16.2.11",
     "postcss": "^8.5.22",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2"
+    "typescript": "^6.0.3"
   },
   "overrides": {
     "@next/eslint-plugin-next": {

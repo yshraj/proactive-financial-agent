@@ -258,7 +258,6 @@ export default function LandingPage() {
         <meta name="twitter:image" content={`${SITE_URL}/og-image.png`} />
         <script
           type="application/ld+json"
-          // eslint-disable-next-line react/no-danger
           dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }}
         />
       </Head>

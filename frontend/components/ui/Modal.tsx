@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useId, useRef } from "react";
 import { X } from "lucide-react";
 
 export interface ModalProps {
@@ -24,7 +24,7 @@ export function Modal({
   size = "md",
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const titleId = useRef(`modal-title-${Math.random().toString(36).slice(2)}`);
+  const titleId = useId();
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
   const handleKeyDown = useCallback(
@@ -82,12 +82,12 @@ export function Modal({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId.current}
+        aria-labelledby={titleId}
         className={`w-full ${SIZES[size]} rounded-xl border border-gray-200 bg-white shadow-overlay animate-scale-in`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-          <h2 id={titleId.current} className="text-base font-semibold text-gray-900">
+          <h2 id={titleId} className="text-base font-semibold text-gray-900">
             {title}
           </h2>
           <button

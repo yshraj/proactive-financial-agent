@@ -99,13 +99,13 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${AWS::StackName}-api
-      RetentionInDays: 14
+      RetentionInDays: 7
 
   WorkerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${AWS::StackName}-worker
-      RetentionInDays: 14
+      RetentionInDays: 7
 
   # --- API: FastAPI behind the Lambda Web Adapter, public Function URL.
   # App-level auth (access code / Supabase JWT) guards every /api route, so

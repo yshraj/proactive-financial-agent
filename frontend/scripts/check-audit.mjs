@@ -37,6 +37,7 @@ const ALLOWLIST = new Map([
   // ---- postcss — build-time only, processes first-party CSS; npm's only
   // ---- in-range "fix" is a 4-major downgrade of @sentry/nextjs.
   ["GHSA-6g55-p6wh-862q", "build-time tool on first-party CSS; no sane in-range fix"],
+  ["GHSA-r28c-9q8g-f849", "postcss source-map path traversal; build-time on first-party CSS only (no untrusted CSS input); pinned by @sentry/nextjs, no in-range fix"],
 ]);
 
 const BLOCKING = new Set(["high", "critical"]);

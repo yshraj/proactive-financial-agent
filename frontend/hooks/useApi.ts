@@ -7,6 +7,12 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback } from "react";
+import {
+  isAgentUnsupported,
+  runCopilotWithProgress,
+  type AgentStep,
+  type CopilotRunResult,
+} from "@/lib/agent";
 import { api, ApiError } from "@/lib/api";
 import { downloadExport, type ExportType } from "@/lib/export";
 import { ingestTranscript } from "@/lib/ingest";
@@ -355,6 +361,46 @@ export function useChat() {
         ...(clientId ? { client_id: clientId } : {}),
         ...(conversationId ? { conversation_id: conversationId } : {}),
       }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["credits"] }),
+  });
+}
+
+/**
+ * Agentic copilot: create a durable agent run and poll its real step
+ * timeline (streamed to `onSteps`) until the reviewed answer is ready.
+ * Falls back to the synchronous /api/chat endpoint when the backend has no
+ * agent runtime (older deployments), so the page degrades gracefully.
+ */
+export function useAgentChat() {
+  const qc = useQueryClient();
+  return useMutation<
+    CopilotRunResult,
+    ApiError,
+    {
+      query: string;
+      clientId?: string;
+      conversationId?: string;
+      onSteps?: (steps: AgentStep[]) => void;
+    }
+  >({
+    mutationFn: async ({ query, clientId, conversationId, onSteps }) => {
+      try {
+        return await runCopilotWithProgress({ query, clientId, conversationId, onSteps });
+      } catch (error) {
+        if (!isAgentUnsupported(error)) throw error;
+        const legacy = await api.post<ChatResponse>("/api/chat", {
+          query,
+          ...(clientId ? { client_id: clientId } : {}),
+          ...(conversationId ? { conversation_id: conversationId } : {}),
+        });
+        return {
+          runId: "",
+          conversationId: legacy.conversation_id ?? undefined,
+          answer: legacy.answer,
+          sources: legacy.sources ?? [],
+        };
+      }
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: ["credits"] }),
   });
 }

@@ -144,4 +144,8 @@ export type ChatTurn = {
   query: string;
   answer: string;
   sources: ChatSource[];
+  /** Agent run id when the answer came from the agent runtime (replay link). */
+  runId?: string;
+  /** Compliance reviewer outcome for the answer (agent runs only). */
+  review?: { verdict: string; issues: string[]; notes?: string };
 };

@@ -1,18 +1,20 @@
 import Head from "next/head";
+import Link from "next/link";
 import { useRouter } from "next/router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare, Send, Sparkles } from "lucide-react";
+import { MessageSquare, Send, ShieldCheck, Sparkles } from "lucide-react";
 import ClientSelect from "../components/ClientSelect";
 import {
+  AgentTimeline,
   AiMarkdown,
   AiSourceList,
-  AiThinkingCard,
   AiTrustFooter,
   AiBadge,
 } from "../components/ai";
 import { Card, Button, EmptyState, ErrorState, PageIntro, PageShell } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
-import { useChat, useClients, MAX_LIST_PAGE } from "../hooks/useApi";
+import { useAgentChat, useClients, MAX_LIST_PAGE } from "../hooks/useApi";
+import type { AgentStep } from "../lib/agent";
 import {
   aiErrorMessage,
   getFollowUpSuggestions,
@@ -66,6 +68,7 @@ export default function AICopilotPage() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
+  const [liveSteps, setLiveSteps] = useState<AgentStep[]>([]);
   const [lastFailedQuery, setLastFailedQuery] = useState<string | null>(null);
   const [followUps, setFollowUps] = useState<string[]>([]);
   const [visibleChips, setVisibleChips] = useState<string[]>(() =>
@@ -73,7 +76,7 @@ export default function AICopilotPage() {
   );
   const bottomRef = useRef<HTMLDivElement>(null);
   const autoAskRef = useRef<string | null>(null);
-  const chat = useChat();
+  const chat = useAgentChat();
   const {
     requestAction,
     activeFeature,
@@ -117,6 +120,7 @@ export default function AICopilotPage() {
       if (!text || chat.isPending || creditsLoading || !creditSummary) return;
       requestAction("chat", async () => {
         setPendingQuery(text);
+        setLiveSteps([]);
         setLastFailedQuery(null);
         setFollowUps([]);
         try {
@@ -124,11 +128,12 @@ export default function AICopilotPage() {
             query: text,
             clientId: selectedClientId || undefined,
             conversationId,
+            onSteps: setLiveSteps,
           });
-            if (data.conversation_id) {
-              setConversationId(data.conversation_id);
+            if (data.conversationId) {
+              setConversationId(data.conversationId);
               // Remember the thread so a reload can restore it.
-              saveConversation(data.conversation_id, selectedClientId);
+              saveConversation(data.conversationId, selectedClientId);
             }
             setTurns((prev) => [
               ...prev,
@@ -137,9 +142,12 @@ export default function AICopilotPage() {
                 query: text,
                 answer: data.answer,
                 sources: data.sources ?? [],
+                runId: data.runId || undefined,
+                review: data.review,
               },
             ]);
             setPendingQuery(null);
+            setLiveSteps([]);
             setQuery("");
             setFollowUps(getFollowUpSuggestions(text, !!selectedClientId));
             scrollToBottom();
@@ -157,6 +165,7 @@ export default function AICopilotPage() {
         } catch (error) {
           setLastFailedQuery(text);
           setPendingQuery(null);
+          setLiveSteps([]);
           throw error;
         }
       });
@@ -391,12 +400,28 @@ export default function AICopilotPage() {
                 aria-live="polite"
                 data-testid={turn === turns[turns.length - 1] ? "ai-copilot-answer" : undefined}
               >
-                <div className="mb-3 flex items-center gap-2">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
                   <AiBadge label="Copilot answer" />
                   {turn.sources.length > 0 && (
                     <span className="text-[11px] text-slate-500">
                       {turn.sources.length} source{turn.sources.length !== 1 ? "s" : ""} cited
                     </span>
+                  )}
+                  {turn.review?.verdict === "pass" && (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
+                      title="A second model reviewed this answer for grounding and compliance"
+                    >
+                      <ShieldCheck className="h-3 w-3" aria-hidden /> Reviewed
+                    </span>
+                  )}
+                  {turn.runId && (
+                    <Link
+                      href={`/runs/${turn.runId}`}
+                      className="ml-auto text-[11px] font-medium text-ai-700 underline-offset-2 hover:underline"
+                    >
+                      View reasoning
+                    </Link>
                   )}
                 </div>
                 <AiMarkdown compact linkCitations>
@@ -409,7 +434,7 @@ export default function AICopilotPage() {
           ))}
 
           {pendingQuery && (
-            <AiThinkingCard query={pendingQuery} />
+            <AgentTimeline steps={liveSteps} query={pendingQuery} />
           )}
 
           {chat.isError && (

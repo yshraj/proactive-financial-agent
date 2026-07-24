@@ -31,6 +31,12 @@ const ALLOWLIST = new Map([
   ["GHSA-c4j6-fc7j-m34r", "next@16-only fix; WebSocket upgrades unused"],
   ["GHSA-wfc6-r584-vfw7", "next@16-only fix; RSC responses unused"],
   ["GHSA-36qx-fr4f-26g5", "next@16-only fix; i18n routing unused"],
+  ["GHSA-m99w-x7hq-7vfj", "next@16-only fix; Server Actions unused (Pages Router)"],
+  ["GHSA-89xv-2m56-2m9x", "next@16-only fix; Server Actions + custom server unused"],
+  ["GHSA-p9j2-gv94-2wf4", "next@16-only fix; rewrites unused"],
+  // ---- postcss — build-time only, processes first-party CSS; npm's only
+  // ---- in-range "fix" is a 4-major downgrade of @sentry/nextjs.
+  ["GHSA-6g55-p6wh-862q", "build-time tool on first-party CSS; no sane in-range fix"],
 ]);
 
 const BLOCKING = new Set(["high", "critical"]);

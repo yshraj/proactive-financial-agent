@@ -121,7 +121,7 @@ test.describe("session behaviour", () => {
     await app.aiCopilot.expectLoaded();
 
     // The backend starts rejecting mid-session (token expired server-side).
-    await page.route("**/api/chat", (route) =>
+    await page.route("**/api/agent/runs", (route) =>
       fulfillJson(route, 401, {
         detail: "Authentication required. Send a Supabase bearer token.",
       })

@@ -17,7 +17,7 @@ test.describe("chat input extremes", () => {
       await app.aiCopilot.expectLoaded();
 
       const request = page.waitForRequest(
-        (r) => r.url().endsWith("/api/chat") && r.method() === "POST"
+        (r) => r.url().endsWith("/api/agent/runs") && r.method() === "POST"
       );
       await app.aiCopilot.ask(prompt.text);
 
@@ -37,7 +37,7 @@ test.describe("chat input extremes", () => {
     await app.aiCopilot.expectLoaded();
 
     const request = page.waitForRequest(
-      (r) => r.url().endsWith("/api/chat") && r.method() === "POST"
+      (r) => r.url().endsWith("/api/agent/runs") && r.method() === "POST"
     );
     await app.aiCopilot.ask(VERY_LONG_PROMPT);
     expect((await request).postDataJSON().query).toBe(VERY_LONG_PROMPT);
@@ -57,8 +57,8 @@ test.describe("double submit and rapid clicking", () => {
   test("double-clicking Ask sends exactly one request", async ({ app, page }) => {
     // Slow the response so a second click would land while the first request
     // is still in flight — the window where a double-submit bug would fire.
-    await delayRequests(page, "**/api/chat", 800);
-    const chatRequests = await countRequests(page, "/api/chat");
+    await delayRequests(page, "**/api/agent/runs", 800);
+    const chatRequests = await countRequests(page, "/api/agent/runs");
 
     await app.aiCopilot.goto();
     await app.aiCopilot.expectLoaded();
@@ -74,8 +74,8 @@ test.describe("double submit and rapid clicking", () => {
     app,
     page,
   }) => {
-    await delayRequests(page, "**/api/chat", 800);
-    const chatRequests = await countRequests(page, "/api/chat");
+    await delayRequests(page, "**/api/agent/runs", 800);
+    const chatRequests = await countRequests(page, "/api/agent/runs");
 
     await app.aiCopilot.goto();
     await app.aiCopilot.expectLoaded();
@@ -91,8 +91,8 @@ test.describe("double submit and rapid clicking", () => {
   });
 
   test("Enter mashed during flight does not resubmit", async ({ app, page }) => {
-    await delayRequests(page, "**/api/chat", 800);
-    const chatRequests = await countRequests(page, "/api/chat");
+    await delayRequests(page, "**/api/agent/runs", 800);
+    const chatRequests = await countRequests(page, "/api/agent/runs");
 
     await app.aiCopilot.goto();
     await app.aiCopilot.expectLoaded();

@@ -7,9 +7,9 @@ import { delayRequests } from "./helpers/network";
  * rendering, loading states, error recovery, conversation persistence, and
  * the regenerate/copy workflows on AI generations (draft email).
  *
- * The app is request/response (staged thinking card, no token streaming), so
- * "streaming" coverage asserts the in-flight UI contract instead: busy state,
- * locked controls, and a terminal answer.
+ * Questions run as durable agent runs: the composer POSTs /api/agent/runs and
+ * polls the real step timeline (plan, tools, synthesis, review) until the
+ * reviewed answer lands — coverage asserts that in-flight contract.
  */
 
 test.describe("AI Copilot conversation", () => {
@@ -44,7 +44,7 @@ test.describe("AI Copilot conversation", () => {
   }) => {
     // Injected latency keeps the pending window observable; all assertions
     // below still auto-wait rather than sleeping.
-    await delayRequests(page, "**/api/chat", 1_200);
+    await delayRequests(page, "**/api/agent/runs", 1_200);
     await app.aiCopilot.goto();
     await app.aiCopilot.expectLoaded();
 
@@ -69,14 +69,14 @@ test.describe("AI Copilot conversation", () => {
     await app.aiCopilot.expectLoaded();
 
     const firstResponse = page.waitForResponse(
-      (r) => r.url().endsWith("/api/chat") && r.request().method() === "POST"
+      (r) => r.url().endsWith("/api/agent/runs") && r.request().method() === "POST"
     );
     await app.aiCopilot.ask("Which clients have unused ISA allowance?");
     const conversationId = (await (await firstResponse).json()).conversation_id as string;
     expect(conversationId).toBeTruthy();
 
     const secondRequest = page.waitForRequest(
-      (r) => r.url().endsWith("/api/chat") && r.method() === "POST"
+      (r) => r.url().endsWith("/api/agent/runs") && r.method() === "POST"
     );
     await app.aiCopilot.ask("And which of those have the most cash?");
     expect((await secondRequest).postDataJSON()).toMatchObject({
@@ -85,7 +85,7 @@ test.describe("AI Copilot conversation", () => {
     });
 
     const thirdRequest = page.waitForRequest(
-      (r) => r.url().endsWith("/api/chat") && r.method() === "POST"
+      (r) => r.url().endsWith("/api/agent/runs") && r.method() === "POST"
     );
     await app.aiCopilot.ask("Draft a plan for the top candidate");
     expect((await thirdRequest).postDataJSON()).toMatchObject({
@@ -110,12 +110,13 @@ test.describe("AI Copilot conversation", () => {
     const followUp = page.getByRole("button", {
       name: "Which clients have the largest unused ISA allowance?",
     });
-    const answered = page.waitForResponse(
-      (r) => r.url().endsWith("/api/chat") && r.request().method() === "POST"
+    const accepted = page.waitForResponse(
+      (r) => r.url().endsWith("/api/agent/runs") && r.request().method() === "POST"
     );
     await followUp.click();
-    await answered;
-    expect(await app.aiCopilot.answerCount()).toBe(2);
+    await accepted;
+    // The follow-up runs asynchronously; wait for its answer card to land.
+    await expect(page.getByText("Copilot answer")).toHaveCount(2, { timeout: 15_000 });
   });
 
   test("changing client scope starts a new conversation", async ({ app }) => {
@@ -138,7 +139,7 @@ test.describe("AI Copilot conversation", () => {
     await app.aiCopilot.selectClientScope("Alan & Lynne Partridge");
 
     const request = page.waitForRequest(
-      (r) => r.url().endsWith("/api/chat") && r.method() === "POST"
+      (r) => r.url().endsWith("/api/agent/runs") && r.method() === "POST"
     );
     await app.aiCopilot.askScopedQuestion();
     expect((await request).postDataJSON()).toMatchObject({ client_id: "c1" });
@@ -183,7 +184,7 @@ test.describe("AI Copilot conversation", () => {
 
   test("deep link with ?q= asks automatically", async ({ app, page }) => {
     const answered = page.waitForResponse(
-      (r) => r.url().endsWith("/api/chat") && r.request().method() === "POST"
+      (r) => r.url().endsWith("/api/agent/runs") && r.request().method() === "POST"
     );
     await page.goto(`/chat?q=${encodeURIComponent("Summarise upcoming deadlines")}`);
     await answered;
@@ -202,7 +203,7 @@ test.describe("AI Copilot conversation", () => {
     await expect(app.aiCopilot.emptyState).toBeVisible();
 
     const answered = page.waitForResponse(
-      (r) => r.url().endsWith("/api/chat") && r.request().method() === "POST"
+      (r) => r.url().endsWith("/api/agent/runs") && r.request().method() === "POST"
     );
     await page.getByRole("button", { name: /^Try:/ }).click();
     await answered;
@@ -215,7 +216,7 @@ test.describe("AI Copilot conversation", () => {
     await app.aiCopilot.expectLoaded();
 
     const answered = page.waitForResponse(
-      (r) => r.url().endsWith("/api/chat") && r.request().method() === "POST"
+      (r) => r.url().endsWith("/api/agent/runs") && r.request().method() === "POST"
     );
     await app.aiCopilot.input.fill("Which clients have birthdays this month?");
     await app.aiCopilot.input.press("Enter");
@@ -225,7 +226,7 @@ test.describe("AI Copilot conversation", () => {
 
   test("failed question offers retry and recovers", async ({ app, page }) => {
     let failNext = true;
-    await page.route("**/api/chat", async (route) => {
+    await page.route("**/api/agent/runs", async (route) => {
       if (failNext) {
         failNext = false;
         await route.fulfill({

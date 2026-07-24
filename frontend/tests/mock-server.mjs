@@ -55,6 +55,42 @@ const jobPolls = new Map();
 let conversationCounter = 0;
 const conversationMessages = new Map();
 
+// Agent runs: the copilot page creates a run then polls it. Poll 1 returns a
+// live RUNNING timeline (exercises the step UI), poll 2+ returns DONE with
+// the same answer/sources the legacy chat mock used.
+let agentRunCounter = 0;
+const agentRuns = new Map();
+
+function agentSteps(finished) {
+  const now = new Date().toISOString();
+  const done = (seq, node, label, detail) => ({
+    seq, node, label, status: "DONE", detail: detail ?? null, started_at: now, finished_at: now,
+  });
+  const steps = [
+    done(1, "plan", "Planning approach", {
+      plan: [{ name: "get_structured_context", arguments: {} }],
+      reason: "Status question — structured records answer it",
+      model: "groq/kimi-k2",
+    }),
+    done(2, "tool:get_structured_context", "Loading structured records", {
+      summary: "structured records loaded",
+    }),
+  ];
+  if (!finished) {
+    steps.push({
+      seq: 3, node: "synthesize", label: "Drafting answer", status: "RUNNING",
+      detail: null, started_at: now, finished_at: null,
+    });
+    return steps;
+  }
+  steps.push(done(3, "synthesize", "Drafting answer", { model: "groq/llama-3.3-70b-versatile" }));
+  steps.push(done(4, "review", "Compliance review", {
+    verdict: "pass", issues: [], notes: "grounded", model: "gemini/gemini-2.5-flash-lite",
+  }));
+  steps.push(done(5, "finalize", "Finalising"));
+  return steps;
+}
+
 const CLIENT_DETAILS = {
   c1: {
     id: "c1",
@@ -260,6 +296,39 @@ const server = createServer((req, res) => {
         messages: conversationMessages.get(id) ?? [],
       });
     }
+    const runMatch = path.match(/^\/api\/agent\/runs\/([^/]+)$/);
+    if (runMatch) {
+      const id = decodeURIComponent(runMatch[1]);
+      const run = agentRuns.get(id);
+      if (!run) return send(res, 404, { detail: "Run not found" });
+      run.polls += 1;
+      const finished = run.polls >= 2;
+      return send(res, 200, {
+        id,
+        kind: "copilot",
+        status: finished ? "DONE" : "RUNNING",
+        error: null,
+        output: finished
+          ? {
+              answer: CHAT_ANSWER,
+              talking_points: [],
+              sources: CHAT_SOURCES,
+              review: { verdict: "pass", issues: [], notes: "grounded" },
+              model_labels: {
+                plan: "groq/kimi-k2",
+                synthesize: "groq/llama-3.3-70b-versatile",
+                review: "gemini/gemini-2.5-flash-lite",
+              },
+              plan_reason: "Status question — structured records answer it",
+            }
+          : null,
+        steps: agentSteps(finished),
+        conversation_id: run.conversationId,
+        client_id: run.clientId ?? null,
+        created_at: run.createdAt,
+        finished_at: finished ? new Date().toISOString() : null,
+      });
+    }
     if (/^\/api\/ingest\/jobs\/[^/]+$/.test(path)) {
       const jobId = path.split("/").pop();
       // Simulate the pipeline advancing across polls so the UI progress bar
@@ -393,6 +462,31 @@ const server = createServer((req, res) => {
         sources: CHAT_SOURCES,
         conversation_id: conversationId,
       });
+    }
+    if (path === "/api/agent/runs") {
+      let body = {};
+      try {
+        body = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        body = {};
+      }
+      if (body.kind === "copilot" && !(body.query || "").trim()) {
+        return send(res, 400, { detail: "query is required for copilot runs" });
+      }
+      const conversationId = body.conversation_id || `conv-mock-${++conversationCounter}`;
+      const messages = conversationMessages.get(conversationId) ?? [];
+      messages.push({ role: "user", content: body.query || "" });
+      messages.push({ role: "assistant", content: CHAT_ANSWER });
+      conversationMessages.set(conversationId, messages);
+      const id = `run-mock-${++agentRunCounter}`;
+      agentRuns.set(id, {
+        query: body.query || "",
+        conversationId,
+        clientId: body.client_id ?? null,
+        polls: 0,
+        createdAt: new Date().toISOString(),
+      });
+      return send(res, 202, { run_id: id, status: "PENDING", conversation_id: conversationId });
     }
     if (path === "/api/chat/brief") return send(res, 200, { brief: BRIEF, talking_points: TALKING_POINTS });
     if (path === "/api/monitor/draft-email")

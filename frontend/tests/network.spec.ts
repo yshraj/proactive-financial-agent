@@ -20,7 +20,7 @@ test.describe("offline mode", () => {
     // localhost targets in Chromium, and a hung socket would just wait out
     // the client's 60s timeout — this fails the fetch the way a dropped
     // connection does, deterministically).
-    await page.route("**/api/chat", (route) => route.abort("internetdisconnected"));
+    await page.route("**/api/agent/runs", (route) => route.abort("internetdisconnected"));
     await app.aiCopilot.input.fill("Which clients need a review?");
     await app.aiCopilot.submitButton.click();
 
@@ -31,7 +31,7 @@ test.describe("offline mode", () => {
     );
 
     // Connection restored: retry succeeds without re-typing the question.
-    await page.unroute("**/api/chat");
+    await page.unroute("**/api/agent/runs");
     await app.aiCopilot.retryFromError();
     expect(await app.aiCopilot.answerCount()).toBe(1);
   });
@@ -60,7 +60,7 @@ test.describe("slow network", () => {
 });
 
 test.describe("request and response contracts", () => {
-  test("chat request body carries only the documented fields", async ({
+  test("run creation body carries only the documented fields", async ({
     app,
     page,
   }) => {
@@ -68,36 +68,53 @@ test.describe("request and response contracts", () => {
     await app.aiCopilot.expectLoaded();
 
     const request = page.waitForRequest(
-      (r) => r.url().endsWith("/api/chat") && r.method() === "POST"
+      (r) => r.url().endsWith("/api/agent/runs") && r.method() === "POST"
     );
     await app.aiCopilot.ask("Which clients have unused ISA allowance?");
     const sent = await request;
 
-    // First turn: bare query — no client scope, no conversation to resume.
+    // First turn: kind + bare query — no client scope, no thread to resume.
     expect(sent.postDataJSON()).toEqual({
+      kind: "copilot",
       query: "Which clients have unused ISA allowance?",
     });
     expect(sent.headers()["content-type"]).toContain("application/json");
   });
 
-  test("chat response contains an answer, citable sources, and a thread id", async ({
+  test("a finished run carries the answer, citable sources, and a thread id", async ({
     app,
     page,
   }) => {
     await app.aiCopilot.goto();
     await app.aiCopilot.expectLoaded();
 
-    const response = page.waitForResponse(
-      (r) => r.url().endsWith("/api/chat") && r.request().method() === "POST"
+    const created = page.waitForResponse(
+      (r) => r.url().endsWith("/api/agent/runs") && r.request().method() === "POST"
     );
+    const finished = page.waitForResponse(async (r) => {
+      if (r.request().method() !== "GET" || !/\/api\/agent\/runs\/[^/]+$/.test(r.url())) {
+        return false;
+      }
+      try {
+        return (await r.json()).status === "DONE";
+      } catch {
+        return false;
+      }
+    });
     await app.aiCopilot.ask("Which clients have unused ISA allowance?");
-    const body = await (await response).json();
 
-    expect(typeof body.answer).toBe("string");
-    expect(body.answer.length).toBeGreaterThan(0);
-    expect(Array.isArray(body.sources)).toBe(true);
-    expect(body.conversation_id).toBeTruthy();
-    for (const source of body.sources) {
+    const createdBody = await (await created).json();
+    expect(createdBody.run_id).toBeTruthy();
+    expect(createdBody.conversation_id).toBeTruthy();
+
+    const runBody = await (await finished).json();
+    expect(runBody.status).toBe("DONE");
+    expect(typeof runBody.output.answer).toBe("string");
+    expect(runBody.output.answer.length).toBeGreaterThan(0);
+    expect(Array.isArray(runBody.output.sources)).toBe(true);
+    expect(Array.isArray(runBody.steps)).toBe(true);
+    expect(runBody.steps.length).toBeGreaterThan(0);
+    for (const source of runBody.output.sources) {
       expect(source).toMatchObject({
         ref: expect.any(Number),
         content: expect.any(String),
@@ -109,8 +126,8 @@ test.describe("request and response contracts", () => {
 
 test.describe("retry semantics", () => {
   test("failed AI generation is never auto-retried", async ({ app, page }) => {
-    const chatRequests = await countRequests(page, "/api/chat");
-    await page.route("**/api/chat", (route) =>
+    const chatRequests = await countRequests(page, "/api/agent/runs");
+    await page.route("**/api/agent/runs", (route) =>
       fulfillJson(route, 500, { detail: "Internal error" })
     );
 
@@ -147,7 +164,7 @@ test.describe("retry semantics", () => {
   }) => {
     // Connection dropped mid-request (the fetch rejects, no HTTP response):
     // the UI must land in a recoverable error state, never a stuck spinner.
-    await page.route("**/api/chat", (route) => route.abort("timedout"));
+    await page.route("**/api/agent/runs", (route) => route.abort("timedout"));
 
     await app.aiCopilot.goto();
     await app.aiCopilot.expectLoaded();

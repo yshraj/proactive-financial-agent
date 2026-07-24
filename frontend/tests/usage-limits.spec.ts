@@ -26,7 +26,7 @@ test.describe("AI endpoint burst protection", () => {
     app,
     page,
   }) => {
-    const counter = await rateLimitFirst(page, "**/api/chat", "request", 1);
+    const counter = await rateLimitFirst(page, "**/api/agent/runs", "request", 1);
 
     await app.aiCopilot.goto();
     await app.aiCopilot.expectLoaded();
@@ -53,7 +53,7 @@ test.describe("AI endpoint burst protection", () => {
     app,
     page,
   }) => {
-    await page.route("**/api/chat", (route) =>
+    await page.route("**/api/agent/runs", (route) =>
       fulfillRateLimited(route, "request", { detail: null })
     );
 
@@ -70,12 +70,12 @@ test.describe("AI endpoint burst protection", () => {
     app,
     page,
   }) => {
-    await page.route("**/api/chat", (route) =>
+    await page.route("**/api/agent/runs", (route) =>
       fulfillRateLimited(route, "request", { retryAfterSeconds: 120 })
     );
 
     const blocked = page.waitForResponse(
-      (r) => r.url().endsWith("/api/chat") && r.status() === 429
+      (r) => r.url().endsWith("/api/agent/runs") && r.status() === 429
     );
     await app.aiCopilot.goto();
     await app.aiCopilot.expectLoaded();
@@ -258,7 +258,7 @@ test.describe("per-minute burst limit (limit_type=request)", () => {
     page,
   }) => {
     const chatRequest = page.waitForRequest(
-      (r) => r.url().endsWith("/api/chat") && r.method() === "POST"
+      (r) => r.url().endsWith("/api/agent/runs") && r.method() === "POST"
     );
     await app.aiCopilot.goto();
     await app.aiCopilot.expectLoaded();
@@ -286,7 +286,7 @@ test.describe("per-minute burst limit (limit_type=request)", () => {
     await app.aiCopilot.expectLoaded();
     await app.aiCopilot.ask("Which clients have unused ISA allowance?");
 
-    await page.route("**/api/chat", (route) => fulfillRateLimited(route, "request"));
+    await page.route("**/api/agent/runs", (route) => fulfillRateLimited(route, "request"));
     await app.aiCopilot.askExpectingFailure("And who has the most cash?");
 
     // The first turn is intact; only the new question failed.

@@ -27,9 +27,9 @@ export class AiCopilotPage {
       .filter({ hasText: "Couldn't get an answer" });
   }
 
-  /** Staged loading card shown while the request is in flight. */
+  /** Live agent timeline shown while a run is in flight (real steps). */
   get thinkingCard(): Locator {
-    return this.page.getByText("AI Copilot is thinking");
+    return this.page.getByTestId("agent-timeline");
   }
 
   get emptyState(): Locator {
@@ -46,16 +46,17 @@ export class AiCopilotPage {
   }
 
   async askSuggestedQuestion() {
-    // Wait on the chat response itself, not just the DOM: under parallel load
+    // Wait on the run creation itself, not just the DOM: under parallel load
     // (esp. Firefox) the answer render lags the click, which flaked when we
     // only waited on visibility.
-    const answered = this.page.waitForResponse(
-      (r) => r.url().includes("/api/chat") && r.request().method() === "POST"
+    const accepted = this.page.waitForResponse(
+      (r) => r.url().includes("/api/agent/runs") && r.request().method() === "POST"
     );
     await this.page.getByRole("button", { name: /ISA allowance still available/ }).click();
-    await answered;
+    await accepted;
     const answer = this.page.getByTestId("ai-copilot-answer");
-    await expect(answer).toBeVisible();
+    // The run completes over a couple of polls; allow for the polling interval.
+    await expect(answer).toBeVisible({ timeout: 15_000 });
     // Scope to the answer card: the same phrase also appears in follow-up
     // suggestion chips, which would otherwise be a strict-mode violation.
     await expect(answer.getByText(/unused ISA allowance/i)).toBeVisible();
@@ -71,12 +72,18 @@ export class AiCopilotPage {
 
   /** Ask a free-text question and wait for the answer. */
   async ask(question: string) {
-    const answered = this.page.waitForResponse(
-      (r) => r.url().includes("/api/chat") && r.request().method() === "POST"
+    // Runs are async (202 + polling), so a previous turn's answer card is
+    // still visible when the POST resolves — wait for the count to grow.
+    const before = await this.answerCount();
+    const accepted = this.page.waitForResponse(
+      (r) => r.url().includes("/api/agent/runs") && r.request().method() === "POST"
     );
     await this.input.fill(question);
     await this.submitButton.click();
-    await answered;
+    await accepted;
+    await expect(this.page.getByText("Copilot answer")).toHaveCount(before + 1, {
+      timeout: 15_000,
+    });
     await expect(this.lastAnswer).toBeVisible();
   }
 
@@ -84,7 +91,7 @@ export class AiCopilotPage {
   async askExpectingFailure(question: string) {
     const failed = this.page.waitForResponse(
       (r) =>
-        r.url().includes("/api/chat") &&
+        r.url().includes("/api/agent/runs") &&
         r.request().method() === "POST" &&
         !r.ok()
     );
@@ -96,14 +103,18 @@ export class AiCopilotPage {
 
   /** Click "Try again" in the chat error state and wait for a good answer. */
   async retryFromError() {
-    const answered = this.page.waitForResponse(
+    const before = await this.answerCount();
+    const accepted = this.page.waitForResponse(
       (r) =>
-        r.url().includes("/api/chat") &&
+        r.url().includes("/api/agent/runs") &&
         r.request().method() === "POST" &&
         r.ok()
     );
     await this.errorState.getByRole("button", { name: "Try again" }).click();
-    await answered;
+    await accepted;
+    await expect(this.page.getByText("Copilot answer")).toHaveCount(before + 1, {
+      timeout: 15_000,
+    });
     await expect(this.lastAnswer).toBeVisible();
     await expect(this.errorState).toBeHidden();
   }

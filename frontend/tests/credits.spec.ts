@@ -104,7 +104,7 @@ test.describe("hard backend-enforced credit stops", () => {
     await mockBalance(page, 0);
     let chatRequests = 0;
     page.on("request", (request) => {
-      if (request.url().endsWith("/api/chat") && request.method() === "POST") {
+      if (request.url().endsWith("/api/agent/runs") && request.method() === "POST") {
         chatRequests += 1;
       }
     });
@@ -150,7 +150,7 @@ test.describe("hard backend-enforced credit stops", () => {
     page,
   }) => {
     await mockBalance(page, 20);
-    await page.route("**/api/chat", (route) =>
+    await page.route("**/api/agent/runs", (route) =>
       fulfillJson(route, 409, {
         error: {
           code: "insufficient_credits",

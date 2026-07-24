@@ -20,4 +20,5 @@
 | [Runbook: secrets rotation](runbooks/secrets-rotation.md) | Secret inventory, rotation cadence, leak response |
 | [Feature research](feature-research/) | Competitive analysis and roadmaps |
 | [High-impact features 2026](feature-research/high-impact-features-2026.md) | 2026 competitive refresh — 40+ prioritised high-impact features |
+| [Multi-agent platform roadmap](planning/agent-platform-roadmap.md) | Strategy + 30/60/90 plan: agent runtime, free-tier model gateway, zero-cost stack |
 | [Planning archive](planning/) | Implementation plan, project review, release notes |

@@ -20,6 +20,9 @@ ENV/
 backend/uploads/*
 !backend/uploads/.gitkeep
 
+# Generated eval reports (backend/evals/run_evals.py)
+backend/evals/report/
+
 # Node / Frontend
 frontend/node_modules/
 frontend/.next/

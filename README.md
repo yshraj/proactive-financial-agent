@@ -19,7 +19,7 @@
 | **LICENSE** | MIT — see [LICENSE](LICENSE) |
 | **Documentation** | [docs/README.md](docs/README.md) index |
 
-**Current setup:** Supabase (PostgreSQL with row-level security + auth + storage), Qdrant Cloud (vectors), OpenAI (LLM + embeddings). Copy [`.env.example`](.env.example) to `.env` and fill in keys. Auth is **fail-closed** (`AUTH_MODE=required` by default); set `AUTH_MODE=demo` explicitly for open local development.
+**Current setup:** Supabase (PostgreSQL with row-level security + auth + storage), Qdrant Cloud (vectors), and a **quota-aware multi-provider LLM gateway** (Groq / Cerebras / Gemini / Moonshot / OpenRouter free tiers, with DeepSeek/OpenAI as optional paid plug-ins) driving a **LangGraph multi-agent runtime** (plan → tools → synthesize → cross-model compliance review). Embeddings run locally via fastembed (no API). Copy [`.env.example`](.env.example) to `.env` and set at least one provider key. Auth is **fail-closed** (`AUTH_MODE=required` by default); set `AUTH_MODE=demo` explicitly for open local development.
 
 ---
 
@@ -42,7 +42,7 @@ This project tackles:
 | Feature | Description |
 |---------|-------------|
 | **Dashboard** | Time-travel date picker, morning AI briefing, priority timeline, spotlight card, KPIs, draft email, mark done |
-| **AI Copilot** | Hybrid RAG + structured data; book-wide or client-scoped queries; citation-linked answers |
+| **AI Copilot (multi-agent)** | Every question runs as a durable agent run: a planner picks tools, a researcher gathers RLS-scoped context, a synthesizer drafts, and a **different model family reviews** for grounding/compliance — with the real step timeline shown live and a replay view per run |
 | **Meeting brief** | One-page brief with talking points and source documents; auto-generate via deep link |
 | **Client 360** | Client list and detail pages — profile, alerts, documents, AI actions |
 | **Ingestion** | Upload PDF/DOCX; LLM extracts clients and alerts; text indexed in Qdrant for RAG |
@@ -61,10 +61,12 @@ Mock data only (no live CRM). Schema and prompts are tuned for UK fact-find styl
 |-------|------------|
 | Frontend | Next.js 14, React, TypeScript, Tailwind CSS, TanStack Query |
 | Backend | FastAPI (Python 3.12), Uvicorn |
-| Structured data | PostgreSQL (Supabase) — clients, alerts, ingested_documents |
+| Agent runtime | LangGraph graph (plan → tools → synthesize → review) run durably on the Postgres job queue; real step timeline + replay view |
+| LLM gateway | Quota-aware multi-provider router (`services/model_gateway.py`): Groq, Cerebras, Gemini, Moonshot, OpenRouter free tiers; DeepSeek/OpenAI optional — per-model RPM/RPD tracking, 429 backoff, fallback chains |
+| Structured data | PostgreSQL (Supabase) — clients, alerts, ingested_documents, agent_runs |
 | Vector search | Qdrant — semantic index for RAG |
-| LLM | OpenAI GPT-4o (or Gemini via `LLM_PROVIDER`) |
-| Embeddings | OpenAI `text-embedding-3-small` (1536 dims) |
+| Embeddings | fastembed `bge-small-en-v1.5` (384 dims, local ONNX — no API, no rate limits) |
+| Observability | Langfuse tracing (optional) + 50-case golden eval set in CI (`backend/evals/`) |
 | Auth | Supabase Auth (optional) |
 | E2E tests | Playwright with Page Object Model |
 
@@ -81,13 +83,16 @@ All backend variables are in [`.env.example`](.env.example) at the **project roo
 | `DATABASE_ADMIN_URL` | Prod | Admin (postgres) connection for Alembic migrations only |
 | `QDRANT_URL` | Yes | Qdrant cluster URL |
 | `QDRANT_API_KEY` | Yes (Cloud) | Qdrant API key |
-| `OPENAI_API_KEY` | Yes (OpenAI) | LLM and embeddings |
+| `GROQ_API_KEY` | Any one provider | Free-tier LLM key (recommended default; Llama 3.3 70B, Kimi K2, GPT-OSS-120B) |
+| `CEREBRAS_API_KEY` / `GEMINI_API_KEY` / `MOONSHOT_API_KEY` / `OPENROUTER_API_KEY` | Optional | Additional free-tier providers — the gateway routes across whatever is configured |
+| `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` | Optional | Paid break-glass providers (OpenAI also enables the legacy embeddings mode) |
+| `EMBEDDINGS_PROVIDER` | No | `fastembed` (default: local, no key) or `openai` (legacy 1536-dim collection) |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | No | LLM tracing (Langfuse Cloud Hobby tier is free) |
 | `SUPABASE_URL` | With `AUTH_MODE=required` | JWT verification via project JWKS |
 | `SUPABASE_JWT_SECRET` | No | Legacy HS256 token verification |
 | `SUPABASE_SERVICE_ROLE_KEY` | Prod | Supabase Storage for uploaded documents (server-side only) |
 | `SENTRY_DSN` | No | Backend error reporting |
 | `API_KEY` | No | Optional service-to-service credential (never shipped to the browser) |
-| `LLM_PROVIDER` | No | `openai` (default) or `gemini` |
 | `CORS_ORIGINS` | No | Default `http://localhost:3000` |
 
 **Frontend** (`frontend/.env.local`, optional):
@@ -117,7 +122,8 @@ See [Setting up Supabase](#setting-up-supabase-database) and [Setting up Qdrant]
 
 1. Create a cluster at [cloud.qdrant.io](https://cloud.qdrant.io).
 2. Set `QDRANT_URL` and `QDRANT_API_KEY` in `.env`.
-3. Create the collection:
+3. The collection is created automatically on first ingest (sized for the
+   configured embedding provider). To provision it explicitly:
    ```bash
    cd backend && python scripts/create_qdrant_collection.py
    ```

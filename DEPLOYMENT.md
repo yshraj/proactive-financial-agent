@@ -98,6 +98,19 @@ aws ecr put-lifecycle-policy --repository-name kritifin-backend --region eu-west
     "action":{"type":"expire"}}]}'
 ```
 
+Grant the Lambda service pull access — required when functions are created via
+CloudFormation/SAM (the console adds this silently; the API does not), or
+function creation fails with "Lambda does not have permission to access the
+ECR image":
+
+```bash
+aws ecr set-repository-policy --repository-name kritifin-backend --region eu-west-2 \
+  --policy-text '{"Version":"2012-10-17","Statement":[{"Sid":"LambdaECRImageRetrievalPolicy",
+    "Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},
+    "Action":["ecr:BatchGetImage","ecr:GetDownloadUrlForLayer"],
+    "Condition":{"StringLike":{"aws:sourceArn":"arn:aws:lambda:eu-west-2:<ACCOUNT_ID>:function:kritifin-backend-*"}}}]}'
+```
+
 The repository URI (`<ACCOUNT_ID>.dkr.ecr.eu-west-2.amazonaws.com/kritifin-backend`)
 becomes the `AWS_ECR_REPOSITORY` GitHub secret.
 
@@ -140,6 +153,9 @@ missing action — add it here rather than widening a wildcard):
      "Action": "cloudformation:*",
      "Resource": ["arn:aws:cloudformation:*:<ACCOUNT_ID>:stack/kritifin-backend/*",
                    "arn:aws:cloudformation:*:<ACCOUNT_ID>:stack/aws-sam-cli-managed-default*"]},
+    {"Sid": "SamTransform", "Effect": "Allow",
+     "Action": "cloudformation:CreateChangeSet",
+     "Resource": "arn:aws:cloudformation:*:aws:transform/Serverless-2016-10-31"},
     {"Sid": "SamArtifacts", "Effect": "Allow",
      "Action": ["s3:CreateBucket", "s3:PutObject", "s3:GetObject", "s3:ListBucket",
                  "s3:GetBucketPolicy", "s3:PutBucketPolicy", "s3:PutBucketVersioning",
@@ -164,6 +180,7 @@ missing action — add it here rather than widening a wildcard):
      "Resource": "arn:aws:lambda:*:<ACCOUNT_ID>:function:kritifin-backend-*"},
     {"Sid": "LogsScoped", "Effect": "Allow",
      "Action": ["logs:CreateLogGroup", "logs:PutRetentionPolicy", "logs:DeleteLogGroup",
+                 "logs:PutMetricFilter", "logs:DeleteMetricFilter", "logs:DescribeMetricFilters",
                  "logs:TagResource", "logs:ListTagsForResource"],
      "Resource": "arn:aws:logs:*:<ACCOUNT_ID>:log-group:/aws/lambda/kritifin-backend-*"},
     {"Sid": "LogsDescribe", "Effect": "Allow",
@@ -238,7 +255,7 @@ Repository **variables**:
 | Variable | Value |
 |----------|-------|
 | `AWS_REGION` | `eu-west-2` (default if unset) |
-| `CORS_ORIGINS` | your Vercel URL(s), comma-separated, no trailing slash |
+| `CORS_ORIGINS` | your Vercel URL(s), comma-separated, no trailing slash. **Must be non-empty before the first deploy** (`sam deploy` rejects an empty `CorsOrigins=` parameter) — use `http://localhost:3000` as a placeholder until the frontend URL exists |
 | `BACKEND_ENV_NAME` | `production` (default) — or `demo`/`staging` |
 | `BACKEND_AUTH_MODE` | `required` (default) — or `demo` (refused when ENV=production) |
 | `API_RESERVED_CONCURRENCY` | default `10` — hard cap on concurrent API executions (cost/DoS bound); `-1` disables (see concurrency preflight) |

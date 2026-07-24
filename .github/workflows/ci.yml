@@ -228,9 +228,26 @@ jobs:
           python-version: "3.12"
       - name: pip-audit (backend dependencies)
         working-directory: backend
+        # Allowlisted advisories are all in LangGraph components this app does
+        # NOT use, and whose fixes require Python >= 3.10 (we still support 3.9;
+        # see the langgraph pin in requirements.txt). We use StateGraph only,
+        # with our own Postgres persistence (agent_runs/agent_steps) — no
+        # LangGraph checkpointer, cache, or Platform SDK. Any NEW advisory
+        # (including any in a package we DO use) still fails the build.
+        # Revisit and drop these when we move off Python 3.9 to langgraph 1.x.
+        #   PYSEC-2026-83   langgraph SQLite checkpointer — unused.
+        #   PYSEC-2026-2573 langgraph-checkpoint unsafe JSON load — unused.
+        #   PYSEC-2026-2574 langgraph-checkpoint BaseCache deserialization — unused.
+        #   PYSEC-2026-2194 langgraph-sdk (LangGraph Platform client) — unused.
+        #   PYSEC-2026-2575 langgraph-sdk URL path construction — unused.
         run: |
           pip install pip-audit
-          pip-audit -r requirements.txt --strict || {
+          pip-audit -r requirements.txt --strict \
+            --ignore-vuln PYSEC-2026-83 \
+            --ignore-vuln PYSEC-2026-2573 \
+            --ignore-vuln PYSEC-2026-2574 \
+            --ignore-vuln PYSEC-2026-2194 \
+            --ignore-vuln PYSEC-2026-2575 || {
             echo "::warning::pip-audit found vulnerable dependencies"; exit 1; }
       - uses: actions/setup-node@v4
         with:

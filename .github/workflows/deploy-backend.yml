@@ -106,7 +106,18 @@ jobs:
           ACCESS_CODE: ${{ secrets.ACCESS_CODE }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          # LLM gateway providers (any subset; free tiers first — see
+          # backend/app/services/model_gateway.py). All optional per key.
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # LLM tracing (Langfuse Cloud Hobby free tier; optional).
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
@@ -126,7 +137,15 @@ jobs:
           put_secret ACCESS_CODE "$ACCESS_CODE"
           put_secret DATABASE_URL "$DATABASE_URL"
           put_secret QDRANT_API_KEY "$QDRANT_API_KEY"
+          put_secret GROQ_API_KEY "$GROQ_API_KEY"
+          put_secret CEREBRAS_API_KEY "$CEREBRAS_API_KEY"
+          put_secret GEMINI_API_KEY "$GEMINI_API_KEY"
+          put_secret MOONSHOT_API_KEY "$MOONSHOT_API_KEY"
+          put_secret OPENROUTER_API_KEY "$OPENROUTER_API_KEY"
+          put_secret DEEPSEEK_API_KEY "$DEEPSEEK_API_KEY"
           put_secret OPENAI_API_KEY "$OPENAI_API_KEY"
+          put_secret LANGFUSE_PUBLIC_KEY "$LANGFUSE_PUBLIC_KEY"
+          put_secret LANGFUSE_SECRET_KEY "$LANGFUSE_SECRET_KEY"
           put_secret SUPABASE_SERVICE_ROLE_KEY "$SUPABASE_SERVICE_ROLE_KEY"
           put_secret SENTRY_DSN "$SENTRY_DSN"
 

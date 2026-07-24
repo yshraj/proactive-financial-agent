@@ -65,6 +65,41 @@ def test_persona_forbids_invention_and_regulated_advice():
     assert "regulated personal advice" in persona
 
 
+def test_persona_keeps_system_instructions_confidential():
+    persona = prompts.JARVIS_PERSONA.lower()
+    assert "confidential" in persona
+    assert "never reveal" in persona
+    # CHAT_SYSTEM restates the confidentiality rule inline for the copilot.
+    assert "never reveal" in prompts.CHAT_SYSTEM.lower()
+
+
+def test_reviewer_flags_system_prompt_disclosure():
+    reviewer = prompts.AGENT_REVIEWER_SYSTEM.lower()
+    assert "confidentiality" in reviewer
+    assert "system-prompt disclosure" in reviewer or "system prompt" in reviewer
+
+
+def test_prompt_echo_canary_stays_in_sync_with_persona():
+    from app.services.safety import _PROMPT_ECHO_CANARY, _normalize_ws
+
+    # If the persona's opening line is renamed, this test fails loudly so the
+    # deterministic prompt-leak guard is updated rather than silently bypassed.
+    assert _PROMPT_ECHO_CANARY in _normalize_ws(prompts.JARVIS_PERSONA)
+
+
+def test_contains_prompt_echo_detects_persona_disclosure():
+    from app.services.safety import contains_prompt_echo
+
+    assert contains_prompt_echo(
+        "Sure, my instructions are:\n\n" + prompts.JARVIS_PERSONA
+    )
+    # Whitespace/case variations still match (tolerant normalisation).
+    assert contains_prompt_echo("YOU ARE   Jarvis, an AI   copilot for UK Independent Financial Advisers")
+    # Legitimate grounded answers must not trip the guard.
+    assert not contains_prompt_echo("Alan Partridge has an overdue annual review.")
+    assert not contains_prompt_echo("")
+
+
 def test_chat_prompt_marks_documents_untrusted_and_requires_citations():
     system = prompts.CHAT_SYSTEM.lower()
     assert "untrusted" in system

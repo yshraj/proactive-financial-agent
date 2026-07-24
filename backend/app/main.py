@@ -38,7 +38,7 @@ from app import security
 from app.auth import authenticate_request, require_access_code
 from app.logging_config import configure_logging
 from app.observability import init_sentry, readiness_report
-from app.routers import chat, compliance, credits, ingest, monitor, settings
+from app.routers import agent, chat, compliance, credits, ingest, monitor, settings
 from app.security import enforce_auth_mode, limiter
 from app.services.credits import (
     CreditBalanceUnavailable,
@@ -67,13 +67,18 @@ async def lifespan(app: FastAPI):
     # Loudly name every unset-but-expected var (access code, LLM key, CORS, …)
     # so a misconfigured deploy is obvious in the logs, not a silent surprise.
     from app.observability import log_startup_config
+    from app.services import tracing
 
     log_startup_config(logger)
+    # Optional Langfuse tracing for every gateway completion (no-op when
+    # unconfigured; the worker registers its own hook in drain_queue).
+    tracing.install()
     # Queued jobs are drained event-driven (services/worker_trigger.py): the
     # worker Lambda in AWS, or a background task locally. No polling loop.
     yield
     from app.db import close_pool
 
+    tracing.flush()
     close_pool()
 
 
@@ -339,6 +344,7 @@ api_guard = [Depends(require_access_code), Depends(authenticate_request)]
 app.include_router(ingest.router, prefix="/api/ingest", tags=["ingest"], dependencies=api_guard)
 app.include_router(monitor.router, prefix="/api/monitor", tags=["monitor"], dependencies=api_guard)
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"], dependencies=api_guard)
+app.include_router(agent.router, prefix="/api/agent", tags=["agent"], dependencies=api_guard)
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"], dependencies=api_guard)
 app.include_router(compliance.router, prefix="/api/compliance", tags=["compliance"], dependencies=api_guard)
 app.include_router(credits.router, prefix="/api/credits", tags=["credits"], dependencies=api_guard)

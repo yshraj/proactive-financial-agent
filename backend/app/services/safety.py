@@ -52,6 +52,30 @@ def sanitize_rag_content(content: str) -> str:
     return cleaned[:2000]
 
 
+def _normalize_ws(text: str) -> str:
+    """Lowercase and collapse whitespace for tolerant substring matching."""
+    return re.sub(r"\s+", " ", text or "").strip().lower()
+
+
+# Distinctive opening of the shared assistant persona (see services/prompts.py
+# JARVIS_PERSONA). Any model output that echoes it verbatim is disclosing its
+# system prompt — a prompt-injection symptom the agent reviewer treats as a
+# hard failure. Kept in sync with the persona by a unit test.
+_PROMPT_ECHO_CANARY = "you are jarvis, an ai copilot for uk independent financial advisers"
+
+
+def contains_prompt_echo(text: str) -> bool:
+    """True when model output appears to quote the system persona verbatim.
+
+    Deterministic backstop for the review node: even if the drafting model is
+    coaxed into 'reiterating its instructions' by a prompt-injection attempt,
+    this catches the verbatim echo so the draft is failed and revised.
+    """
+    if not text:
+        return False
+    return _PROMPT_ECHO_CANARY in _normalize_ws(text)
+
+
 def is_plausible_text(content: bytes) -> bool:
     """True when bytes look like a genuine UTF-8 text document.
 

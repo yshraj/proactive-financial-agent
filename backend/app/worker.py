@@ -82,8 +82,83 @@ def _process_upload_job(job: dict[str, Any]) -> None:
                     message=outcome.note or "Done", document_id=document_id)
 
 
+def _process_agent_run_job(job: dict[str, Any]) -> None:
+    """Execute one durable agent run (the LangGraph plan→gather→synthesize→
+    review→finalize graph) and keep the run record + credits in sync.
+
+    Idempotent: a re-claimed job whose run already finished just commits and
+    completes. On failure the exception propagates so process_one's retry
+    accounting applies; the run record is only marked ERROR on the final
+    attempt (earlier attempts re-run the read-only graph from scratch).
+    """
+    from app.agents.graph import run_agent
+    from app.context import TenantContext, get_current_tenant
+    from app.services import agent_runs, audit, conversations
+    from app.services.safety import public_error_message
+
+    payload = job.get("payload") or {}
+    run_id = str(payload.get("run_id") or "")
+    reservation_id = payload.get("credit_reservation_id")
+    ctx = get_current_tenant()  # bound by process_one: system_context(job.org_id)
+    run = agent_runs.get(run_id, ctx=ctx)
+    if run is None:
+        raise RuntimeError(f"agent run {run_id!r} not found for job {job['id']}")
+
+    if run["status"] == agent_runs.DONE:
+        if reservation_id:
+            credits.commit(str(reservation_id))
+        jobs.update(job["id"], status=jobs.DONE, progress=100, message="Done")
+        return
+
+    agent_runs.mark_running(run_id, ctx=ctx)
+    jobs.update(job["id"], status=jobs.PROCESSING, progress=25, message="Agents working…")
+    try:
+        output = run_agent(ctx, run)
+    except Exception:
+        attempts = int(job.get("attempts") or 1)
+        try:
+            max_attempts = int(job.get("max_attempts") or 3)
+        except (TypeError, ValueError):
+            max_attempts = 3
+        if attempts >= max_attempts:
+            # Final attempt: give the polling UI a terminal state with fixed
+            # public copy. process_one releases the credit reservation and
+            # marks the job ERROR when this re-raise reaches it.
+            agent_runs.fail(run_id, error=public_error_message("ai_unavailable"), ctx=ctx)
+        raise
+
+    agent_runs.finish(run_id, output=output, ctx=ctx)
+    if run["kind"] == "copilot" and run.get("conversation_id"):
+        # Append the exchange under the requesting user's identity so their
+        # thread history stays consistent with the synchronous chat path.
+        owner_ctx = TenantContext(org_id=run["org_id"], user_id=run.get("user_id"), role="system")
+        query = str((run.get("input") or {}).get("query") or "")
+        if query:
+            conversations.add_message(run["conversation_id"], "user", query, ctx=owner_ctx)
+        conversations.add_message(
+            run["conversation_id"], "assistant", output.get("answer") or "", ctx=owner_ctx
+        )
+    audit.record_event(
+        action="ai.agent_run.completed",
+        resource_type="agent_run",
+        resource_id=run_id,
+        client_id=run.get("client_id"),
+        metadata={
+            "kind": run["kind"],
+            "sources": len(output.get("sources") or []),
+            "review_verdict": (output.get("review") or {}).get("verdict"),
+            "models": output.get("model_labels") or {},
+        },
+        actor_type="ai",
+    )
+    if reservation_id:
+        credits.commit(str(reservation_id))
+    jobs.update(job["id"], status=jobs.DONE, progress=100, message="Done")
+
+
 _HANDLERS = {
     "upload": _process_upload_job,
+    "agent_run": _process_agent_run_job,
 }
 
 
@@ -171,6 +246,12 @@ def drain_queue(
     """
     stats = DrainStats()
     name = _worker_name()
+    # Observability: register the gateway hook once per process (no-op when
+    # Langfuse is unconfigured); the worker owns its own install because it
+    # never imports app.main.
+    from app.services import tracing
+
+    tracing.install()
     try:
         stats.swept = jobs.sweep_exhausted()
         if stats.swept:
@@ -229,4 +310,6 @@ def drain_queue(
             "queue_depth": queue_depth,
         },
     )
+    # Push buffered trace events before the Lambda freezes.
+    tracing.flush()
     return stats

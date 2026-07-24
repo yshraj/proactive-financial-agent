@@ -13,7 +13,7 @@ from app.context import TenantContext
 from app.db import get_cursor
 from app.deps import current_tenant
 from app.security import data_reset_enabled, limiter
-from app.services import audit, conversations, jobs, storage
+from app.services import agent_runs, audit, conversations, jobs, storage
 from app.services.cache import invalidate_all_ai_caches
 from app.services.safety import public_error_message
 from app.services.sample_data import build_sample_dataset
@@ -62,6 +62,7 @@ def clear_all_data(
         audit.clear()
         conversations.clear()
         jobs.clear()
+        agent_runs.clear()
         storage.delete_org_documents(ctx.org_id)
     except Exception as e:
         raise HTTPException(

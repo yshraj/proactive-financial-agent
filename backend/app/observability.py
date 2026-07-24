@@ -80,16 +80,24 @@ def startup_config_warnings() -> list[str]:
     if _unset("QDRANT_URL"):
         warnings.append("QDRANT_URL is not set — RAG/semantic search will be unavailable.")
 
-    # LLM provider. Embeddings always use OpenAI, so the key matters even
-    # when the chat/extraction provider is Gemini.
-    provider = (os.environ.get("LLM_PROVIDER") or "openai").strip().lower()
-    if _unset("OPENAI_API_KEY"):
-        if provider == "openai":
-            warnings.append("OPENAI_API_KEY is not set — AI features fall back to deterministic stubs.")
-        else:
-            warnings.append("OPENAI_API_KEY is not set — embeddings/RAG need it even with LLM_PROVIDER=gemini.")
-    if provider == "gemini" and _unset("GEMINI_API_KEY") and _unset("GOOGLE_API_KEY"):
-        warnings.append("LLM_PROVIDER=gemini but neither GEMINI_API_KEY nor GOOGLE_API_KEY is set.")
+    # LLM providers: completions route through the multi-provider gateway
+    # (any one key is enough). Embeddings default to local fastembed and
+    # need no key; only the legacy openai embeddings provider requires one.
+    from app.services.model_gateway import configured_providers
+
+    providers = configured_providers()
+    if not providers:
+        warnings.append(
+            "No LLM provider key is set (GROQ_API_KEY / CEREBRAS_API_KEY / GEMINI_API_KEY / "
+            "MOONSHOT_API_KEY / OPENROUTER_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY) — "
+            "AI features fall back to deterministic stubs."
+        )
+    embeddings_provider = (os.environ.get("EMBEDDINGS_PROVIDER") or "fastembed").strip().lower()
+    if embeddings_provider == "openai" and _unset("OPENAI_API_KEY"):
+        warnings.append(
+            "EMBEDDINGS_PROVIDER=openai but OPENAI_API_KEY is not set — RAG indexing/search "
+            "will fail. Unset EMBEDDINGS_PROVIDER to use the local fastembed default."
+        )
 
     # Front door: demo mode with no shared code = a fully open public API.
     if security.demo_mode_enabled() and not security.access_code_configured():

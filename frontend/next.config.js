@@ -31,6 +31,18 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // Disable device APIs this app never uses (defence in depth; ignored on
+  // features already blocked by CSP). browsing-topics opts out of Topics API.
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+  },
+  // HSTS: browsers ignore this on http:// and localhost, so it is safe in dev
+  // and enforces HTTPS-only for the deployed origin (2 years, subdomains).
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains",
+  },
   {
     key: "Content-Security-Policy",
     value: [

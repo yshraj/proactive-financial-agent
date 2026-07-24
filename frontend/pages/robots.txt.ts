@@ -9,6 +9,7 @@ const DISALLOW = [
   "/brief",
   "/alerts",
   "/clients",
+  "/runs",
   "/admin",
   "/settings",
   "/login",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.conftest import auth_headers_for
+from tests.conftest import auth_headers_for, fake_gateway_result
 
 
 def test_lazy_summary_starts_with_lifetime_balance(clean_db, org_a, monkeypatch):
@@ -148,9 +148,9 @@ def test_chat_endpoint_is_guarded_and_retry_is_not_double_charged(
 
     def complete(**kwargs):
         calls.append(kwargs)
-        return "A guarded answer."
+        return fake_gateway_result("A guarded answer.")
 
-    monkeypatch.setattr(chat, "complete_with_system", complete)
+    monkeypatch.setattr(chat, "complete_with_system_ex", complete)
     headers = {
         **auth_headers_for(org_a),
         "X-Idempotency-Key": "chat-action-1",
@@ -184,7 +184,7 @@ def test_guarded_chat_returns_structured_insufficient_error_without_inference(
     monkeypatch.setenv("DEFAULT_LIFETIME_CREDITS", "0")
     called = []
     monkeypatch.setattr(
-        chat, "complete_with_system", lambda **kwargs: called.append(kwargs)
+        chat, "complete_with_system_ex", lambda **kwargs: called.append(kwargs)
     )
     response = api_client.post(
         "/api/chat/",
@@ -256,7 +256,7 @@ def test_passive_digest_does_not_infer_or_charge(api_client, org_a, monkeypatch)
 
     def generate(*args, **kwargs):
         provider_calls.append((args, kwargs))
-        return "Generated digest"
+        return "Generated digest", "test/fake-model"
 
     monkeypatch.setattr(monitor, "_generate_morning_digest", generate)
     headers = auth_headers_for(org_a)
@@ -289,9 +289,9 @@ def test_chat_cache_hit_releases_credits_without_second_llm_call(
 
     def complete(**kwargs):
         calls.append(kwargs)
-        return "Cached answer body."
+        return fake_gateway_result("Cached answer body.")
 
-    monkeypatch.setattr(chat, "complete_with_system", complete)
+    monkeypatch.setattr(chat, "complete_with_system_ex", complete)
     headers_a = {**auth_headers_for(org_a), "X-Idempotency-Key": "chat-cache-a"}
     first = api_client.post(
         "/api/chat/", headers=headers_a, json={"query": "Identical cacheable query"}

@@ -1,16 +1,17 @@
 """
-LLM token-usage accounting: one structured log line per OpenAI call.
+LLM token-usage accounting: one structured log line per provider call.
 
 Every completion/embedding call emits an ``llm_usage`` event with token
 counts and a rough cost estimate. CloudWatch metric filters in
 deploy/aws/template.yaml turn these into KritiFin/LlmTokens and
 KritiFin/LlmEstCostUsd — the day-one signals for "what does each feature
-cost" and "when does OpenAI spend need attention". Log-only otherwise:
+cost" and "when does paid spend need attention". Log-only otherwise:
 no database writes, no external calls.
 
 Prices are indicative (USD per 1M tokens) and exist to make the metric
-directionally useful, not to be an invoice — reconcile real spend in the
-OpenAI dashboard. Unknown models log tokens with cost 0.
+directionally useful, not to be an invoice. Free-tier models (Groq,
+Cerebras, Gemini free, OpenRouter :free, Moonshot free) are priced 0.0
+explicitly; unknown models also log tokens with cost 0.
 """
 from __future__ import annotations
 
@@ -20,10 +21,12 @@ from typing import Any, Optional
 logger = logging.getLogger("jarvis.llm_usage")
 
 # (input, output) USD per 1M tokens. Update when models/prices change.
+# Only paid models need entries; free-tier calls cost 0 by construction.
 _PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gpt-4o": (2.50, 10.00),
     "gpt-4o-mini": (0.15, 0.60),
     "text-embedding-3-small": (0.02, 0.0),
+    "deepseek-chat": (0.14, 0.28),  # paid break-glass route
 }
 
 
@@ -40,10 +43,12 @@ def _estimate_cost_usd(model: str, prompt_tokens: int, completion_tokens: int) -
     return 0.0
 
 
-def record_usage(*, model: str, purpose: str, usage: Optional[Any]) -> None:
-    """Log one llm_usage event from an OpenAI response's ``.usage`` object.
+def record_usage(
+    *, model: str, purpose: str, usage: Optional[Any], provider: str = "openai"
+) -> None:
+    """Log one llm_usage event from a provider response's ``.usage`` object.
 
-    ``usage`` may be None (the API can omit it); nothing is logged then.
+    ``usage`` may be None (APIs can omit it); nothing is logged then.
     Never raises — accounting must not break the call it measures.
     """
     if usage is None:
@@ -55,10 +60,11 @@ def record_usage(*, model: str, purpose: str, usage: Optional[Any]) -> None:
             getattr(usage, "total_tokens", 0) or (prompt_tokens + completion_tokens)
         )
         logger.info(
-            "llm_usage model=%s purpose=%s total_tokens=%d",
-            model, purpose, total_tokens,
+            "llm_usage provider=%s model=%s purpose=%s total_tokens=%d",
+            provider, model, purpose, total_tokens,
             extra={
                 "event": "llm_usage",
+                "provider": provider,
                 "model": model,
                 "purpose": purpose,
                 "prompt_tokens": prompt_tokens,

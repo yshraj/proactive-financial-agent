@@ -46,7 +46,7 @@ from app.services import credits
 from app.services.analytics import REVIEW_OVERDUE_DAYS, compute_book_analytics
 from app.services.export import rows_to_csv
 from app.services.playbooks import build_playbook_alerts, list_playbooks
-from app.services.llm import complete_with_system, resolve_model
+from app.services.llm import complete_with_system_ex
 from app.services.scores import (
     at_risk_score,
     next_best_actions,
@@ -378,8 +378,8 @@ def apply_playbook(
     return ApplyPlaybookResponse(applied=len(rows))
 
 
-def _generate_client_summary(client_name: str, profile_bits: str, alert_lines: str, model: str) -> str:
-    return complete_with_system(
+def _generate_client_summary(client_name: str, profile_bits: str, alert_lines: str) -> str:
+    return complete_with_system_ex(
         system=CLIENT_SUMMARY_SYSTEM,
         user=client_summary_user_message(
             client_name=client_name,
@@ -387,9 +387,8 @@ def _generate_client_summary(client_name: str, profile_bits: str, alert_lines: s
             alerts=alert_lines,
         ),
         max_tokens=220,
-        model=model,
         purpose="brief",
-    )
+    ).content
 
 
 @router.get("/clients/{client_id}", response_model=ClientDetailOut)
@@ -688,9 +687,9 @@ def client_review_note(
     if isinstance(cached, dict) and cached.get("note"):
         return ReviewNoteResponse(**cached, from_cache=True)
 
-    model = resolve_model("brief")
+    model_label = None
     try:
-        note = complete_with_system(
+        note_result = complete_with_system_ex(
             system=REVIEW_NOTE_SYSTEM,
             user=review_note_user_message(
                 client_name=client_name,
@@ -698,9 +697,10 @@ def client_review_note(
                 open_items="; ".join(open_items) or "None",
             ),
             max_tokens=420,
-            model=model,
             purpose="brief",
         )
+        note = note_result.content
+        model_label = note_result.label
         ai_generated = True
     except Exception:
         # Deterministic fallback keeps the feature working without an LLM.
@@ -719,7 +719,7 @@ def client_review_note(
         kind="review_note",
         client_id=client_id,
         client_name=client_name,
-        model=model,
+        model=model_label,
         output=note,
         ai_generated=ai_generated,
         prompt_version=PROMPT_VERSION,
@@ -824,7 +824,8 @@ def _get_pulse_cached(simulated_date: str, org_id: str) -> PulseResponse:
     return pulse
 
 
-def _generate_morning_digest(pulse: PulseResponse, simulated_date: str, model: str) -> str:
+def _generate_morning_digest(pulse: PulseResponse, simulated_date: str) -> tuple[str, str]:
+    """Returns (digest_text, provider/model label that answered)."""
     priority_lines = [
         f"- {a.client_name}: {a.title or a.type} (due {a.trigger_date}, {a.priority} priority)"
         for a in pulse.alerts[:7]
@@ -842,13 +843,13 @@ Top priorities:
 Overdue follow-ups:
 {chr(10).join(follow_up_lines) or 'None'}"""
 
-    return complete_with_system(
+    result = complete_with_system_ex(
         system=DIGEST_SYSTEM,
         user=digest_user_message(context=context),
         max_tokens=280,
-        model=model,
         purpose="brief",
     )
+    return result.content, result.label
 
 
 def _fallback_morning_digest(pulse: PulseResponse) -> str:
@@ -916,10 +917,10 @@ def get_digest(
         ctx=ctx,
     )
     try:
-        model = resolve_model("brief")
+        model_label = None
         ai_generated = True
         try:
-            digest_text = _generate_morning_digest(pulse, simulated_date, model)
+            digest_text, model_label = _generate_morning_digest(pulse, simulated_date)
         except Exception:
             ai_generated = False
             digest_text = _fallback_morning_digest(pulse)
@@ -936,7 +937,7 @@ def get_digest(
         )
         audit.record(
             kind="digest",
-            model=model,
+            model=model_label,
             output=digest_text,
             ai_generated=ai_generated,
             prompt_version=PROMPT_VERSION,
@@ -1131,9 +1132,12 @@ class DraftEmailResponse(BaseModel):
     from_cache: bool = Field(default=False, exclude=True)
 
 
-def _call_llm_draft(client_name: str, title: str, description: str, action_payload: Optional[dict], model: str) -> str:
+def _call_llm_draft(
+    client_name: str, title: str, description: str, action_payload: Optional[dict]
+) -> tuple[str, str]:
+    """Returns (draft_text, provider/model label that answered)."""
     payload_str = json.dumps(action_payload, indent=2) if action_payload else "None"
-    return complete_with_system(
+    result = complete_with_system_ex(
         system=DRAFT_ALERT_EMAIL_SYSTEM,
         user=draft_alert_user_message(
             client_name=client_name,
@@ -1142,19 +1146,19 @@ def _call_llm_draft(client_name: str, title: str, description: str, action_paylo
             action_payload=payload_str,
         ),
         max_tokens=450,
-        model=model,
         purpose="draft",
     )
+    return result.content, result.label
 
 
 def _call_llm_brief_followup(
     client_name: str,
     context: str,
     talking_points: Optional[list[str]],
-    model: str,
-) -> str:
+) -> tuple[str, str]:
+    """Returns (draft_text, provider/model label that answered)."""
     points_str = "\n".join(f"- {p}" for p in (talking_points or [])) if talking_points else "None listed"
-    return complete_with_system(
+    result = complete_with_system_ex(
         system=DRAFT_BRIEF_FOLLOWUP_SYSTEM,
         user=draft_brief_followup_user_message(
             client_name=client_name,
@@ -1162,9 +1166,9 @@ def _call_llm_brief_followup(
             talking_points=points_str,
         ),
         max_tokens=450,
-        model=model,
         purpose="draft",
     )
+    return result.content, result.label
 
 
 @router.post("/draft-email", response_model=DraftEmailResponse)
@@ -1180,8 +1184,6 @@ def draft_email(
     ctx: TenantContext = Depends(current_tenant),
 ):
     """Generate a personalised email draft for an alert or meeting brief. Cached by alert_id or client+context hash."""
-    model = resolve_model("draft")
-
     if body.client_id and (body.context or "").strip():
         client_id = body.client_id.strip()
         context = (body.context or "").strip()
@@ -1198,10 +1200,10 @@ def draft_email(
             client_name = require_client_name(client_id)
         except LookupError:
             raise HTTPException(status_code=404, detail="Client not found") from None
-        draft = _call_llm_brief_followup(client_name, context, body.talking_points, model)
+        draft, model_label = _call_llm_brief_followup(client_name, context, body.talking_points)
         cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
         audit.record(kind="draft_email", client_id=client_id, client_name=client_name,
-                     model=model, output=draft, prompt_version=PROMPT_VERSION)
+                     model=model_label, output=draft, prompt_version=PROMPT_VERSION)
         return DraftEmailResponse(draft=draft, subject=f"Follow-up: {client_name}")
 
     alert_id = (body.alert_id or "").strip()
@@ -1224,10 +1226,10 @@ def draft_email(
             raise HTTPException(status_code=404, detail="Client not found") from None
         title = "Annual review overdue"
         description = "No review in 12+ months. Consumer Duty requires demonstrating ongoing value."
-        draft = _call_llm_draft(client_name, title, description, None, model)
+        draft, model_label = _call_llm_draft(client_name, title, description, None)
         cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
         audit.record(kind="draft_email", client_id=client_id, client_name=client_name,
-                     model=model, output=draft, prompt_version=PROMPT_VERSION)
+                     model=model_label, output=draft, prompt_version=PROMPT_VERSION)
         return DraftEmailResponse(draft=draft)
 
     with get_cursor() as cur:
@@ -1253,10 +1255,10 @@ def draft_email(
             action_payload = json.loads(action_payload)
         except json.JSONDecodeError:
             action_payload = None
-    draft = _call_llm_draft(client_name, title, description, action_payload, model)
+    draft, model_label = _call_llm_draft(client_name, title, description, action_payload)
     cache_set(cache_key, draft, DRAFT_EMAIL_TTL)
     audit.record(kind="draft_email",
                  client_id=str(row["client_id"]) if row.get("client_id") else None,
-                 client_name=client_name, model=model, output=draft,
+                 client_name=client_name, model=model_label, output=draft,
                  prompt_version=PROMPT_VERSION)
     return DraftEmailResponse(draft=draft)

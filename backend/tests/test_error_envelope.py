@@ -108,7 +108,7 @@ def test_duplicate_upload_409_keeps_detail_dict_and_maps_code(api_client, clean_
 
 
 def test_llm_outage_returns_clean_503(api_client, clean_db, org_a, monkeypatch):
-    """OpenAI being down must never leak provider text — fixed copy, 503."""
+    """The provider stack being down must never leak text — fixed copy, 503."""
     from app.services.llm import AIUnavailableError
     from app.routers import chat as chat_router
 
@@ -118,7 +118,7 @@ def test_llm_outage_returns_clean_503(api_client, clean_db, org_a, monkeypatch):
         )
 
     monkeypatch.setattr(chat_router, "retrieve_for_chat", lambda *a, **k: ("", []))
-    monkeypatch.setattr(chat_router, "complete_with_system", boom)
+    monkeypatch.setattr(chat_router, "complete_with_system_ex", boom)
     resp = api_client.post(
         "/api/chat/", headers=auth_headers_for(org_a), json={"query": "What changed?"}
     )
@@ -132,21 +132,29 @@ def test_llm_outage_returns_clean_503(api_client, clean_db, org_a, monkeypatch):
 
 
 def test_llm_provider_error_text_never_reaches_client(api_client, clean_db, org_a, monkeypatch):
-    """End to end through llm.complete: the provider exception is wrapped."""
-    import app.services.clients as clients
+    """End to end through llm.complete and the real gateway routing loop: a
+    provider 500 whose body contains secrets must be wrapped into fixed copy."""
+    import httpx
 
-    class ExplodingClient:
-        class chat:  # noqa: N801 - mimic openai client shape
-            class completions:  # noqa: N801
-                @staticmethod
-                def create(**kwargs):
-                    raise RuntimeError("openai.APIConnectionError: host sk-secret leaked")
+    from app.services import model_gateway
 
-    monkeypatch.setattr(clients, "get_openai_client", lambda: ExplodingClient())
-    monkeypatch.setattr("app.routers.chat.retrieve_for_chat", lambda *a, **k: ("", []))
-    resp = api_client.post(
-        "/api/chat/", headers=auth_headers_for(org_a), json={"query": "What changed?"}
-    )
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            500, json={"error": "openai.APIConnectionError: host sk-secret leaked"}
+        )
+
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test-key")
+    monkeypatch.setenv("LLM_QUOTA_BACKEND", "memory")
+    model_gateway.reset_for_tests()
+    model_gateway.set_transport_factory_for_tests(lambda: httpx.MockTransport(handler))
+    try:
+        monkeypatch.setattr("app.routers.chat.retrieve_for_chat", lambda *a, **k: ("", []))
+        resp = api_client.post(
+            "/api/chat/", headers=auth_headers_for(org_a), json={"query": "What changed?"}
+        )
+    finally:
+        model_gateway.set_transport_factory_for_tests(None)
+        model_gateway.reset_for_tests()
     assert resp.status_code == 503
     assert "sk-secret" not in resp.text
     assert "APIConnectionError" not in resp.text

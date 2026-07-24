@@ -8,7 +8,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 from typing import Any
 
@@ -67,35 +66,25 @@ def extract_text_from_bytes(content: bytes, ext: str, display_name: str = "docum
 # EXTRACTION_SYSTEM lives in app.services.prompts (versioned via PROMPT_VERSION)
 
 
-def _call_llm_openai(text: str, model: str) -> str:
-    from app.services.clients import get_openai_client
-    from app.services.llm_usage import record_usage
-    client = get_openai_client()
-    r = client.chat.completions.create(
-        model=model,
+def _call_llm(text: str) -> tuple[str, str]:
+    """Structured extraction via the model gateway (long-context free models
+    first — see the "extraction" route in services/model_gateway.py).
+
+    Returns (raw_json_text, provider/model label used).
+    """
+    from app.services.llm import complete_ex
+
+    result = complete_ex(
         messages=[
             {"role": "system", "content": EXTRACTION_SYSTEM},
             {"role": "user", "content": f"Document text:\n\n{text[:100000]}"},
         ],
         max_tokens=4096,
         temperature=0,
+        purpose="extraction",
+        response_format={"type": "json_object"},
     )
-    record_usage(model=model, purpose="extraction", usage=getattr(r, "usage", None))
-    return (r.choices[0].message.content or "").strip()
-
-
-def _call_llm_gemini(text: str, model: str) -> str:
-    import google.generativeai as genai
-    genai.configure(api_key=os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
-    m = genai.GenerativeModel(model)
-    r = m.generate_content(
-        f"{EXTRACTION_SYSTEM}\n\nDocument text:\n\n{text[:100000]}",
-        generation_config=genai.types.GenerationConfig(
-            response_mime_type="application/json",
-            temperature=0,
-        ),
-    )
-    return (r.text or "").strip()
+    return result.content, result.label
 
 
 def _parse_llm_json(raw: str) -> dict[str, Any]:
@@ -126,15 +115,9 @@ def extract_structured_from_text(text: str) -> dict[str, Any]:
         logger.info("[ingest] Using cached extraction for content hash %s", content_hash)
         return {"client": cached.get("client") or {}, "alerts": cached.get("alerts") or [], "raw_text": text}
 
-    provider = (os.environ.get("LLM_PROVIDER") or "openai").lower()
-    model = os.environ.get("LLM_MODEL") or ("gpt-4o" if provider == "openai" else "gemini-1.5-pro")
-    logger.info("[ingest] Calling LLM (%s / %s) for structured extraction...", provider, model)
-    if provider == "openai":
-        raw = _call_llm_openai(text, model)
-    elif provider == "gemini":
-        raw = _call_llm_gemini(text, model)
-    else:
-        raise RuntimeError(f"LLM_PROVIDER must be openai or gemini, got {provider}")
+    logger.info("[ingest] Calling LLM gateway for structured extraction...")
+    raw, model_label = _call_llm(text)
+    logger.info("[ingest] Extraction answered by %s", model_label)
 
     data = _parse_llm_json(raw)
     client = data.get("client") or {}

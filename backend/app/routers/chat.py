@@ -32,7 +32,7 @@ from app.services.cache import (
     hash_query_for_key,
     set_scoped as cache_set,
 )
-from app.services.llm import complete_with_system, resolve_model
+from app.services.llm import complete_with_system_ex
 from app.services.prompts import (
     BRIEF_SYSTEM,
     CHAT_SYSTEM,
@@ -334,16 +334,16 @@ def chat(
             status_code=503, detail=public_error_message("search_unavailable", e)
         ) from None
 
-    model = resolve_model("chat")
-    answer = complete_with_system(
+    result = complete_with_system_ex(
         system=CHAT_SYSTEM,
         user=chat_user_message(
             structured=structured_context, documents=rag_context, query=query, history=history
         ),
         max_tokens=900,
-        model=model,
         purpose="chat",
     )
+    answer = result.content
+    model = result.label
 
     if not answer and not rag_context.strip() and not structured_context.strip():
         answer = (
@@ -433,8 +433,7 @@ def _generate_brief(ctx: TenantContext, client_id: str) -> tuple[str, list[str],
         source_dicts = []
 
     structured_text = "\n".join(structured_parts) or "No structured data on file."
-    model = resolve_model("brief")
-    raw = complete_with_system(
+    brief_result = complete_with_system_ex(
         system=BRIEF_SYSTEM,
         user=brief_user_message(
             client_name=client_name,
@@ -442,9 +441,10 @@ def _generate_brief(ctx: TenantContext, client_id: str) -> tuple[str, list[str],
             documents=rag_context,
         ),
         max_tokens=1400,
-        model=model,
         purpose="brief",
     )
+    raw = brief_result.content
+    model = brief_result.label
 
     talking_points: list[str] = []
     if "---TALKING_POINTS---" in raw:

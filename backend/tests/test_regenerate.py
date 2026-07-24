@@ -1,7 +1,7 @@
 """Regenerate (refresh=true) bypasses the brief / draft-email response caches."""
 from __future__ import annotations
 
-from tests.conftest import auth_headers_for, seed_client
+from tests.conftest import auth_headers_for, fake_gateway_result, seed_client
 
 def test_brief_refresh_bypasses_cache(api_client, clean_db, org_a, monkeypatch):
     client_id = seed_client(clean_db, org_a.org_id, "Alan Partridge")
@@ -9,9 +9,11 @@ def test_brief_refresh_bypasses_cache(api_client, clean_db, org_a, monkeypatch):
 
     def fake_complete(**kwargs):
         calls["n"] += 1
-        return f"Brief version {calls['n']}\n---TALKING_POINTS---\nPoint one"
+        return fake_gateway_result(
+            f"Brief version {calls['n']}\n---TALKING_POINTS---\nPoint one", purpose="brief"
+        )
 
-    monkeypatch.setattr("app.routers.chat.complete_with_system", fake_complete)
+    monkeypatch.setattr("app.routers.chat.complete_with_system_ex", fake_complete)
     monkeypatch.setattr(
         "app.routers.chat.retrieve_for_brief", lambda *a, **k: ("", [])
     )
@@ -50,9 +52,9 @@ def test_draft_email_refresh_bypasses_cache(api_client, clean_db, org_a, monkeyp
 
     def fake_complete(**kwargs):
         calls["n"] += 1
-        return f"Draft version {calls['n']}"
+        return fake_gateway_result(f"Draft version {calls['n']}", purpose="draft")
 
-    monkeypatch.setattr("app.routers.monitor.complete_with_system", fake_complete)
+    monkeypatch.setattr("app.routers.monitor.complete_with_system_ex", fake_complete)
 
     first = api_client.post("/api/monitor/draft-email", json={"alert_id": alert_id}, headers=headers)
     assert first.json()["draft"] == "Draft version 1"

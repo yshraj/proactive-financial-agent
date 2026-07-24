@@ -34,6 +34,17 @@ os.environ.setdefault("SUPABASE_URL", "")
 os.environ.setdefault("SUPABASE_JWT_SECRET", _TEST_JWT_SECRET)
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "")
 os.environ.setdefault("OPENAI_API_KEY", "")
+# Gateway provider keys: empty = disabled, so tests never call real providers
+# even when the developer's .env has keys configured.
+os.environ.setdefault("GROQ_API_KEY", "")
+os.environ.setdefault("CEREBRAS_API_KEY", "")
+os.environ.setdefault("GEMINI_API_KEY", "")
+os.environ.setdefault("GOOGLE_API_KEY", "")
+os.environ.setdefault("MOONSHOT_API_KEY", "")
+os.environ.setdefault("OPENROUTER_API_KEY", "")
+os.environ.setdefault("DEEPSEEK_API_KEY", "")
+# Keep gateway quota accounting off the DB in tests (fast + no fixtures needed).
+os.environ.setdefault("LLM_QUOTA_BACKEND", "memory")
 os.environ.setdefault("QDRANT_URL", "")
 os.environ.setdefault("QDRANT_API_KEY", "")
 os.environ.setdefault("API_KEY", "")
@@ -240,6 +251,19 @@ def make_jwt(user_id: str, email: str = "adviser@example.test") -> str:
 
 def auth_headers_for(ctx) -> dict:
     return {"Authorization": f"Bearer {make_jwt(ctx.user_id)}"}
+
+
+def fake_gateway_result(content: str, purpose: str = "chat"):
+    """A GatewayResult stub for tests that fake the LLM facade."""
+    from app.services.model_gateway import GatewayResult
+
+    return GatewayResult(
+        content=content,
+        provider="test",
+        model="fake-model",
+        purpose=purpose,
+        usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    )
 
 
 @pytest.fixture(scope="session")

@@ -77,14 +77,13 @@ def check_presence() -> dict:
 
     env = {k: (os.environ.get(k) or "").strip() for k in (
         "DATABASE_URL", "DATABASE_ADMIN_URL", "QDRANT_URL", "QDRANT_API_KEY",
-        "OPENAI_API_KEY", "LLM_PROVIDER", "EMBEDDING_MODEL",
-        "GEMINI_API_KEY", "GOOGLE_API_KEY",
+        "OPENAI_API_KEY", "EMBEDDINGS_PROVIDER", "EMBEDDING_MODEL", "FASTEMBED_MODEL",
+        "GROQ_API_KEY", "CEREBRAS_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
+        "MOONSHOT_API_KEY", "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY",
         "API_KEY", "ALLOW_DATA_RESET", "QDRANT_COLLECTION",
         "AUTH_MODE", "SUPABASE_URL", "SUPABASE_JWT_SECRET",
         "SUPABASE_SERVICE_ROLE_KEY", "SENTRY_DSN", "ENV",
     )}
-
-    llm = (env["LLM_PROVIDER"] or "openai").lower()
 
     section("Required variables")
     # DATABASE_URL
@@ -120,24 +119,36 @@ def check_presence() -> dict:
         elif env["QDRANT_API_KEY"]:
             ok(f"QDRANT_API_KEY present ({mask(env['QDRANT_API_KEY'])})")
 
-    # LLM provider keys (embeddings always use OpenAI)
-    section(f"Provider keys (LLM_PROVIDER={llm})")
-    key = env["OPENAI_API_KEY"]
-    if not key:
-        fail("OPENAI_API_KEY is required (embeddings always use OpenAI) but missing")
-    elif is_placeholder(key) or not key.startswith("sk-"):
-        fail("OPENAI_API_KEY looks invalid (should start with 'sk-')")
+    # LLM gateway provider keys (any one is enough; free tiers first).
+    section("LLM gateway provider keys")
+    gateway_keys = {
+        "GROQ_API_KEY": env["GROQ_API_KEY"],
+        "CEREBRAS_API_KEY": env["CEREBRAS_API_KEY"],
+        "GEMINI_API_KEY": env["GEMINI_API_KEY"] or env["GOOGLE_API_KEY"],
+        "MOONSHOT_API_KEY": env["MOONSHOT_API_KEY"],
+        "OPENROUTER_API_KEY": env["OPENROUTER_API_KEY"],
+        "DEEPSEEK_API_KEY": env["DEEPSEEK_API_KEY"],
+        "OPENAI_API_KEY": env["OPENAI_API_KEY"],
+    }
+    configured = [name for name, value in gateway_keys.items() if value and not is_placeholder(value)]
+    if not configured:
+        fail("No LLM provider key set — configure at least one (GROQ_API_KEY is the "
+             "recommended free-tier default; see .env.example).")
     else:
-        ok(f"OPENAI_API_KEY present ({mask(key)})")
-    if llm == "gemini" and not (env["GEMINI_API_KEY"] or env["GOOGLE_API_KEY"]):
-        fail("LLM_PROVIDER=gemini but neither GEMINI_API_KEY nor GOOGLE_API_KEY is set")
+        for name in configured:
+            ok(f"{name} present ({mask(gateway_keys[name])})")
 
-    # Embedding dimension sanity (Qdrant collection is created at 1536)
-    model = env["EMBEDDING_MODEL"] or "text-embedding-3-small"
-    if model not in ("text-embedding-3-small", "text-embedding-ada-002"):
-        warn(f"EMBEDDING_MODEL='{model}' may not be 1536-dim; the Qdrant collection is created at 1536. Mismatch will break RAG upserts/search.")
+    # Embeddings: local fastembed needs no key; legacy openai needs one.
+    embeddings_provider = (env["EMBEDDINGS_PROVIDER"] or "fastembed").lower()
+    section(f"Embeddings (provider={embeddings_provider})")
+    if embeddings_provider == "openai":
+        if not env["OPENAI_API_KEY"]:
+            fail("EMBEDDINGS_PROVIDER=openai but OPENAI_API_KEY is missing")
+        model = env["EMBEDDING_MODEL"] or "text-embedding-3-small"
+        ok(f"EMBEDDING_MODEL={model} (1536-dim legacy collection)")
     else:
-        ok(f"EMBEDDING_MODEL={model}")
+        ok(f"fastembed model {env['FASTEMBED_MODEL'] or 'BAAI/bge-small-en-v1.5'} "
+           "(local, 384-dim, no API key needed)")
 
     # Auth posture (fail closed)
     section("Auth posture")
@@ -217,41 +228,47 @@ def check_connectivity(env: dict) -> None:
         if r.status_code == 200:
             cols = [c.get("name") for c in r.json().get("result", {}).get("collections", [])]
             ok(f"Qdrant: connected (collections: {', '.join(cols) or 'none'})")
-            target = env.get("QDRANT_COLLECTION") or "client_memory"
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+            from app.services import embeddings as emb
+            from app.services.config import QDRANT_COLLECTION as target
+
+            expected_dim = emb.vector_size()
             if target in cols:
                 ci = httpx.get(env["QDRANT_URL"].rstrip("/") + f"/collections/{target}", headers=headers, timeout=10)
                 size = ci.json().get("result", {}).get("config", {}).get("params", {}).get("vectors", {})
                 dim = size.get("size") if isinstance(size, dict) else None
-                if dim == 1536:
-                    ok(f"Qdrant: collection '{target}' exists with 1536-dim vectors")
+                if dim == expected_dim:
+                    ok(f"Qdrant: collection '{target}' exists with {expected_dim}-dim vectors")
                 elif dim is not None:
-                    fail(f"Qdrant: collection '{target}' has {dim}-dim vectors (expected 1536)")
+                    fail(f"Qdrant: collection '{target}' has {dim}-dim vectors "
+                         f"(expected {expected_dim} for {emb.model_name()})")
                 else:
                     ok(f"Qdrant: collection '{target}' exists")
             else:
-                warn(f"Qdrant: collection '{target}' not found — run scripts/create_qdrant_collection.py")
+                warn(f"Qdrant: collection '{target}' not found — created automatically on "
+                     "first ingest, or run scripts/create_qdrant_collection.py")
         else:
             fail(f"Qdrant: HTTP {r.status_code} — check URL/API key")
     except Exception as e:  # noqa: BLE001
         fail(f"Qdrant: connection failed — {type(e).__name__}: {e}")
 
-    # OpenAI (free metadata call, no token spend). Always relevant: embeddings
-    # use OpenAI even when LLM_PROVIDER=gemini.
-    try:
-        import httpx
-        r = httpx.get(
-            "https://api.openai.com/v1/models",
-            headers={"Authorization": f"Bearer {env['OPENAI_API_KEY']}"},
-            timeout=10,
-        )
-        if r.status_code == 200:
-            ok("OpenAI: API key valid (models endpoint reachable)")
-        elif r.status_code == 401:
-            fail("OpenAI: 401 Unauthorized — API key is invalid or revoked")
-        else:
-            warn(f"OpenAI: unexpected HTTP {r.status_code}")
-    except Exception as e:  # noqa: BLE001
-        fail(f"OpenAI: request failed — {type(e).__name__}: {e}")
+    # OpenAI key validity (free metadata call): only when a key is configured.
+    if env["OPENAI_API_KEY"]:
+        try:
+            import httpx
+            r = httpx.get(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": f"Bearer {env['OPENAI_API_KEY']}"},
+                timeout=10,
+            )
+            if r.status_code == 200:
+                ok("OpenAI: API key valid (models endpoint reachable)")
+            elif r.status_code == 401:
+                fail("OpenAI: 401 Unauthorized — API key is invalid or revoked")
+            else:
+                warn(f"OpenAI: unexpected HTTP {r.status_code}")
+        except Exception as e:  # noqa: BLE001
+            fail(f"OpenAI: request failed — {type(e).__name__}: {e}")
 
 
 def main() -> int:

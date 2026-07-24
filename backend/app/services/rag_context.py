@@ -12,8 +12,8 @@ import os
 from typing import Any, Optional
 
 from app.services.config import QDRANT_COLLECTION
+from app.services.embeddings import embed_texts
 from app.services.safety import sanitize_rag_content
-from app.services.vector_store import get_embeddings_openai
 
 RAG_MIN_SCORE = float(os.environ.get("RAG_MIN_SCORE", "0.32"))
 CHAT_RAG_LIMIT = 5
@@ -24,7 +24,7 @@ SOURCE_PREVIEW_CHARS = 280
 
 
 def embed_query(text: str) -> list[float]:
-    vectors = get_embeddings_openai([text])
+    vectors = embed_texts([text])
     if not vectors:
         raise RuntimeError("Embedding failed")
     return vectors[0]

@@ -30,6 +30,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Bake the local embedding model into the image so Lambda cold starts never
+# download it (the runtime filesystem is read-only outside /tmp). The cache
+# dir is world-readable; services/embeddings.py picks it up automatically.
+ENV FASTEMBED_CACHE_DIR=/opt/fastembed-cache
+RUN python -c "from fastembed import TextEmbedding; \
+TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed-cache')" \
+    && chmod -R a+rX /opt/fastembed-cache
+
 # Unprivileged runtime user (created before COPY so ownership is set in the
 # same layer as the files, instead of a duplicating chown -R afterwards).
 RUN useradd --create-home --uid 10001 appuser

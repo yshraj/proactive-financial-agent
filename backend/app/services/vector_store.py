@@ -1,5 +1,6 @@
 """
-Path B: Chunk text, add context, embed with OpenAI, upsert to Qdrant client_memory.
+Path B: Chunk text, add context, embed (fastembed local by default; OpenAI
+legacy via EMBEDDINGS_PROVIDER=openai), upsert to the Qdrant collection.
 Payload includes content + metadata for filtered vector search:
   - content, client_id, client_name, doc_type, date, topics (architecture)
   - document_id, filename, source_type, ingested_at (for metadata filters)
@@ -7,7 +8,6 @@ Payload includes content + metadata for filtered vector search:
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from typing import Optional
 
@@ -43,15 +43,33 @@ def _prefix_context(chunk: str, client_name: str, doc_date: Optional[str]) -> st
     return f"Client Name: {client_name}{date_part}\n\n{chunk}"
 
 
-def get_embeddings_openai(texts: list[str], model: Optional[str] = None) -> list[list[float]]:
-    """Batch embed texts with OpenAI. Returns list of vectors."""
-    from app.services.clients import get_openai_client
-    from app.services.llm_usage import record_usage
-    model = model or os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
-    client = get_openai_client()
-    r = client.embeddings.create(input=texts, model=model)
-    record_usage(model=model, purpose="embedding", usage=getattr(r, "usage", None))
-    return [d.embedding for d in r.data]
+def ensure_collection(collection: str = QDRANT_COLLECTION) -> None:
+    """Create the collection for the configured embedding provider if missing.
+
+    Idempotent and self-healing: first ingest after a provider switch (e.g.
+    the fastembed migration) creates the right-sized collection instead of
+    failing. Vector size comes from services.embeddings.
+    """
+    from qdrant_client.models import Distance, VectorParams
+
+    from app.services import embeddings
+    from app.services.clients import get_qdrant_client
+
+    client = get_qdrant_client()
+    try:
+        if client.collection_exists(collection):
+            return
+        logger.info(
+            "[qdrant] Creating collection %s (%d dims, %s)",
+            collection, embeddings.vector_size(), embeddings.model_name(),
+        )
+        client.create_collection(
+            collection_name=collection,
+            vectors_config=VectorParams(size=embeddings.vector_size(), distance=Distance.COSINE),
+        )
+        ensure_payload_indexes(collection)
+    except Exception:  # noqa: BLE001 - a race with another creator is fine
+        logger.info("[qdrant] ensure_collection(%s): already present or racing", collection)
 
 
 def upsert_to_qdrant(
@@ -219,7 +237,10 @@ def index_document_text(
     prefixed = [
         _prefix_context(sanitize_rag_content(c), client_name, doc_date) for c in chunks
     ]
-    vectors = get_embeddings_openai(prefixed)
+    from app.services.embeddings import embed_texts
+
+    ensure_collection()
+    vectors = embed_texts(prefixed)
     upsert_to_qdrant(
         chunks=prefixed,
         vectors=vectors,

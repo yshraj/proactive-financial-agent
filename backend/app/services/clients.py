@@ -15,6 +15,12 @@ _qdrant_client = None
 
 
 def get_openai_client():
+    """Legacy OpenAI SDK client, used only when EMBEDDINGS_PROVIDER=openai.
+
+    The openai package is no longer a core dependency (completions go
+    through the httpx gateway; embeddings default to local fastembed) —
+    deployments that pin the legacy provider must `pip install openai`.
+    """
     global _openai_client
     if _openai_client is None:
         with _lock:

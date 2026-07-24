@@ -1,6 +1,12 @@
 """
-Create the Qdrant collection for RAG (client_memory).
-Uses vector size 1536 for OpenAI text-embedding-3-small.
+Create the Qdrant collection for RAG.
+
+Collection name and vector size follow the configured embedding provider
+(services/embeddings.py): fastembed/bge-small-en-v1.5 → 384 dims in
+client_memory_bge384 (default); EMBEDDINGS_PROVIDER=openai → 1536 dims in
+client_memory. The app also self-heals via vector_store.ensure_collection();
+this script exists for explicit provisioning and recreation.
+
 Run from repo root: python backend/scripts/create_qdrant_collection.py
 Requires: pip install qdrant-client python-dotenv
 """
@@ -14,13 +20,16 @@ if env_path.exists():
     from dotenv import load_dotenv
     load_dotenv(env_path)
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.services import embeddings  # noqa: E402
+from app.services.config import QDRANT_COLLECTION  # noqa: E402
+
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
-# Collection name comes from QDRANT_COLLECTION so it stays consistent with the app.
-COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "client_memory")
-
-# OpenAI text-embedding-3-small dimension
-VECTOR_SIZE = 1536
+# Name + size stay consistent with the app's provider configuration.
+COLLECTION_NAME = QDRANT_COLLECTION
+VECTOR_SIZE = embeddings.vector_size()
 
 
 def main():

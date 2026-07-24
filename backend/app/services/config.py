@@ -13,4 +13,18 @@ import os
 # Chunk size ~500 tokens (≈2000 chars), overlap 50 tokens (≈200 chars)
 CHUNK_CHAR_SIZE = 2000
 CHUNK_OVERLAP = 200
-QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "client_memory")
+
+
+def _default_collection() -> str:
+    """Collection per embedding provider: vector dims differ (384 vs 1536),
+    so each provider owns its own collection unless QDRANT_COLLECTION pins
+    an explicit name. Migration between them: scripts/reindex_embeddings.py.
+    """
+    explicit = (os.environ.get("QDRANT_COLLECTION") or "").strip()
+    if explicit:
+        return explicit
+    provider = (os.environ.get("EMBEDDINGS_PROVIDER") or "fastembed").strip().lower()
+    return "client_memory" if provider == "openai" else "client_memory_bge384"
+
+
+QDRANT_COLLECTION = _default_collection()

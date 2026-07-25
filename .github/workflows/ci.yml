@@ -136,7 +136,7 @@ jobs:
       - name: Run E2E suite (desktop + mobile chromium, mock API)
         working-directory: frontend
         run: npx playwright test --project=chromium --project=mobile-chromium
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
@@ -205,7 +205,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LLM_QUOTA_BACKEND: memory
         run: python -m evals.run_evals
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always() && steps.changes.outputs.changed == 'true' && steps.keys.outputs.have == 'true'
         with:
           name: eval-report

@@ -239,16 +239,19 @@ Repository **secrets** (Settings → Secrets and variables → Actions):
 | `OPENAI_API_KEY` | LLM + embeddings |
 | `SENTRY_DSN` | backend Sentry project (optional) |
 | `ACCESS_CODE` | only for demo-posture deploys (optional) |
+| `ZOHO_SMTP_HOST` / `ZOHO_SMTP_PORT` / `ZOHO_SMTP_USER` / `ZOHO_SMTP_PASS` | Contact-form outbound SMTP (Zoho Mail → Settings → Mail Accounts → IMAP/SMTP; any SMTP-over-SSL/port-465 provider works). Optional — omit any one and `POST /api/contact` answers 503 instead of failing. |
+| `CONTACT_TO_EMAIL` / `CONTACT_FROM_EMAIL` | Support inbox that receives contact-form submissions / the From address they're sent as (often the same mailbox as `ZOHO_SMTP_USER`) |
 
 GitHub secrets remain the **source of truth**, but they are not passed to
 CloudFormation or set as Lambda environment variables (env vars are readable
 via `lambda:GetFunctionConfiguration` and parameter values persist in
 CloudFormation history). Instead, each deploy syncs `ACCESS_CODE`,
 `DATABASE_URL`, `QDRANT_API_KEY`, `OPENAI_API_KEY`,
-`SUPABASE_SERVICE_ROLE_KEY` and `SENTRY_DSN` to **SSM SecureString
-parameters** under `/kritifin/<env>/`, and both Lambdas load them once per
-cold start (`backend/app/secrets_loader.py`). Rotation = update the GitHub
-secret and redeploy. SSM standard parameters are free.
+`SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`, and the contact-form SMTP secrets
+above to **SSM SecureString parameters** under `/kritifin/<env>/`, and both
+Lambdas load them once per cold start (`backend/app/secrets_loader.py`).
+Rotation = update the GitHub secret and redeploy. SSM standard parameters are
+free.
 
 Repository **variables**:
 

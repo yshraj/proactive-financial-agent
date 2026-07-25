@@ -120,6 +120,15 @@ jobs:
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          # Contact form (public chat widget -> SMTP; see app/services/email.py).
+          # All optional: unset any one and the endpoint answers 503 instead of
+          # failing the deploy.
+          ZOHO_SMTP_HOST: ${{ secrets.ZOHO_SMTP_HOST }}
+          ZOHO_SMTP_PORT: ${{ secrets.ZOHO_SMTP_PORT }}
+          ZOHO_SMTP_USER: ${{ secrets.ZOHO_SMTP_USER }}
+          ZOHO_SMTP_PASS: ${{ secrets.ZOHO_SMTP_PASS }}
+          CONTACT_TO_EMAIL: ${{ secrets.CONTACT_TO_EMAIL }}
+          CONTACT_FROM_EMAIL: ${{ secrets.CONTACT_FROM_EMAIL }}
         run: |
           put_secret() {
             local name="$1" value="$2"
@@ -148,6 +157,12 @@ jobs:
           put_secret LANGFUSE_SECRET_KEY "$LANGFUSE_SECRET_KEY"
           put_secret SUPABASE_SERVICE_ROLE_KEY "$SUPABASE_SERVICE_ROLE_KEY"
           put_secret SENTRY_DSN "$SENTRY_DSN"
+          put_secret ZOHO_SMTP_HOST "$ZOHO_SMTP_HOST"
+          put_secret ZOHO_SMTP_PORT "$ZOHO_SMTP_PORT"
+          put_secret ZOHO_SMTP_USER "$ZOHO_SMTP_USER"
+          put_secret ZOHO_SMTP_PASS "$ZOHO_SMTP_PASS"
+          put_secret CONTACT_TO_EMAIL "$CONTACT_TO_EMAIL"
+          put_secret CONTACT_FROM_EMAIL "$CONTACT_FROM_EMAIL"
 
       - name: Build Lambda container images
         working-directory: deploy/aws

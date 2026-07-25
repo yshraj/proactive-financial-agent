@@ -51,7 +51,10 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const router = useRouter();
   const qc = useQueryClient();
   return (
-    <nav className="flex flex-col gap-6" aria-label="Primary">
+    <nav
+      className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto"
+      aria-label="Primary"
+    >
       {NAV_GROUPS.map((group) => (
         <div key={group.label} className="flex flex-col gap-1">
           <p className="px-3 text-xs font-medium text-slate-500">
@@ -193,7 +196,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [drawerOpen]);
 
   return (
-    <div className="flex min-h-screen bg-[#F8FAFC] font-sans">
+    <div className="flex h-dvh overflow-hidden bg-[#F8FAFC] font-sans">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-xl focus:bg-brand-600 focus:px-4 focus:py-2 focus:text-sm focus:text-white"

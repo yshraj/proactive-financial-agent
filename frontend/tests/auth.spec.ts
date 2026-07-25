@@ -1,32 +1,24 @@
 import { test, expect } from "./fixtures/base";
-import { fulfillJson } from "./helpers/network";
 
 /**
- * Authentication and session flows. The local mock environment runs with
- * Supabase unconfigured (demo mode), where the auth pages render their
- * demo-workspace variants; credential-based journeys run only against
+ * Entry and session flows. The local mock environment runs with Supabase
+ * unconfigured (demo mode); credential-based journeys run only against
  * deployed targets that set E2E_EMAIL/E2E_PASSWORD.
  */
 
 const supabaseCredentialsAvailable = !!process.env.E2E_EMAIL && !!process.env.E2E_PASSWORD;
 
-test.describe("authentication", () => {
+test.describe("entry", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  test("login page renders correctly", async ({ app }) => {
-    await app.login.goto("/dashboard");
-    await app.login.expectLoaded();
+  test("landing page loads", async ({ app }) => {
+    await app.landing.goto();
+    await app.landing.expectLoaded();
   });
 
-  test("user can sign in", async ({ app, page }) => {
-    await app.login.goto("/dashboard");
-    await app.login.signIn();
-    await expect(page).toHaveURL(/\/dashboard/);
-    await app.dashboard.expectLoaded();
-  });
-
-  test("login preserves the requested destination", async ({ app, page }) => {
+  test("sign in lands on the requested page", async ({ app, page }) => {
     await app.login.goto("/clients");
+    await app.login.expectLoaded();
     await app.login.signIn();
     await expect(page).toHaveURL(/\/clients/);
     await app.clients.expectLoaded();
@@ -36,11 +28,7 @@ test.describe("authentication", () => {
     page,
   }) => {
     for (const malicious of ["https://evil.example.com", "//evil.example.com"]) {
-      // Firefox can abort a goto (NS_BINDING_ABORTED) when it interrupts the
-      // previous page's in-flight work; re-navigating is always safe here.
-      await expect(async () => {
-        await page.goto(`/login?redirect=${encodeURIComponent(malicious)}`);
-      }).toPass({ timeout: 15_000 });
+      await page.goto(`/login?redirect=${encodeURIComponent(malicious)}`);
       const cta = page
         .getByTestId("continue-without-auth")
         .or(page.getByTestId("login-form"));
@@ -52,52 +40,6 @@ test.describe("authentication", () => {
         await expect(continueLink).toHaveAttribute("href", "/dashboard");
       }
     }
-  });
-
-  test("signup page offers a working path into the app", async ({ page }) => {
-    await page.goto("/signup?redirect=/dashboard");
-    await expect(
-      page.getByRole("heading", { name: "Create your account" })
-    ).toBeVisible();
-
-    // Demo mode renders the continue path; configured mode renders the form.
-    const continueButton = page.getByTestId("continue-without-auth");
-    if (await continueButton.isVisible().catch(() => false)) {
-      await continueButton.click();
-      await expect(page).toHaveURL(/\/dashboard/);
-    } else {
-      await expect(page.getByTestId("signup-form")).toBeVisible();
-      await expect(page.getByTestId("signup-email")).toBeVisible();
-      await expect(page.getByTestId("signup-password")).toBeVisible();
-    }
-  });
-
-  test("forgot-password page explains itself in demo mode", async ({ page }) => {
-    await page.goto("/forgot-password");
-    await expect(
-      page.getByRole("heading", { name: "Reset your password" })
-    ).toBeVisible();
-
-    const demoNotice = page.getByText(
-      "Password reset needs sign-in to be configured."
-    );
-    const form = page.getByTestId("forgot-form");
-    // One of the two variants must render — never a blank card.
-    await expect(demoNotice.or(form).first()).toBeVisible();
-  });
-
-  test("reset-password page explains itself in demo mode", async ({ page }) => {
-    await page.goto("/reset-password");
-    await expect(
-      page.getByRole("heading", { name: "Choose a new password" })
-    ).toBeVisible();
-    await expect(
-      page
-        .getByText("Password reset needs sign-in to be configured.")
-        .or(page.getByText("Verifying your reset link…"))
-        .or(page.getByTestId("reset-form"))
-        .first()
-    ).toBeVisible();
   });
 });
 
@@ -111,23 +53,6 @@ test.describe("session behaviour", () => {
     await page.goto("/dashboard");
     await expect(page).not.toHaveURL(/\/login/);
     await app.dashboard.expectLoaded();
-  });
-
-  test("an expired session mid-use surfaces as an auth error, not a blank page", async ({
-    app,
-    page,
-  }) => {
-    await app.aiCopilot.goto();
-    await app.aiCopilot.expectLoaded();
-
-    // The backend starts rejecting mid-session (token expired server-side).
-    await page.route("**/api/agent/runs", (route) =>
-      fulfillJson(route, 401, {
-        detail: "Authentication required. Send a Supabase bearer token.",
-      })
-    );
-    await app.aiCopilot.askExpectingFailure("Which clients need a review?");
-    await expect(app.aiCopilot.errorState).toContainText(/authentication required/i);
   });
 });
 

@@ -13,10 +13,6 @@ const NAV_TEST_IDS: Record<string, string> = {
 export class AppShell {
   constructor(private readonly page: Page) {}
 
-  async expectHeading(name: string) {
-    await expect(this.page.getByRole("heading", { level: 1, name })).toBeVisible();
-  }
-
   async navigateTo(label: keyof typeof NAV_TEST_IDS) {
     const testId = NAV_TEST_IDS[label];
     const mobileBtn = this.page.getByTestId("mobile-menu-button");

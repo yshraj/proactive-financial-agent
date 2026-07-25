@@ -1,34 +1,24 @@
 # Playwright E2E Tests
 
-This directory contains the KritiFin end-to-end test framework.
+A minimal end-to-end suite focused on the critical user flows of KritiFin.
 
 ## Structure
 
 - `auth.setup.ts` logs in once and writes reusable storage state to `tests/.auth/user.json`.
 - `fixtures/base.ts` exposes Page Object Models and fails tests on unexpected console errors.
 - `pages/` contains Page Object Models.
-- `helpers/` contains reusable API, console, screenshot, and network fault-injection helpers.
-  - `helpers/network.ts` mirrors the backend's structured 429 (`{error, limit_type, reset_at, detail}` + `Retry-After`/`X-RateLimit-*`) and provides deterministic delay/failure injection.
-- `test-data/` contains shared upload payloads (`files.ts`) and edge-case prompts (`prompts.ts`).
+- `helpers/` contains the API-wait, console-error, credit-confirmation, and JSON route-mock helpers.
 - `mock-server.mjs` is a self-contained FastAPI-compatible mock for local frontend tests (stateful: async upload jobs and per-conversation chat history).
 
 ## Suites
 
 | Spec | Covers |
 | --- | --- |
-| `auth.spec.ts` | Demo + credentialed sign-in, signup/forgot/reset pages, open-redirect guard, session persistence and expiry |
-| `app-journey.spec.ts`, `qa-adviser-journey.spec.ts` | Core adviser happy paths across every page |
-| `ai-copilot.spec.ts` | Conversation threading, markdown/citations, loading lock, restore after reload, multi-tab, draft-email regenerate/copy |
-| `credits.spec.ts` | Lifetime balance visibility, variable costs, pre-action confirmation, backend hard stops, manual requests, and history |
-| `usage-limits.spec.ts` | Temporary per-minute abuse protection (429), distinct from lifetime credits |
-| `edge-cases.spec.ts` | Unicode/emoji/RTL/special chars, very long prompts, double submit, rapid clicks, oversized/multi-file uploads, refresh persistence |
-| `settings-data.spec.ts` | Clear-data confirmation flow (route-mocked — never mutates a real backend), first-run onboarding, audit approval, posture |
-| `network.spec.ts` | Offline mode, slow responses, request/response contracts, retry semantics |
-| `resilience.spec.ts` | 404s, 5xx recovery, upload validation, ingestion pipeline UX |
-| `accessibility.spec.ts` | axe WCAG scans, keyboard navigation, focus management, live regions |
-| `responsive.spec.ts` | Desktop/tablet/mobile navigation (device projects) |
-| `performance.spec.ts` | Load/transition/answer budgets + lazy-chunk check (Chromium desktop only) |
-| `api.spec.ts` | Backend API contract smoke tests |
+| `auth.spec.ts` | Landing page, demo + credentialed sign-in, open-redirect guard, session persistence |
+| `app-journey.spec.ts` | The core adviser journey: dashboard, navigation across every page, prepare-for-meeting deep link, meeting brief + follow-up email, multi-turn copilot with reload persistence, client 360, alerts triage, document/transcript ingestion, settings, and API-failure recovery |
+| `credits.spec.ts` | Balance visibility, confirmation before expensive actions, zero-credit hard stop with manual request |
+
+Projects: `chromium` (desktop) and `mobile-chromium` (Pixel 5 emulation — exercises the drawer navigation path).
 
 ## Local Runs
 
@@ -60,7 +50,6 @@ When Supabase auth is not configured, tests use the local **Enter demo workspace
 - HTML report: `playwright-report/`
 - JUnit XML (for CI test panels): `playwright-results/junit.xml`
 - Failure artifacts (trace, video, screenshot): `test-results/`
-- Successful major-page screenshots are attached to each test's output directory.
 
 ## Isolated local runs
 

@@ -7,6 +7,7 @@ import "../styles/globals.css";
 import { LayoutProvider } from "../contexts/LayoutContext";
 import { AuthProvider, AuthGuard } from "../contexts/AuthContext";
 import { CreditProvider } from "../contexts/CreditContext";
+import { ContactProvider } from "../contexts/ContactContext";
 import { AccessGate } from "../components/AccessGate";
 import AppLayout from "../components/AppLayout";
 import { SystemBanners } from "../components/SystemBanners";
@@ -65,21 +66,23 @@ export default function App({ Component, pageProps }: AppProps) {
       <QueryClientProvider client={queryClient}>
         <SystemBanners />
         <ToastProvider>
-          <AuthProvider>
-            <LayoutProvider>
-              {isBare ? (
-                page
-              ) : (
-                <AccessGate>
-                  <AuthGuard>
-                    <CreditProvider>
-                      <AppLayout>{page}</AppLayout>
-                    </CreditProvider>
-                  </AuthGuard>
-                </AccessGate>
-              )}
-            </LayoutProvider>
-          </AuthProvider>
+          <ContactProvider>
+            <AuthProvider>
+              <LayoutProvider>
+                {isBare ? (
+                  page
+                ) : (
+                  <AccessGate>
+                    <AuthGuard>
+                      <CreditProvider>
+                        <AppLayout>{page}</AppLayout>
+                      </CreditProvider>
+                    </AuthGuard>
+                  </AccessGate>
+                )}
+              </LayoutProvider>
+            </AuthProvider>
+          </ContactProvider>
         </ToastProvider>
       </QueryClientProvider>
     </div>

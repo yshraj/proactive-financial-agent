@@ -22,8 +22,9 @@ import {
   X,
 } from "lucide-react";
 import { BrandLogo } from "../components/BrandLogo";
-import { ButtonLink } from "../components/ui";
+import { Button, ButtonLink } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
+import { useContact } from "../contexts/ContactContext";
 import { GET_STARTED_HREF, ROUTES } from "../lib/routes";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from "../lib/seo";
 
@@ -222,6 +223,7 @@ function DashboardPreview() {
 export default function LandingPage() {
   const router = useRouter();
   const { configured, loading, user } = useAuth();
+  const { openContact } = useContact();
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -376,9 +378,9 @@ export default function LandingPage() {
                 >
                   Start Free
                 </ButtonLink>
-                <ButtonLink href="#workflow" variant="secondary" size="lg">
+                <Button variant="secondary" size="lg" onClick={() => openContact("sales")}>
                   Book Demo
-                </ButtonLink>
+                </Button>
               </div>
               <DashboardPreview />
             </div>
@@ -562,6 +564,17 @@ export default function LandingPage() {
                   </details>
                 ))}
               </div>
+              <p className="mt-8 text-center text-sm text-slate-500">
+                Still have questions?{" "}
+                <button
+                  type="button"
+                  onClick={() => openContact("general")}
+                  className="font-medium text-brand-700 underline underline-offset-2 hover:text-brand-600"
+                >
+                  Chat with us
+                </button>
+                .
+              </p>
             </div>
           </section>
 
@@ -582,9 +595,9 @@ export default function LandingPage() {
                 >
                   Start Free
                 </ButtonLink>
-                <ButtonLink href={ROUTES.login} variant="secondary" size="lg">
+                <Button variant="secondary" size="lg" onClick={() => openContact("sales")}>
                   Book Demo
-                </ButtonLink>
+                </Button>
               </div>
             </div>
           </section>
@@ -603,6 +616,13 @@ export default function LandingPage() {
               <a href="#capabilities" className="text-sm text-slate-500 transition-colors hover:text-slate-950">
                 Capabilities
               </a>
+              <button
+                type="button"
+                onClick={() => openContact("general")}
+                className="text-sm text-slate-500 transition-colors hover:text-slate-950"
+              >
+                Contact
+              </button>
             </nav>
             <p className="text-xs text-slate-500">
               (c) {new Date().getFullYear()} KritiFin — a product of{" "}

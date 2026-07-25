@@ -1,6 +1,6 @@
 import Head from "next/head";
 import { useState } from "react";
-import { Download, History, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { Download, Headset, History, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { Card, CardHeader, Button, ErrorState, Modal, useToast, PageIntro, PageShell } from "../components/ui";
 import { usePageSetup } from "../hooks/usePageSetup";
 import { useApproveAuditEntry, useAuditLog, useClearData, useCompliancePosture, useExportData } from "../hooks/useApi";
@@ -8,6 +8,7 @@ import type { ExportType } from "../lib/export";
 import { formatDateTime } from "../lib/format";
 import { CreditHistoryCard, CreditWidget } from "../components/credits";
 import { useCredits } from "../contexts/CreditContext";
+import { useContact } from "../contexts/ContactContext";
 import { creditCostLabel } from "../lib/credits";
 
 const AUDIT_KIND_LABELS: Record<string, string> = {
@@ -54,6 +55,7 @@ export default function SettingsPage() {
   const approveEntry = useApproveAuditEntry();
   const posture = useCompliancePosture().data;
   const { summary: credits, openContact } = useCredits();
+  const { openContact: openSupportContact } = useContact();
 
   usePageSetup("Settings");
 
@@ -174,6 +176,36 @@ export default function SettingsPage() {
                   data-testid="export-alerts-button"
                 >
                   Export alerts
+                </Button>
+              </div>
+            </SettingRow>
+          </div>
+        </Card>
+
+        <Card data-testid="support-card">
+          <CardHeader title="Support" />
+          <div className="divide-y divide-slate-100">
+            <SettingRow
+              icon={<Headset className="h-4 w-4" aria-hidden />}
+              title="Need help?"
+              description="Chat with us — report a bug, ask a question, or request something new."
+            >
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => openSupportContact("bug")}
+                  data-testid="report-issue-button"
+                >
+                  Report an issue
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => openSupportContact("support")}
+                  data-testid="contact-support-button"
+                >
+                  Contact support
                 </Button>
               </div>
             </SettingRow>

@@ -70,11 +70,11 @@ async def submit_contact(request: Request, response: Response, body: ContactIn):
             send_contact_email, name=name, email=email, topic=body.topic, message=message
         )
     except EmailNotConfigured:
-        raise HTTPException(status_code=503, detail=_UNAVAILABLE_MESSAGE)
+        raise HTTPException(status_code=503, detail=_UNAVAILABLE_MESSAGE) from None
     except EmailSendError:
         raise HTTPException(
             status_code=502,
             detail="We couldn't send your message. Please try again shortly.",
-        )
+        ) from None
 
     return ContactOut()

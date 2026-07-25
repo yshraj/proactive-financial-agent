@@ -38,6 +38,11 @@ const ALLOWLIST = new Map([
   // ---- in-range "fix" is a 4-major downgrade of @sentry/nextjs.
   ["GHSA-6g55-p6wh-862q", "build-time tool on first-party CSS; no sane in-range fix"],
   ["GHSA-r28c-9q8g-f849", "postcss source-map path traversal; build-time on first-party CSS only (no untrusted CSS input); pinned by @sentry/nextjs, no in-range fix"],
+  // ---- brace-expansion — build/dev-tooling transitive only (eslint, next
+  // ---- eslint plugin, @sentry/nextjs bundler plugin via glob/minimatch);
+  // ---- never in the runtime bundle. DoS needs attacker-controlled glob
+  // ---- patterns, which our own build never processes.
+  ["GHSA-mh99-v99m-4gvg", "brace-expansion DoS; build/dev-tooling transitive only, not shipped; no attacker-controlled glob input"],
 ]);
 
 const BLOCKING = new Set(["high", "critical"]);

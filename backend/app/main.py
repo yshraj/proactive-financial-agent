@@ -38,7 +38,7 @@ from app import security
 from app.auth import authenticate_request, require_access_code
 from app.logging_config import configure_logging
 from app.observability import init_sentry, readiness_report
-from app.routers import agent, chat, compliance, credits, ingest, monitor, settings
+from app.routers import agent, chat, compliance, contact, credits, ingest, monitor, settings
 from app.security import enforce_auth_mode, limiter
 from app.services.credits import (
     CreditBalanceUnavailable,
@@ -348,6 +348,10 @@ app.include_router(agent.router, prefix="/api/agent", tags=["agent"], dependenci
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"], dependencies=api_guard)
 app.include_router(compliance.router, prefix="/api/compliance", tags=["compliance"], dependencies=api_guard)
 app.include_router(credits.router, prefix="/api/credits", tags=["credits"], dependencies=api_guard)
+# No api_guard: public contact form (logged-out visitors + signed-in users
+# reporting an issue). Rate-limited + honeypot instead of tenant auth — see
+# app.routers.contact module docstring.
+app.include_router(contact.router, prefix="/api/contact", tags=["contact"])
 
 
 @app.get("/api/access/check", dependencies=[Depends(require_access_code)])

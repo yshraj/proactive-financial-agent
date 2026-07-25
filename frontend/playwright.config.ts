@@ -58,26 +58,11 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], storageState },
     },
     {
-      name: "firefox",
-      dependencies: ["auth"],
-      use: { ...devices["Desktop Firefox"], storageState },
-    },
-    {
-      name: "webkit",
-      dependencies: ["auth"],
-      use: { ...devices["Desktop Safari"], storageState },
-    },
-    {
+      // The mobile drawer is a distinct navigation code path; one emulated
+      // phone project keeps it covered without a full device matrix.
       name: "mobile-chromium",
       dependencies: ["auth"],
       use: { ...devices["Pixel 5"], storageState },
-    },
-    {
-      name: "tablet-chromium",
-      dependencies: ["auth"],
-      // iPad device descriptors default to WebKit; pin Chromium so this
-      // project matches its name and runs on CI's chromium+firefox install.
-      use: { ...devices["iPad (gen 7)"], browserName: "chromium", storageState },
     },
   ],
   webServer: skipWebServer

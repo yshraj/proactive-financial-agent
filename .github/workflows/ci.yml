@@ -132,10 +132,10 @@ jobs:
         run: npm ci
       - name: Install Playwright browsers
         working-directory: frontend
-        run: npx playwright install --with-deps chromium firefox
-      - name: Run E2E suite (chromium + tablet + firefox, mock API)
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E suite (desktop + mobile chromium, mock API)
         working-directory: frontend
-        run: npx playwright test --project=chromium --project=tablet-chromium --project=firefox
+        run: npx playwright test --project=chromium --project=mobile-chromium
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

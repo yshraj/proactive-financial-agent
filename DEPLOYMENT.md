@@ -21,7 +21,7 @@ VPC, no NAT Gateway, no API Gateway, no always-on compute.
 | Database | **Supabase** | Postgres with RLS; transaction-mode pooler (Lambda-friendly) |
 | Auth | **Supabase Auth** | `AUTH_MODE=required` in production |
 | Documents | **Supabase Storage** | Private `documents` bucket, org-prefixed keys |
-| Vector DB | **Qdrant Cloud** | `client_memory` collection with tenant payload indexes |
+| Vector DB | **Qdrant Cloud** | `proactive_jarvis_agent_client_memory` collection with tenant payload indexes |
 
 ```
                          ┌─────────────────────────── AWS (no VPC) ───────────────────────────┐

@@ -3,8 +3,8 @@ Create the Qdrant collection for RAG.
 
 Collection name and vector size follow the configured embedding provider
 (services/embeddings.py): fastembed/bge-small-en-v1.5 → 384 dims in
-client_memory_bge384 (default); EMBEDDINGS_PROVIDER=openai → 1536 dims in
-client_memory. The app also self-heals via vector_store.ensure_collection();
+proactive_jarvis_agent_client_memory (default); EMBEDDINGS_PROVIDER=openai →
+1536 dims in client_memory. The app also self-heals via vector_store.ensure_collection();
 this script exists for explicit provisioning and recreation.
 
 Run from repo root: python backend/scripts/create_qdrant_collection.py

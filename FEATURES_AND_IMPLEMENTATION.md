@@ -86,7 +86,7 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 - **Upload PDF and DOCX** — Fact-finds, meeting notes.
 - **Duplicate detection** — By content hash (SHA-256).
 - **Path A – LLM extraction → Postgres:** Client profile and alerts (`DEADLINE`, `OPPORTUNITY`, `COMPLIANCE`, `FOLLOW_UP`).
-- **Path B – Chunk → embed → Qdrant:** Text chunked, embedded, upserted to `client_memory`.
+- **Path B – Chunk → embed → Qdrant:** Text chunked, embedded, upserted to `proactive_jarvis_agent_client_memory`.
 - **Document ↔ client linking** — Each upload is linked to the client it produced (`ingested_documents.client_id`, migration 002) and counted on Client 360.
 - **Transcript ingestion** — Paste a meeting transcript and run the same dual-path pipeline as uploads (`POST /api/ingest/transcript`), with content-hash dedup.
 - **Async ingestion + job status** — Durable Postgres job queue (`services/jobs.py`), drained event-driven right after each enqueue (worker Lambda in AWS via `services/worker_trigger.py`, in-process background task locally — no polling loop): `POST /api/ingest/upload-async` returns a job id, polled at `GET /api/ingest/jobs/{id}`. The synchronous `/upload` is unchanged.
@@ -173,7 +173,7 @@ This document describes **all features** implemented in **KritiFin** (Proactive 
 |------|----------------|
 | **Cache TTLs** | Brief 1 h, draft 30 min, chat 5 min, digest 60 s, structured context 90 s, extraction 24 h |
 | **Database** | PostgreSQL (Supabase): `clients`, `alerts`, `ingested_documents`, `agent_runs`, `agent_steps`, `llm_quota_counters`; connection pooling in `db.py` |
-| **Vector store** | Qdrant `client_memory_bge384`, 384 dims, COSINE (fastembed default); legacy `client_memory` 1536 dims with `EMBEDDINGS_PROVIDER=openai` |
+| **Vector store** | Qdrant `proactive_jarvis_agent_client_memory`, 384 dims, COSINE (fastembed default); legacy `client_memory` 1536 dims with `EMBEDDINGS_PROVIDER=openai` |
 | **LLM** | Multi-provider gateway: free tiers first (Groq/Cerebras/Gemini/Moonshot/OpenRouter), DeepSeek/OpenAI optional; per-purpose routes, quota tracking, fallbacks |
 | **Agents** | LangGraph plan→gather→synthesize→review→finalize; durable runs on the job queue; cross-model review; step timeline + replay |
 | **Security** | Input clamping, RAG injection stripping, rate limits, safe redirects — `safety.py`; agent tools are read-only and RLS-scoped |

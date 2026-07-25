@@ -40,7 +40,7 @@ def test_collection_name_follows_provider(monkeypatch):
     monkeypatch.delenv("QDRANT_COLLECTION", raising=False)
     monkeypatch.delenv("EMBEDDINGS_PROVIDER", raising=False)
     importlib.reload(config)
-    assert config.QDRANT_COLLECTION == "client_memory_bge384"
+    assert config.QDRANT_COLLECTION == "proactive_jarvis_agent_client_memory"
 
     monkeypatch.setenv("EMBEDDINGS_PROVIDER", "openai")
     importlib.reload(config)

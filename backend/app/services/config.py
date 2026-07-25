@@ -16,15 +16,18 @@ CHUNK_OVERLAP = 200
 
 
 def _default_collection() -> str:
-    """Collection per embedding provider: vector dims differ (384 vs 1536),
-    so each provider owns its own collection unless QDRANT_COLLECTION pins
-    an explicit name. Migration between them: scripts/reindex_embeddings.py.
+    """Canonical collection name, shared across environments.
+
+    Default (fastembed, 384-dim): ``proactive_jarvis_agent_client_memory``.
+    OpenAI embeddings are 1536-dim and cannot share that collection, so they
+    fall back to ``client_memory``; ``QDRANT_COLLECTION`` pins an explicit name
+    to override either. Migration between providers: scripts/reindex_embeddings.py.
     """
     explicit = (os.environ.get("QDRANT_COLLECTION") or "").strip()
     if explicit:
         return explicit
     provider = (os.environ.get("EMBEDDINGS_PROVIDER") or "fastembed").strip().lower()
-    return "client_memory" if provider == "openai" else "client_memory_bge384"
+    return "client_memory" if provider == "openai" else "proactive_jarvis_agent_client_memory"
 
 
 QDRANT_COLLECTION = _default_collection()

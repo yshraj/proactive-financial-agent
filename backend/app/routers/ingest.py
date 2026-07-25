@@ -1,6 +1,6 @@
 """
 Ingestion API: upload PDFs and Word (DOCX), duplicate check, then dual-path ingestion:
-Path A = LLM extraction -> clients + alerts (Postgres); Path B = chunk + embed -> Qdrant client_memory.
+Path A = LLM extraction -> clients + alerts (Postgres); Path B = chunk + embed -> Qdrant proactive_jarvis_agent_client_memory.
 
 Production posture:
 - Originals persist to Supabase Storage under org-prefixed keys (the app

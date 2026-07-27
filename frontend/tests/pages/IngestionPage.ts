@@ -35,7 +35,7 @@ export class IngestionPage {
     await expect(this.page.getByTestId("upload-status")).toBeVisible();
     const row = this.page.getByTestId("upload-status-item").filter({ hasText: "sample-client-note.pdf" });
     await expect(row).toBeVisible();
-    // The async pipeline polls job status (~1.2s apart); wait for the
+    // The async pipeline polls job status (~1.5s apart); wait for the
     // terminal state rather than a transient stage message.
     await expect(row).toContainText(/Done|Stored|Merged|Content matches/, { timeout: 15_000 });
   }

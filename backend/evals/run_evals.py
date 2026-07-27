@@ -326,7 +326,9 @@ def main() -> int:
         "critical_failed": critical_failed,
         "providers": providers,
     }
-    (out_dir / "report.json").write_text(json.dumps({"summary": summary, "cases": rows}, indent=2))
+    (out_dir / "report.json").write_text(
+        json.dumps({"summary": summary, "cases": rows}, indent=2), encoding="utf-8"
+    )
     md = [
         "# Eval report", "",
         f"- Cases: **{passed_n}/{total} passed** ({pass_rate:.0%}; threshold {threshold:.0%})",
@@ -337,7 +339,11 @@ def main() -> int:
     for r in rows:
         failed = "; ".join(f"{c['check']}({c['note']})" for c in r["checks"] if not c["passed"])
         md.append(f"| {r['id']} | {'✅' if r['passed'] else '❌'} | {failed} |")
-    (out_dir / "report.md").write_text("\n".join(md) + "\n")
+    # Explicit UTF-8: pathlib.write_text defaults to locale encoding, which is
+    # cp1252 on Windows and cannot encode the ✅/❌ glyphs above — this crashed
+    # the runner after grading had already finished (observed on Windows;
+    # ubuntu-latest CI never surfaces it because its default locale is UTF-8).
+    (out_dir / "report.md").write_text("\n".join(md) + "\n", encoding="utf-8")
 
     print(f"\n{passed_n}/{total} passed ({pass_rate:.0%}); "
           f"critical failures: {len(critical_failed)}")

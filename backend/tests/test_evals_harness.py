@@ -1,6 +1,8 @@
 """Eval harness: golden-set integrity + deterministic graders (no LLM)."""
 from __future__ import annotations
 
+import pytest
+
 from evals.golden_set import CASES
 from evals.run_evals import format_documents, grade_chat_case, grade_extraction_case
 
@@ -136,3 +138,36 @@ def test_document_formatting_matches_rag_context_shape():
     block = format_documents([DOC_CHEN_MEETING])
     assert block.startswith("[1] Client: David Chen | Meeting notes | 2026-07-14")
     assert "ISA allowance" in block
+
+
+# --- report-writing encoding (regression) ---------------------------------------
+#
+# Bug found in a Windows local-dev audit: report.md is built with literal ✅/❌
+# glyphs (see run_evals.main). pathlib.Path.write_text() with no explicit
+# ``encoding`` uses locale.getpreferredencoding(False) — UTF-8 on Linux/macOS
+# (so ubuntu-latest CI never caught this), but cp1252 on Windows, which cannot
+# encode U+2705/U+274C and crashed the runner with UnicodeEncodeError *after*
+# grading had already completed. Fixed by passing encoding="utf-8" explicitly
+# at both write_text call sites. This test forces the Windows-default encoding
+# on any OS (via monkeypatching locale.getpreferredencoding, which is exactly
+# what write_text consults when encoding=None) so the regression is caught in
+# CI too, not just on a Windows machine.
+
+
+def test_report_markdown_survives_windows_default_encoding(tmp_path, monkeypatch):
+    import locale
+
+    monkeypatch.setattr(locale, "getpreferredencoding", lambda do_setlocale=True: "cp1252")
+
+    report_path = tmp_path / "report.md"
+    markdown_with_glyphs = "| case | result |\n|---|---|\n| extract-01 | ✅ |\n| extract-02 | ❌ |\n"
+
+    # The fixed call site: explicit encoding="utf-8" must not depend on the
+    # (possibly cp1252) locale default we just forced above.
+    report_path.write_text(markdown_with_glyphs, encoding="utf-8")
+    assert report_path.read_text(encoding="utf-8") == markdown_with_glyphs
+
+    # Sanity check that the forced locale really would have broken the old,
+    # encoding-less call (proves this test actually exercises the bug).
+    with pytest.raises(UnicodeEncodeError):
+        (tmp_path / "old_buggy_report.md").write_text(markdown_with_glyphs)

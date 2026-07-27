@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Card } from "../ui";
+import { isPageHidden } from "../../lib/polling";
 
 const DEFAULT_STEPS = [
   "Searching structured client records",
@@ -27,10 +28,26 @@ export function AiThinkingCard({
 
   useEffect(() => {
     setStepIndex(0);
-    const id = setInterval(() => {
-      setStepIndex((i) => (i + 1) % steps.length);
-    }, 900);
-    return () => clearInterval(id);
+    // Pure UI animation (no network) — still pause it while the tab is
+    // backgrounded so a hidden thinking card doesn't keep re-rendering.
+    let id: ReturnType<typeof setInterval> | null = null;
+    const tick = () => setStepIndex((i) => (i + 1) % steps.length);
+    const start = () => {
+      if (id == null) id = setInterval(tick, 900);
+    };
+    const stop = () => {
+      if (id != null) {
+        clearInterval(id);
+        id = null;
+      }
+    };
+    const onVisibility = () => (isPageHidden() ? stop() : start());
+    if (!isPageHidden()) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [steps, query]);
 
   if (compact) {

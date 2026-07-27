@@ -490,11 +490,21 @@ def chat(
     tool_choice: Optional[Any] = None,
     response_format: Optional[dict] = None,
     exclude_families: Iterable[str] = (),
+    reasoning_effort: Optional[str] = None,
 ) -> GatewayResult:
     """Run one chat completion through the routing chain for ``purpose``.
 
     Raises :class:`GatewayUnavailableError` when every candidate is
     unavailable (no keys, quota exhausted, cooling down, or erroring).
+
+    ``reasoning_effort`` ("none"/"low"/"medium"/"high") only applies to
+    Gemini 2.5 models, which spend hidden "thinking" tokens out of the same
+    ``max_tokens`` budget before any visible content — on long documents this
+    can consume most of the budget and truncate the visible output
+    (finish_reason="length") well before it looks like a token-limit issue.
+    Silently ignored for other providers (never sent) since passing an
+    unrecognized field to a stricter OpenAI-compatible API is not guaranteed
+    safe.
     """
     from app.services.llm_usage import record_usage
 
@@ -541,6 +551,8 @@ def chat(
                 body["tool_choice"] = tool_choice
         if response_format:
             body["response_format"] = response_format
+        if reasoning_effort and spec.provider == "gemini":
+            body["reasoning_effort"] = reasoning_effort
 
         url = f"{provider_base_url(spec.provider)}/chat/completions"
         started = time.monotonic()

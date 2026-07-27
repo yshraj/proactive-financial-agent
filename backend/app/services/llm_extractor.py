@@ -66,11 +66,22 @@ def extract_text_from_bytes(content: bytes, ext: str, display_name: str = "docum
 # EXTRACTION_SYSTEM lives in app.services.prompts (versioned via PROMPT_VERSION)
 
 
-def _call_llm(text: str) -> tuple[str, str]:
+def _call_llm(text: str) -> tuple[str, str, str, dict | None]:
     """Structured extraction via the model gateway (long-context free models
     first — see the "extraction" route in services/model_gateway.py).
 
-    Returns (raw_json_text, provider/model label used).
+    Returns (raw_json_text, provider/model label used, finish_reason, usage).
+
+    ``reasoning_effort="none"`` disables Gemini 2.5's "thinking" pass, which
+    otherwise spends hidden tokens out of the *same* completion budget before
+    any visible content — on long documents that can consume most of the
+    budget and truncate the visible JSON (finish_reason="length"), a
+    malformed-JSON failure that looks unrelated to token limits unless you
+    check usage. Extraction is a deterministic formatting task with no
+    reasoning benefit, so disabling it is strictly better: faster, cheaper,
+    and reliable regardless of document length. (Ignored by non-Gemini
+    providers in the fallback chain — see model_gateway.chat.) max_tokens is
+    kept generous as a second line of defence.
     """
     from app.services.llm import complete_ex
 
@@ -79,12 +90,13 @@ def _call_llm(text: str) -> tuple[str, str]:
             {"role": "system", "content": EXTRACTION_SYSTEM},
             {"role": "user", "content": f"Document text:\n\n{text[:100000]}"},
         ],
-        max_tokens=4096,
+        max_tokens=8192,
         temperature=0,
         purpose="extraction",
         response_format={"type": "json_object"},
+        reasoning_effort="none",
     )
-    return result.content, result.label
+    return result.content, result.label, result.finish_reason, result.usage
 
 
 def _strip_json_comments(s: str) -> str:
@@ -203,10 +215,25 @@ def extract_structured_from_text(text: str) -> dict[str, Any]:
         return {"client": cached.get("client") or {}, "alerts": cached.get("alerts") or [], "raw_text": text}
 
     logger.info("[ingest] Calling LLM gateway for structured extraction...")
-    raw, model_label = _call_llm(text)
-    logger.info("[ingest] Extraction answered by %s", model_label)
+    raw, model_label, finish_reason, usage = _call_llm(text)
+    logger.info("[ingest] Extraction answered by %s (finish_reason=%s, usage=%s)",
+                model_label, finish_reason or "unknown", usage or {})
 
-    data = _parse_llm_json(raw)
+    try:
+        data = _parse_llm_json(raw)
+    except json.JSONDecodeError:
+        # Diagnostic-only, never the payload (PII policy): finish_reason
+        # "length" + a completion_tokens count close to max_tokens means the
+        # model was cut off mid-JSON — raise max_tokens, don't chase a JSON
+        # repair bug. Any other finish_reason points at a genuine malformed
+        # response worth reporting upstream.
+        logger.error(
+            "[ingest] LLM JSON parse failed — model=%s finish_reason=%s usage=%s raw_len=%d "
+            "(finish_reason='length' means the response was truncated, likely by max_tokens; "
+            "see model_gateway 'extraction' purpose config)",
+            model_label, finish_reason or "unknown", usage or {}, len(raw),
+        )
+        raise
     client = data.get("client") or {}
     alerts = data.get("alerts")
     if not isinstance(alerts, list):

@@ -59,6 +59,7 @@ def complete_ex(
     purpose: Purpose = "chat",
     temperature: Optional[float] = None,
     response_format: Optional[dict] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> GatewayResult:
     """Run a completion and return the full gateway result (content + which
     provider/model answered + token usage)."""
@@ -73,6 +74,7 @@ def complete_ex(
             temperature=DEFAULT_TEMPERATURE if temperature is None else temperature,
             model=model or resolve_model(purpose),
             response_format=response_format,
+            reasoning_effort=reasoning_effort,
         )
     except GatewayUnavailableError as exc:
         # Full provider detail goes to the logs; clients get fixed copy only.

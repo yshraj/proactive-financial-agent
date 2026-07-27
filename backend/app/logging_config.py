@@ -72,7 +72,17 @@ class TextFormatter(logging.Formatter):
         return super().format(record)
 
 
-def configure_logging() -> None:
+def configure_logging(*, force: bool = False) -> None:
+    """Install the JSON/text formatter on the root logger.
+
+    ``force=True`` replaces any pre-installed root handlers with our own
+    stream handler instead of just re-formatting them. The worker Lambda
+    needs this: awslambdaric pre-installs a root handler whose sink buffers
+    records — in production its output surfaced in CloudWatch hours late, as
+    multi-record chunks glued into one event (useless during an incident).
+    A plain per-record-flushing StreamHandler shows up in CloudWatch live,
+    exactly like the API function's logs.
+    """
     level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
     use_json = (os.environ.get("LOG_FORMAT", "json").lower() != "text")
@@ -84,12 +94,14 @@ def configure_logging() -> None:
         formatter = TextFormatter("%(asctime)s %(levelname)s [%(name)s]%(rid)s %(message)s")
 
     root = logging.getLogger()
-    if root.handlers:
+    if root.handlers and not force:
         # Already configured (e.g. uvicorn reload) — reset formatter + level.
         for handler in root.handlers:
             handler.setFormatter(formatter)
         root.setLevel(level)
     else:
+        for stale in list(root.handlers):
+            root.removeHandler(stale)
         handler = logging.StreamHandler()
         handler.setFormatter(formatter)
         root.addHandler(handler)

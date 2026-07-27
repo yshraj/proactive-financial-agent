@@ -87,13 +87,100 @@ def _call_llm(text: str) -> tuple[str, str]:
     return result.content, result.label
 
 
+def _strip_json_comments(s: str) -> str:
+    """Remove ``//`` and ``/* */`` comments outside string literals."""
+    out: list[str] = []
+    i, n = 0, len(s)
+    in_str = False
+    while i < n:
+        c = s[i]
+        if in_str:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(s[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                in_str = False
+            i += 1
+            continue
+        if c == '"':
+            in_str = True
+            out.append(c)
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and s[i + 1] == "/":
+            while i < n and s[i] not in "\r\n":
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and s[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (s[i] == "*" and s[i + 1] == "/"):
+                i += 1
+            i = min(i + 2, n)
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _strip_trailing_commas(s: str) -> str:
+    """Remove commas that directly precede ``}`` or ``]`` outside strings."""
+    out: list[str] = []
+    i, n = 0, len(s)
+    in_str = False
+    while i < n:
+        c = s[i]
+        if in_str:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(s[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                in_str = False
+            i += 1
+            continue
+        if c == '"':
+            in_str = True
+            out.append(c)
+            i += 1
+            continue
+        if c == ",":
+            j = i + 1
+            while j < n and s[j] in " \t\r\n":
+                j += 1
+            if j < n and s[j] in "}]":
+                i += 1  # drop the trailing comma; keep the whitespace/closer
+                continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def _parse_llm_json(raw: str) -> dict[str, Any]:
-    """Parse LLM response into { client, alerts }. Tolerates markdown code fence."""
+    """Parse LLM response into { client, alerts }.
+
+    Tolerates a markdown code fence, and repairs the JSON-mode syntax slips
+    providers still make — trailing commas and inline comments (observed in
+    production: gemini-2.5-flash emitting a trailing comma mid-object, which
+    is deterministic at temperature 0 and so failed every retry of the same
+    document). Only the decode error is ever logged, never the payload.
+    """
     s = raw.strip()
     m = re.search(r"\{[\s\S]*\}", s)
     if m:
         s = m.group(0)
-    return json.loads(s)
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError as err:
+        repaired = _strip_trailing_commas(_strip_json_comments(s))
+        try:
+            data = json.loads(repaired)
+        except json.JSONDecodeError:
+            raise err from None  # repair didn't help; report the original position
+        logger.warning("[ingest] LLM JSON needed syntax repair: %s", err)
+        return data
 
 
 def extract_structured_from_text(text: str) -> dict[str, Any]:

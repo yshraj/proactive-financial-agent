@@ -29,7 +29,9 @@ from app.secrets_loader import load_secrets
 
 # Cold-start initialisation: once per execution environment. Secrets first —
 # Sentry needs SENTRY_DSN and everything downstream needs DB/API keys.
-configure_logging()
+# force=True: replace awslambdaric's pre-installed root handler, whose
+# buffered sink delivered logs to CloudWatch hours late (see logging_config).
+configure_logging(force=True)
 load_secrets()
 init_sentry()
 

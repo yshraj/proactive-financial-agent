@@ -45,10 +45,16 @@ export default function AgentRunDetailPage() {
     queryFn: () => fetchAgentRun(runId),
     enabled: !!runId,
     // Keep polling while the run is live so the replay doubles as a monitor.
+    // 3s is plenty for a page that's secondary to the main chat/brief
+    // surfaces (which poll faster via lib/agent.ts while the user is
+    // actively waiting on an answer).
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === "PENDING" || status === "RUNNING" ? 2000 : false;
+      return status === "PENDING" || status === "RUNNING" ? 3000 : false;
     },
+    // Explicit here (it's TanStack Query's default): don't keep polling once
+    // the tab is backgrounded — resumes automatically on refocus.
+    refetchIntervalInBackground: false,
   });
 
   const run = runQuery.data;

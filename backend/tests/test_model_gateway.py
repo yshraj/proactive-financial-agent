@@ -292,6 +292,54 @@ def test_llm_facade_wraps_gateway_errors(monkeypatch):
     assert "couldn't generate AI results" in str(excinfo.value)
 
 
+def test_gateway_deadline_stops_further_fallback_after_first_attempt(monkeypatch):
+    """A blown time budget stops the chain from trying MORE candidates, but
+    never skips the first attempt (every request gets at least one try)."""
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
+    monkeypatch.setenv("CEREBRAS_API_KEY", "csk-test")
+    monkeypatch.setenv("LLM_GATEWAY_DEADLINE_SECONDS", "0")
+    hits = {"groq": 0, "cerebras": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.groq.com":
+            hits["groq"] += 1
+            return httpx.Response(500, json={"error": "boom"})
+        hits["cerebras"] += 1
+        return httpx.Response(200, json=_ok_payload())
+
+    _install(handler)
+    with pytest.raises(GatewayUnavailableError) as excinfo:
+        model_gateway.chat(
+            messages=[{"role": "user", "content": "hi"}], purpose="chat", max_tokens=64
+        )
+    # groq (first candidate) was tried despite the 0s budget; cerebras never
+    # was, because the deadline was already spent by the time we got there.
+    assert hits == {"groq": 1, "cerebras": 0}
+    assert "time budget" in str(excinfo.value)
+
+
+def test_gateway_deadline_does_not_affect_fast_normal_fallback(monkeypatch):
+    """The default budget (90s) never interferes with a normal, fast
+    fallback — only a genuinely slow multi-candidate chain hits it."""
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
+    monkeypatch.setenv("CEREBRAS_API_KEY", "csk-test")
+    hits = {"groq": 0, "cerebras": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.groq.com":
+            hits["groq"] += 1
+            return httpx.Response(500, json={"error": "boom"})
+        hits["cerebras"] += 1
+        return httpx.Response(200, json=_ok_payload("From Cerebras"))
+
+    _install(handler)
+    result = model_gateway.chat(
+        messages=[{"role": "user", "content": "hi"}], purpose="chat", max_tokens=64
+    )
+    assert result.provider == "cerebras"
+    assert hits == {"groq": 1, "cerebras": 1}
+
+
 def test_llm_facade_returns_content(monkeypatch):
     from app.services.llm import complete_with_system
 

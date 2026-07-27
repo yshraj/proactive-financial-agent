@@ -367,6 +367,24 @@ def _client() -> httpx.Client:
     return _http_client
 
 
+def _gateway_deadline_seconds() -> float:
+    """Overall wall-clock budget for one chat() call across every candidate.
+
+    A single hung request can still take up to LLM_TIMEOUT_SECONDS (each
+    candidate's own read timeout) — this doesn't preempt an in-flight call.
+    What it stops is the chain trying candidate after candidate during a
+    multi-provider outage: without it, a run through N candidates that each
+    time out could approach N * LLM_TIMEOUT_SECONDS, which on the API Lambda's
+    synchronous /api/chat and /api/chat/brief paths (180s timeout) risks the
+    request being killed mid-call — billed for the full duration with no
+    usable response. Read fresh per call (not cached) so it's easy to
+    override for a single request class if ever needed, and so tests can
+    monkeypatch it. Always effective even at 0 (see chat(): the first
+    eligible candidate is never skipped by the deadline).
+    """
+    return float(os.environ.get("LLM_GATEWAY_DEADLINE_SECONDS", "90"))
+
+
 def _request_headers(spec: ModelSpec, api_key: str) -> dict[str, str]:
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     if spec.provider == "openrouter":
@@ -485,6 +503,8 @@ def chat(
         raise GatewayUnavailableError(f"No models routed for purpose {purpose!r}")
 
     errors: list[str] = []
+    deadline = time.monotonic() + _gateway_deadline_seconds()
+    attempted = 0
     for spec in candidates:
         api_key = provider_api_key(spec.provider)
         if not api_key:
@@ -495,6 +515,18 @@ def chat(
         if not _reserve_quota(spec):
             errors.append(f"{spec.label}: quota exhausted")
             continue
+        # Never skip the first attempt (a request must always get at least
+        # one try), but stop advancing further down the chain once the
+        # overall budget is spent — see _gateway_deadline_seconds().
+        if attempted > 0 and time.monotonic() >= deadline:
+            errors.append(f"{spec.label}: skipped, gateway time budget exceeded")
+            logger.warning(
+                "LLM gateway time budget exceeded after %d attempt(s) for purpose %r; "
+                "stopping fallback chain",
+                attempted, purpose,
+            )
+            break
+        attempted += 1
 
         body: dict[str, Any] = {
             "model": spec.model,

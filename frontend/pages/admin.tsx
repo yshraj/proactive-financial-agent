@@ -346,6 +346,10 @@ export default function IngestionPage() {
             // keep the file so "Try again" can re-run the upload.
             patch(id, { state: "error", message: errorMessage(e, "Upload failed. Please try again."), file });
           }
+          // Failed outcomes still change what is stored server-side (a doc
+          // whose processing failed IS stored; a retry re-queues it), so keep
+          // the Stored documents card truthful on every path.
+          await docsQuery.refetch().catch(() => undefined);
           throw e;
         }
       }, id);

@@ -131,6 +131,28 @@ def get(job_id: str, *, ctx: Optional[TenantContext] = None) -> Optional[dict[st
     return _job_from_row(row) if row else None
 
 
+def latest_for_document(
+    document_id: str, *, ctx: Optional[TenantContext] = None
+) -> Optional[dict[str, Any]]:
+    """Most recent job for a document (reprocess retries add new job rows,
+    so the original job id — which equals the document id — isn't enough)."""
+    from app.db import get_cursor
+
+    tenant = _require_ctx(ctx)
+    with get_cursor(ctx=tenant) as cur:
+        cur.execute(
+            """
+            SELECT * FROM jobs
+            WHERE document_id = %s AND org_id = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (document_id, tenant.org_id),
+        )
+        row = cur.fetchone()
+    return _job_from_row(row) if row else None
+
+
 def clear(*, ctx: Optional[TenantContext] = None) -> None:
     """Delete this org's finished/queued jobs (data-reset flow)."""
     from app.db import get_cursor

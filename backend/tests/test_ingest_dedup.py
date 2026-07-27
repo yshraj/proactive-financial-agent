@@ -176,6 +176,131 @@ def test_merge_is_org_scoped(api_client, clean_db, org_a, org_b, fake_ai):
     assert a_clients[0]["id"] != b_clients[0]["id"]
 
 
+def _boom_extract(text: str):
+    raise RuntimeError("provider exploded mid-extraction")
+
+
+def test_failed_processing_reupload_reprocesses_instead_of_409(
+    api_client, clean_db, org_a, monkeypatch, fake_ai
+):
+    """The whitfield bug: a stored-but-failed document must not 409 as a
+    duplicate of itself when the user retries the upload (sync path)."""
+    monkeypatch.setattr(
+        "app.services.llm_extractor.extract_structured_from_text", _boom_extract
+    )
+    first = _upload(api_client, org_a, "whitfield-fact-find.md", FACT_FIND_TEXT.encode())
+    assert first.status_code == 201, first.text
+    assert first.json()["processing_error"]
+    assert first.json()["client_id"] is None
+
+    # Retry with identical bytes: must reprocess the stored row, not 409.
+    monkeypatch.setattr(
+        "app.services.llm_extractor.extract_structured_from_text", fake_ai
+    )
+    retry = _upload(api_client, org_a, "whitfield-fact-find.md", FACT_FIND_TEXT.encode())
+    assert retry.status_code == 201, retry.text
+    body = retry.json()
+    assert body["id"] == first.json()["id"]  # same stored document, no new row
+    assert body["processing_error"] is None
+    assert body["client_name"] == "Margaret & James Whitfield"
+
+    docs = api_client.get(
+        "/api/ingest/documents", headers=auth_headers_for(org_a)
+    ).json()
+    assert [d["filename"] for d in docs] == ["whitfield-fact-find.md"]
+    assert [c["full_name"] for c in _counts(api_client, org_a)] == [
+        "Margaret & James Whitfield"
+    ]
+
+    # Now fully processed: a third identical upload is a genuine duplicate.
+    third = _upload(api_client, org_a, "whitfield-fact-find.md", FACT_FIND_TEXT.encode())
+    assert third.status_code == 409
+    assert third.json()["detail"]["existing_id"] == body["id"]
+
+
+def test_failed_async_upload_retry_requeues_same_document(
+    api_client, clean_db, org_a, monkeypatch, fake_ai
+):
+    """Async path (the one the UI uses): retrying a failed upload enqueues a
+    fresh job for the SAME document row instead of 409ing."""
+    _hdrs = auth_headers_for
+    files = {"file": ("whitfield-fact-find.md", FACT_FIND_TEXT.encode(), "text/markdown")}
+    monkeypatch.setattr(
+        "app.services.llm_extractor.extract_structured_from_text", _boom_extract
+    )
+    first = api_client.post(
+        "/api/ingest/upload-async", files=files, headers=_hdrs(org_a)
+    )
+    assert first.status_code == 202, first.text
+    job1 = api_client.get(
+        f"/api/ingest/jobs/{first.json()['job_id']}", headers=_hdrs(org_a)
+    ).json()
+    assert job1["status"] == "ERROR"
+
+    monkeypatch.setattr(
+        "app.services.llm_extractor.extract_structured_from_text", fake_ai
+    )
+    second = api_client.post(
+        "/api/ingest/upload-async", files=files, headers=_hdrs(org_a)
+    )
+    assert second.status_code == 202, second.text
+    assert second.json()["document_id"] == first.json()["document_id"]
+    assert second.json()["job_id"] != first.json()["job_id"]
+    job2 = api_client.get(
+        f"/api/ingest/jobs/{second.json()['job_id']}", headers=_hdrs(org_a)
+    ).json()
+    assert job2["status"] == "DONE"
+
+    docs = api_client.get("/api/ingest/documents", headers=_hdrs(org_a)).json()
+    assert [d["filename"] for d in docs] == ["whitfield-fact-find.md"]
+
+    # Fully processed now -> identical bytes are a true duplicate again.
+    third = api_client.post(
+        "/api/ingest/upload-async", files=files, headers=_hdrs(org_a)
+    )
+    assert third.status_code == 409
+    assert third.json()["detail"]["code"] == "DUPLICATE"
+
+
+def test_upload_async_of_in_flight_document_returns_existing_job(
+    api_client, clean_db, org_a, bind_org_a, fake_ai
+):
+    """Re-uploading bytes whose job is still queued surfaces that job (202)
+    rather than erroring or double-charging."""
+    import uuid as _uuid
+
+    from app.routers.ingest import _compute_content_hash, _store_document_row
+    from app.services import jobs as jobs_svc
+
+    body = FACT_FIND_TEXT.encode()
+    doc_id = str(_uuid.uuid4())
+    _store_document_row(
+        org_id=bind_org_a.org_id,
+        file_id=doc_id,
+        display_filename="inflight.md",
+        content_hash=_compute_content_hash(body),
+        file_path=f"uploads/{bind_org_a.org_id}/{doc_id}.md",
+        file_size=len(body),
+    )
+    pending = jobs_svc.create(
+        doc_id,
+        kind="upload",
+        filename="inflight.md",
+        document_id=doc_id,
+        payload={"file_path": f"uploads/{bind_org_a.org_id}/{doc_id}.md", "ext": ".md"},
+        ctx=bind_org_a,
+    )
+
+    resp = api_client.post(
+        "/api/ingest/upload-async",
+        files={"file": ("inflight.md", body, "text/markdown")},
+        headers=auth_headers_for(org_a),
+    )
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["job_id"] == pending["id"]
+    assert resp.json()["document_id"] == doc_id
+
+
 def test_persist_extraction_retry_is_idempotent(clean_db, bind_org_a, fake_ai):
     """Re-running persistence for the same document (worker retry) is a no-op."""
     from app.routers.ingest import _persist_extraction, _store_document_row

@@ -8,7 +8,10 @@ Production posture:
 - Async processing goes through the durable Postgres job queue (services/jobs),
   drained event-driven by the worker (app/worker.py) — restarts lose nothing.
 - Duplicate detection is per-org (UNIQUE(org_id, content_hash)); another
-  tenant's identical document is invisible.
+  tenant's identical document is invisible. Only successfully processed
+  documents count as duplicates: re-uploading one whose processing failed
+  reprocesses the stored bytes (see _duplicate_disposition), and one still
+  queued/processing returns the running job instead of a 409.
 """
 from __future__ import annotations
 
@@ -120,7 +123,8 @@ def _find_by_hash(content_hash: str, org_id: str) -> Optional[dict]:
     try:
         with get_cursor() as cur:
             cur.execute(
-                "SELECT id, filename, uploaded_at FROM ingested_documents"
+                "SELECT id, filename, uploaded_at, client_id, file_path, file_size_bytes"
+                " FROM ingested_documents"
                 " WHERE content_hash = %s AND org_id = %s",
                 (content_hash, org_id),
             )
@@ -130,6 +134,55 @@ def _find_by_hash(content_hash: str, org_id: str) -> Optional[dict]:
         if _is_table_missing(e):
             raise HTTPException(status_code=503, detail=TABLE_MISSING_MSG) from e
         raise
+
+
+# Dispositions for an upload whose bytes match an already-stored document.
+_DUP_COMPLETE = "complete"  # fully processed -> reject as a true duplicate
+_DUP_IN_FLIGHT = "in_flight"  # queued/processing right now -> surface that job
+_DUP_REPROCESS = "reprocess"  # processing failed / never finished -> run again
+
+
+def _duplicate_disposition(existing: dict, *, have_text: bool = False) -> tuple[str, Optional[dict]]:
+    """Classify a byte-identical re-upload of ``existing``.
+
+    A stored document whose pipeline failed must not block retries forever:
+    the row persists (the error copy even says "the file was stored"), but
+    re-uploading the same file used to 409 as a duplicate *of itself*. So:
+    only successfully processed documents are true duplicates; a failed one
+    is reprocessed from its stored bytes, and one still in the queue points
+    the caller at the running job.
+
+    ``have_text`` is set by the transcript endpoint, which can re-run
+    extraction from the posted text; transcript rows have no stored object,
+    so file uploads matching one can never reprocess it.
+    """
+    is_transcript_row = str(existing.get("file_path") or "").startswith("transcript:")
+    if is_transcript_row and not have_text:
+        return _DUP_COMPLETE, None
+    job = jobs.latest_for_document(str(existing["id"]))
+    if job is not None:
+        if job["status"] in (jobs.PENDING, jobs.PROCESSING):
+            return _DUP_IN_FLIGHT, job
+        if job["status"] == jobs.ERROR:
+            return _DUP_REPROCESS, job
+        return _DUP_COMPLETE, job
+    # No job row means the document came through the sync path (or a
+    # transcript). An unlinked client means Path A never completed for it.
+    if existing.get("client_id") is None:
+        return _DUP_REPROCESS, None
+    return _DUP_COMPLETE, None
+
+
+def _duplicate_detail(existing: dict, message: str) -> dict:
+    detail = {
+        "code": "DUPLICATE",
+        "message": message,
+        "existing_id": str(existing["id"]),
+        "existing_filename": existing["filename"],
+    }
+    if existing.get("uploaded_at"):
+        detail["existing_uploaded_at"] = existing["uploaded_at"].isoformat()
+    return detail
 
 
 def doc_type_for_ext(ext: str) -> tuple[str, str]:
@@ -638,16 +691,17 @@ async def upload_document(
     content_hash = _compute_content_hash(content)
     existing = _find_by_hash(content_hash, ctx.org_id)
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "DUPLICATE",
-                "message": "This file has the same content as one already in the system.",
-                "existing_id": str(existing["id"]),
-                "existing_filename": existing["filename"],
-                "existing_uploaded_at": existing["uploaded_at"].isoformat() if existing.get("uploaded_at") else None,
-            },
-        )
+        disposition, _prior = _duplicate_disposition(existing)
+        if disposition != _DUP_REPROCESS:
+            raise HTTPException(
+                status_code=409,
+                detail=_duplicate_detail(
+                    existing, "This file has the same content as one already in the system."
+                ),
+            )
+        # Previous processing failed: the bytes are already stored, so re-run
+        # the pipeline for the existing document instead of rejecting the retry.
+        return _reprocess_stored_document(existing, content_hash)
 
     file_id = str(uuid.uuid4())
     display_filename = _sanitize_filename(file.filename)
@@ -684,6 +738,39 @@ async def upload_document(
         content_hash=row["content_hash"],
         file_size_bytes=row["file_size_bytes"],
         uploaded_at=row["uploaded_at"].isoformat() if row["uploaded_at"] else "",
+        processing_error=outcome.error,
+        note=outcome.note,
+        client_id=outcome.client_id,
+        client_name=outcome.client_name,
+        ai_generated=outcome.ai_generated,
+    )
+
+
+def _reprocess_stored_document(existing: dict, content_hash: str) -> DocumentOut:
+    """Re-run ingestion for a stored document whose previous processing failed
+    (sync path). Safe to repeat: persistence is idempotent per document id."""
+    document_id = str(existing["id"])
+    ext = _get_extension(existing["filename"])
+    uploaded_at_iso = existing["uploaded_at"].isoformat() if existing.get("uploaded_at") else None
+    audit.record_event(
+        action="document.uploaded",
+        resource_type="document",
+        resource_id=document_id,
+        metadata={"filename": existing["filename"], "reprocess": True, "sync": True},
+    )
+    outcome = run_dual_path_ingestion_from_storage(
+        existing["file_path"],
+        existing["filename"],
+        ext,
+        document_id=document_id,
+        ingested_at=uploaded_at_iso,
+    )
+    return DocumentOut(
+        id=document_id,
+        filename=existing["filename"],
+        content_hash=content_hash,
+        file_size_bytes=existing.get("file_size_bytes"),
+        uploaded_at=uploaded_at_iso or "",
         processing_error=outcome.error,
         note=outcome.note,
         client_id=outcome.client_id,
@@ -747,14 +834,56 @@ async def upload_document_async(
     content_hash = _compute_content_hash(content)
     existing = _find_by_hash(content_hash, ctx.org_id)
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "DUPLICATE",
-                "message": "This file has the same content as one already in the system.",
-                "existing_id": str(existing["id"]),
-                "existing_filename": existing["filename"],
-            },
+        disposition, prior_job = _duplicate_disposition(existing)
+        if disposition == _DUP_IN_FLIGHT and prior_job is not None:
+            # The same bytes are already queued/processing: point the caller
+            # at that job instead of erroring (and don't charge again).
+            return UploadJobResponse(
+                job_id=prior_job["id"],
+                document_id=str(existing["id"]),
+                status=prior_job["status"],
+            )
+        if disposition != _DUP_REPROCESS:
+            raise HTTPException(
+                status_code=409,
+                detail=_duplicate_detail(
+                    existing, "This file has the same content as one already in the system."
+                ),
+            )
+        # Previous processing failed: re-queue the stored bytes under a fresh
+        # job for the SAME document row instead of rejecting the retry.
+        reservation = credits.reserve(
+            credits.CreditFeature.PDF_ANALYSIS,
+            credits.request_idempotency_key(request, credits.CreditFeature.PDF_ANALYSIS),
+            ctx=ctx,
+        )
+        try:
+            job = jobs.create(
+                str(uuid.uuid4()),
+                kind="upload",
+                filename=existing["filename"],
+                document_id=str(existing["id"]),
+                payload={
+                    "file_path": existing["file_path"],
+                    "ext": _get_extension(existing["filename"]),
+                    "ingested_at": existing["uploaded_at"].isoformat()
+                    if existing.get("uploaded_at")
+                    else None,
+                    "credit_reservation_id": reservation.id,
+                },
+            )
+        except BaseException:
+            credits.release(reservation.id, ctx=ctx)
+            raise
+        audit.record_event(
+            action="document.uploaded",
+            resource_type="document",
+            resource_id=str(existing["id"]),
+            metadata={"filename": existing["filename"], "job_id": job["id"], "reprocess": True},
+        )
+        worker_trigger.trigger_drain(background_tasks, reason="upload-enqueued")
+        return UploadJobResponse(
+            job_id=job["id"], document_id=str(existing["id"]), status=job["status"]
         )
 
     reservation = credits.reserve(
@@ -890,14 +1019,56 @@ def ingest_transcript(
     content_hash = _compute_content_hash(text.encode("utf-8"))
     existing = _find_by_hash(content_hash, ctx.org_id)
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "DUPLICATE",
-                "message": "This transcript has the same content as one already in the system.",
-                "existing_id": str(existing["id"]),
-                "existing_filename": existing["filename"],
-            },
+        disposition, _prior = _duplicate_disposition(existing, have_text=True)
+        if disposition != _DUP_REPROCESS:
+            raise HTTPException(
+                status_code=409,
+                detail=_duplicate_detail(
+                    existing,
+                    "This transcript has the same content as one already in the system.",
+                ),
+            )
+        # Previous processing failed: re-run extraction + persistence for the
+        # stored row from the posted text (transcript rows keep no stored
+        # object, so the request body is the source of truth for the bytes).
+        document_id = str(existing["id"])
+        uploaded_at_iso = existing["uploaded_at"].isoformat() if existing.get("uploaded_at") else None
+        audit.record_event(
+            action="document.uploaded",
+            resource_type="document",
+            resource_id=document_id,
+            metadata={"filename": existing["filename"], "reprocess": True, "transcript": True},
+        )
+        try:
+            extracted = llm_extractor.extract_structured_from_text(text)
+        except Exception as e:
+            logger.exception("[ingest] Transcript re-extraction failed: %s", e)
+            return DocumentOut(
+                id=document_id,
+                filename=existing["filename"],
+                content_hash=content_hash,
+                file_size_bytes=existing.get("file_size_bytes"),
+                uploaded_at=uploaded_at_iso or "",
+                processing_error=public_error_message("ingest_extraction", e),
+            )
+        outcome = _persist_extraction(
+            extracted,
+            existing["filename"],
+            _get_extension(existing["filename"]),
+            document_id=document_id,
+            ingested_at=uploaded_at_iso,
+        )
+        return DocumentOut(
+            id=document_id,
+            filename=existing["filename"],
+            content_hash=content_hash,
+            file_size_bytes=existing.get("file_size_bytes"),
+            uploaded_at=uploaded_at_iso or "",
+            processing_error=outcome.error,
+            note=outcome.note,
+            client_id=outcome.client_id,
+            client_name=outcome.client_name,
+            ai_generated=outcome.ai_generated,
         )
 
     file_id = str(uuid.uuid4())

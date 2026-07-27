@@ -234,8 +234,17 @@ def test_unsupported_extension_is_rejected(api_client, org_a):
     assert "Only PDF, Word" in resp.json()["detail"]
 
 
-def test_duplicate_detection_is_per_org(api_client, clean_db, org_a, org_b):
+def test_duplicate_detection_is_per_org(api_client, clean_db, org_a, org_b, monkeypatch):
     """The content-hash oracle is closed: another org can upload the same doc."""
+    # Extraction must succeed here: only a fully processed document is
+    # duplicate-rejected (a failed one is reprocessed on retry instead).
+    monkeypatch.setattr(
+        "app.services.llm_extractor.extract_structured_from_text",
+        lambda text: {"client": {"full_name": "Pension Client"}, "alerts": [], "raw_text": text},
+    )
+    monkeypatch.setattr(
+        "app.routers.ingest.vector_store.index_document_text", lambda **kwargs: None
+    )
     transcript = {
         "text": "Meeting with client about pension consolidation. " * 5,
         "title": "Pension chat",

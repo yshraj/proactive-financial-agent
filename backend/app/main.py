@@ -300,6 +300,29 @@ app.add_middleware(
 )
 
 
+# High-frequency, low-diagnostic-value GET endpoints: dashboard/credit polling
+# and the agent-run / upload-job status polls (frontend lib/agent.ts,
+# lib/ingest.ts). Successful hits on these are demoted to DEBUG so CloudWatch
+# log *ingestion* doesn't scale linearly with polling/dashboard traffic — the
+# free-tier line an app is likeliest to cross first as usage grows, well
+# before Lambda invocations or GB-seconds. Errors and every mutation
+# (non-GET) always log at INFO regardless; set LOG_LEVEL=DEBUG to see these.
+_LOW_VALUE_LOG_PATH_PREFIXES = (
+    "/api/monitor/pulse",
+    "/api/credits",
+    "/api/agent/runs/",
+    "/api/ingest/jobs/",
+)
+
+
+def _is_low_value_access_log(method: str, path: str, status: int) -> bool:
+    return (
+        method == "GET"
+        and status < 400
+        and any(path.startswith(prefix) for prefix in _LOW_VALUE_LOG_PATH_PREFIXES)
+    )
+
+
 class RequestContextMiddleware(BaseHTTPMiddleware):
     """Bind the request id for log correlation, emit an access log line, and
     attach security headers to every response."""
@@ -316,7 +339,14 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             request_context.set_current_tenant(None)
         duration_ms = round((time.monotonic() - started) * 1000, 1)
         if request.url.path not in ("/health", "/health/ready"):
-            access_logger.info(
+            log = (
+                access_logger.debug
+                if _is_low_value_access_log(
+                    request.method, request.url.path, response.status_code
+                )
+                else access_logger.info
+            )
+            log(
                 "%s %s -> %s",
                 request.method,
                 request.url.path,

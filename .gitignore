@@ -5,6 +5,14 @@
 # Catch stray/misnamed secret files (e.g. "Proactive Financial Agent.env").
 # Does not match *.env.example, which is safe to commit.
 *.env
+# Editor "unsaved buffer" scratch files at the repo root have no extension
+# and so miss the *.env glob above — but have repeatedly been used to paste
+# .env content during local setup (observed in this repo: an untracked
+# "Untitled" file was a byte-for-byte copy of every secret in .env, one
+# `git add .` away from being committed). Never legitimate to commit.
+/Untitled
+/Untitled.*
+/Untitled *
 
 # Python
 __pycache__/

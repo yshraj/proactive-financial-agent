@@ -1,4 +1,5 @@
 import { api, ApiError } from "./api";
+import { pollDelay } from "./polling";
 import type { ChatSource } from "./types";
 
 /** One recorded node/tool execution inside an agent run (the real timeline). */
@@ -47,14 +48,15 @@ type CreateRunResponse = {
 };
 
 // Poll quickly while the run is fresh (steps stream into the timeline), then
-// back off — mirrors the ingest job polling pattern.
-const POLL_FAST_MS = 900;
-const POLL_SLOW_MS = 2500;
-const POLL_SLOW_AFTER_MS = 20_000;
+// back off — mirrors the ingest job polling pattern. Tuned to keep staging
+// (and production) request volume low: most copilot/brief runs finish in a
+// few seconds, so the fast window only needs to cover that; anything longer
+// backs off hard rather than continuing to poll every second.
+const POLL_FAST_MS = 1200;
+const POLL_SLOW_MS = 4000;
+const POLL_SLOW_AFTER_MS = 12_000;
 // Worst case: a lost worker trigger recovered by the 5-minute scheduled drain.
 const RUN_TIMEOUT_MS = 6 * 60 * 1000;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function fetchAgentRun(runId: string): Promise<AgentRun> {
   return api.get<AgentRun>(`/api/agent/runs/${encodeURIComponent(runId)}`);
@@ -91,7 +93,9 @@ export async function runCopilotWithProgress(params: {
   const started = Date.now();
   const deadline = started + RUN_TIMEOUT_MS;
   for (;;) {
-    await sleep(Date.now() - started > POLL_SLOW_AFTER_MS ? POLL_SLOW_MS : POLL_FAST_MS);
+    // Pauses cleanly if the tab is backgrounded — see lib/polling.ts — so a
+    // copilot answer left open in a hidden tab doesn't keep polling.
+    await pollDelay(Date.now() - started > POLL_SLOW_AFTER_MS ? POLL_SLOW_MS : POLL_FAST_MS);
     let run: AgentRun;
     try {
       run = await fetchAgentRun(created.run_id);

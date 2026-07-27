@@ -1,18 +1,21 @@
 import { api, ApiError } from "./api";
+import { pollDelay } from "./polling";
 import type { JobStatus, StoredDocument, UploadJobResponse } from "./types";
 
 // Poll quickly while the job is fresh, then back off — long waits happen when
 // the worker trigger was lost and the 5-minute scheduled drain has to pick the
-// job up, so there is no point hammering the status endpoint meanwhile.
-const JOB_POLL_FAST_MS = 1200;
-const JOB_POLL_SLOW_MS = 5000;
-const JOB_POLL_SLOW_AFTER_MS = 30 * 1000;
+// job up, so there is no point hammering the status endpoint meanwhile. The
+// slow tier backs off further (and kicks in sooner) to keep steady-state
+// request volume low on staging: most uploads finish well inside the fast
+// window, and the ones that don't are usually waiting on the scheduled drain
+// anyway, so polling faster than that doesn't get the answer any sooner.
+const JOB_POLL_FAST_MS = 1500;
+const JOB_POLL_SLOW_MS = 8000;
+const JOB_POLL_SLOW_AFTER_MS = 20 * 1000;
 // Worst case on AWS: lost trigger (recovered by the 5-minute schedule) plus
 // processing time. 3 minutes was shorter than that recovery window and
 // reported "timed out" for jobs that then completed.
 const JOB_TIMEOUT_MS = 8 * 60 * 1000;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Final job state plus a `stalled` flag for jobs that outlived the polling
  * window without failing — they usually finish shortly after. */
@@ -51,7 +54,12 @@ export async function uploadDocumentWithProgress(
   const deadline = started + JOB_TIMEOUT_MS;
   let lastSeen: JobStatus | null = null;
   for (;;) {
-    await sleep(Date.now() - started > JOB_POLL_SLOW_AFTER_MS ? JOB_POLL_SLOW_MS : JOB_POLL_FAST_MS);
+    // Pauses cleanly if the tab is backgrounded — see lib/polling.ts — so
+    // leaving an upload running in a hidden tab doesn't keep polling; the
+    // job itself keeps processing server-side regardless.
+    await pollDelay(
+      Date.now() - started > JOB_POLL_SLOW_AFTER_MS ? JOB_POLL_SLOW_MS : JOB_POLL_FAST_MS
+    );
     let job: JobStatus;
     try {
       job = await api.get<JobStatus>(`/api/ingest/jobs/${encodeURIComponent(job_id)}`);

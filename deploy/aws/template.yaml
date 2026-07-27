@@ -86,7 +86,12 @@ Globals:
         SUPABASE_URL: !Ref SupabaseUrl
         SENTRY_TRACES_SAMPLE_RATE: '0.1'
         LOG_FORMAT: json
-        ALLOW_DATA_RESET: 'false'
+        # Deliberately enabled during beta so testers can reset their own
+        # workspace ('force' is required in production — 'true' is ignored;
+        # see security.data_reset_enabled). The endpoint is JWT-authed,
+        # org-scoped, rate-limited 3/hour, and audited. Flip back to 'false'
+        # for public launch (docs/pre-beta-checklist.md).
+        ALLOW_DATA_RESET: 'force'
         # Small pool per execution environment: each env serves one request at
         # a time, and Supabase's transaction pooler multiplexes server side.
         DB_POOL_MIN: '0'

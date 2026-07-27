@@ -10,8 +10,11 @@
 
 Environment invariants (enforced by the app at boot):
 
-- Production runs `AUTH_MODE=required`, `ENV=production`,
-  `ALLOW_DATA_RESET=false`.
+- Production runs `AUTH_MODE=required`, `ENV=production`.
+- `ALLOW_DATA_RESET` is temporarily `force` during beta so testers can reset
+  their own workspace (org-scoped, JWT-authed, 3/hour, audited). `true` is
+  ignored in production by design; flip back to `false` for public launch
+  (see docs/pre-beta-checklist.md).
 - `DATABASE_URL` is the **kritifin_app** role (RLS enforced);
   `DATABASE_ADMIN_URL` is the postgres role and is used **only** by Alembic
   (the CI migration step) and break-glass access — it is never set on Lambda.
